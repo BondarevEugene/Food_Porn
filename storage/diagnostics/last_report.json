@@ -1,0 +1,186 @@
+{
+  "application": "Food_Porn",
+  "generated_at": "2026-09-23T14:02:05.957133+00:00",
+  "health_score": 93,
+  "results": [
+    {
+      "section": "SYSTEM",
+      "name": "Python runtime",
+      "status": "PASS",
+      "details": "Python 3.12.0 · AMD64 · C:\\Users\\bonda\\PycharmProjects\\Food_Porn\\.venv\\Scripts\\python.exe",
+      "duration_ms": 42.1,
+      "critical": true,
+      "remedy": "Установите Python 3.11 или новее.",
+      "metrics": {}
+    },
+    {
+      "section": "SYSTEM",
+      "name": "Virtual environment",
+      "status": "PASS",
+      "details": "активировано · prefix=C:\\Users\\bonda\\PycharmProjects\\Food_Porn\\.venv",
+      "duration_ms": 0.0,
+      "critical": false,
+      "remedy": "PowerShell: .\\.venv\\Scripts\\Activate.ps1",
+      "metrics": {}
+    },
+    {
+      "section": "PROJECT",
+      "name": "Project structure",
+      "status": "PASS",
+      "details": "11/11 обязательных файлов",
+      "duration_ms": 0.9,
+      "critical": true,
+      "remedy": "Проверьте наличие всех файлов проекта.",
+      "metrics": {}
+    },
+    {
+      "section": "PYTHON",
+      "name": "Dependencies",
+      "status": "PASS",
+      "details": "14/14 пакетов · aiogram 3.31.0, SQLAlchemy 2.0.54, asyncpg 0.31.0, alembic 1.20.0…",
+      "duration_ms": 23.3,
+      "critical": true,
+      "remedy": "python -m pip install -r requirements.txt",
+      "metrics": {
+        "installed": 14,
+        "required": 14
+      }
+    },
+    {
+      "section": "PYTHON",
+      "name": "Source syntax",
+      "status": "PASS",
+      "details": "проверено 44 Python-файлов",
+      "duration_ms": 487.0,
+      "critical": true,
+      "remedy": "Исправьте синтаксис перечисленных Python-файлов.",
+      "metrics": {
+        "python_files": 44,
+        "syntax_errors": 0
+      }
+    },
+    {
+      "section": "PYTHON",
+      "name": "Core module imports",
+      "status": "PASS",
+      "details": "11/11 основных модулей импортируются",
+      "duration_ms": 6429.9,
+      "critical": true,
+      "remedy": "Проверьте зависимости и ошибки импорта.",
+      "metrics": {
+        "modules": 11,
+        "failed": 0
+      }
+    },
+    {
+      "section": "CONFIG",
+      "name": ".env file",
+      "status": "PASS",
+      "details": "локальный файл настроек найден",
+      "duration_ms": 0.1,
+      "critical": true,
+      "remedy": "Создайте файл .env на основе .env.example.",
+      "metrics": {}
+    },
+    {
+      "section": "CONFIG",
+      "name": "Settings parser",
+      "status": "PASS",
+      "details": "окружение=development · логирование=INFO",
+      "duration_ms": 1.9,
+      "critical": true,
+      "remedy": null,
+      "metrics": {}
+    },
+    {
+      "section": "CONFIG",
+      "name": "Required credentials",
+      "status": "PASS",
+      "details": "Telegram=8659••••••••OUA · DB=postgresql+asyncpg://***@ep-young-sea-b5amnpui-pooler.c-7.us-east-2.aws.neon.tech/neondb",
+      "duration_ms": 0.1,
+      "critical": true,
+      "remedy": "Заполните секреты в .env.",
+      "metrics": {}
+    },
+    {
+      "section": "CONFIG",
+      "name": "Database URL",
+      "status": "PASS",
+      "details": "driver=postgresql+asyncpg · host=ep-young-sea-b5amnpui-pooler.c-7.us-east-2.aws.neon.tech · database=neondb",
+      "duration_ms": 0.1,
+      "critical": true,
+      "remedy": "Используйте postgresql+asyncpg:// в DATABASE_URL.",
+      "metrics": {}
+    },
+    {
+      "section": "STORAGE",
+      "name": "Local storage",
+      "status": "PASS",
+      "details": "5/5 каталогов доступны · свободно 8.84 GB",
+      "duration_ms": 1.1,
+      "critical": true,
+      "remedy": null,
+      "metrics": {}
+    },
+    {
+      "section": "DATABASE",
+      "name": "Local Alembic chain",
+      "status": "PASS",
+      "details": "head=20260918_0002",
+      "duration_ms": 153.2,
+      "critical": true,
+      "remedy": null,
+      "metrics": {}
+    },
+    {
+      "section": "PROJECT",
+      "name": "Project inventory",
+      "status": "INFO",
+      "details": "🐍 Python: 44 · 🧪 тесты: 7 · 🗃️ миграции: 2 · 🖼️ demo: 19",
+      "duration_ms": 431.1,
+      "critical": false,
+      "remedy": null,
+      "metrics": {}
+    },
+    {
+      "section": "NETWORK",
+      "name": "Telegram API",
+      "status": "PASS",
+      "details": "@MenuDishesForLove_bot · id=8659225756 · MenuDishesForLove_bot",
+      "duration_ms": 740.8,
+      "critical": true,
+      "remedy": null,
+      "metrics": {}
+    },
+    {
+      "section": "NETWORK",
+      "name": "Neon PostgreSQL",
+      "status": "PASS",
+      "details": "database=neondb · PostgreSQL 18.6 (6569466) · TLS connected",
+      "duration_ms": 3349.7,
+      "critical": true,
+      "remedy": null,
+      "metrics": {}
+    },
+    {
+      "section": "QUALITY",
+      "name": "Pytest suite",
+      "status": "FAIL",
+      "details": "exit=2 · !!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!! · 1 error in 5.46s",
+      "duration_ms": 7087.7,
+      "critical": false,
+      "remedy": null,
+      "metrics": {}
+    },
+    {
+      "section": "QUALITY",
+      "name": "Ruff lint",
+      "status": "FAIL",
+      "details": "exit=1 · Found 37 errors. · [*] 29 fixable with the `--fix` option (1 hidden fix can be enabled with the `--unsafe-fixes` option).",
+      "duration_ms": 120.1,
+      "critical": false,
+      "remedy": null,
+      "metrics": {}
+    }
+  ]
+}
