@@ -16,7 +16,6 @@ Responsibilities:
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
@@ -47,7 +46,7 @@ class PremiumMenuStates(StatesGroup):
 class MenuAction(CallbackData, prefix="menu"):
     action: str
     menu_id: int
-    category: Optional[str] = None
+    category: str | None = None
 
 
 def format_premium_dashboard(menu: Menu) -> str:

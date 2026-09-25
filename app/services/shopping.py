@@ -14,10 +14,10 @@ Responsibilities:
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, List
+from typing import Any
 
 
-def aggregate_shopping_list(menu_details: Dict[str, Any]) -> List[str]:
+def aggregate_shopping_list(menu_details: dict[str, Any]) -> list[str]:
     """
     Суммирует одинаковые ингредиенты из всех блюд для формирования списка покупок.
     """

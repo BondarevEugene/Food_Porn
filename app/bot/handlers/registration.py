@@ -46,9 +46,9 @@ async def receive_phone(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     language = data.get("language", "uk")
     if (
-        message.from_user is None
-        or message.contact is None
-        or message.contact.user_id != message.from_user.id
+            message.from_user is None
+            or message.contact is None
+            or message.contact.user_id != message.from_user.id
     ):
         await message.answer(t("wrong_contact", language), reply_markup=phone_keyboard(language))
         return
@@ -94,9 +94,9 @@ async def receive_country(message: Message, state: FSMContext) -> None:
 
 @router.message(RegistrationStates.city, F.text)
 async def receive_city(
-    message: Message,
-    state: FSMContext,
-    session_factory: async_sessionmaker[AsyncSession],
+        message: Message,
+        state: FSMContext,
+        session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     city = (message.text or "").strip()
     data = await state.get_data()

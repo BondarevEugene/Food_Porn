@@ -27,10 +27,8 @@ import os
 import platform
 import re
 import shutil
-import socket
 import subprocess
 import sys
-import tempfile
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -635,13 +633,11 @@ async def run_diagnostics(context: DiagnosticContext, console: Console) -> list[
         results.append(item)
         console.check(item)
 
-    if context.deep:
-        deep_results = [
-            run_tool_check("Pytest suite", [sys.executable, "-m", "pytest", "-q"]),
-            run_tool_check("Ruff lint", [sys.executable, "-m", "ruff", "check", "."]),
-        ]
-    else:
-        deep_results = skipped_deep_checks()
+        # Всегда запускаем тесты и линтер без пропусков
+    deep_results = [
+        run_tool_check("Pytest suite", [sys.executable, "-m", "pytest", "-q"]),
+        run_tool_check("Ruff lint", [sys.executable, "-m", "ruff", "check", "."]),
+    ]
     for item in deep_results:
         results.append(item)
         console.check(item)
@@ -680,7 +676,7 @@ def start_admin() -> int:
     print(Theme.paint("🚀 ЗАПУСК FASTAPI CRM & ADMIN PANEL", Theme.GREEN, Theme.BOLD))
     admin_url = "http://127.0.0.1:8000/admin"
     print(f"   🌐 Админ-панель CRM: {Theme.link(admin_url, admin_url)}")
-    print(f"   🔑 Учетные данные:   admin / foodporn_secret")
+    print("   🔑 Учетные данные:   admin / foodporn_secret")
     print(Theme.paint("   ⏹ Для остановки нажмите: Ctrl+C", Theme.GRAY))
     print()
     try:

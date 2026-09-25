@@ -8,19 +8,19 @@ Layer: Application Core
 Responsibilities:
     - Load environment variables and `.env` values
     - Validate and normalize external configuration
-    - Provide storage paths and runtime safety checks
+    - Provide storage paths, printshop, and payment gateway settings
 ==========================================================
 """
+
+from __future__ import annotations
 
 import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
-
-from pydantic import Field, field_validator, SecretStr
 
 
 class Settings(BaseSettings):
@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     # Generation Toggles
     use_mock_images: bool = Field(default=False)  # Если True, не использует API, а берет картинку-заглушку
 
-    # OpenAI Settings (оставлены на случай возврата к генерации ИИ в будущем)
+    # OpenAI Settings
     openai_image_model: str = "gpt-image-1.5"
     openai_image_size: str = "1024x1024"
     openai_image_quality: str = "medium"
@@ -49,6 +49,25 @@ class Settings(BaseSettings):
     image_retries: int = Field(default=2, ge=1, le=4)
     openai_quota_cooldown_seconds: int = Field(default=300, ge=30, le=3600)
     enable_image_cache: bool = True
+
+    # --- Коммерческие настройки: Цена и валюта ---
+    menu_price: float = Field(default=499.00, ge=0.0)
+    currency: str = Field(default="UAH")
+
+    # --- Настройки типографии для отправки готовых макетов ---
+    printshop_email: str = Field(default="bondarev.e.1707@gmail.com")
+    printshop_name: str = Field(default="Студия Печати 'ArtPress'")
+
+    # --- Платежный шлюз: Portmone ---
+    portmone_payee_id: str = Field(default="replace_me")
+    portmone_login: str = Field(default="replace_me")
+    portmone_password: SecretStr = SecretStr("replace_me")
+
+    # --- Платежный шлюз: Redsys ---
+    redsys_merchant_code: str = Field(default="replace_me")
+    redsys_terminal: str = Field(default="001")
+    redsys_secret_key: SecretStr = SecretStr("replace_me")
+    redsys_currency: str = Field(default="978")  # EUR
 
     # Admins
     admin_telegram_ids: Annotated[tuple[int, ...], NoDecode] = ()
@@ -110,9 +129,6 @@ class Settings(BaseSettings):
         missing = []
         if not self.bot_token or self.bot_token == "replace_me":
             missing.append("BOT_TOKEN")
-        # Для Spoonacular пока не требуем жестко, если включены моки
-        if not self.use_mock_images and (not self.spoonacular_api_key or self.spoonacular_api_key == "replace_me"):
-            pass  # Выведем предупреждение в сервисе
         if missing:
             raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
 

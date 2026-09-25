@@ -13,8 +13,8 @@ Responsibilities:
 ==========================================================
 """
 
-from datetime import UTC, datetime
 import logging
+from datetime import UTC, datetime
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,14 +57,14 @@ class CustomerRepository:
         return result.scalar_one_or_none()
 
     async def register(
-        self,
-        *,
-        telegram_user_id: int,
-        phone: str,
-        name: str,
-        language: Language,
-        country: str,
-        city: str,
+            self,
+            *,
+            telegram_user_id: int,
+            phone: str,
+            name: str,
+            language: Language,
+            country: str,
+            city: str,
     ) -> Customer:
         customer = await self.by_phone(phone)
         if customer is None:
@@ -117,12 +117,12 @@ class MenuRepository:
         return result.scalar_one_or_none()
 
     async def add_item(
-        self,
-        *,
-        menu_id: int,
-        category: ItemCategory | str,
-        position: int,
-        title: str,
+            self,
+            *,
+            menu_id: int,
+            category: ItemCategory | str,
+            position: int,
+            title: str,
     ) -> MenuItem:
         """Добавляет блюдо в меню с защитой от несоответствия регистра Enum."""
         normalized_title = title.strip()
@@ -164,7 +164,7 @@ class MenuRepository:
         await self.session.commit()
 
     async def set_status(
-        self, menu_id: int, status: MenuStatus, error_message: str | None = None
+            self, menu_id: int, status: MenuStatus, error_message: str | None = None
     ) -> None:
         menu = await self.get(menu_id)
         if menu is None:
@@ -230,6 +230,30 @@ class MenuRepository:
         )
         return list(result.scalars())
 
+    async def set_waiting_for_payment(self, menu_id: int) -> None:
+        """Переводит меню в статус ожидания оплаты."""
+        menu = await self.get(menu_id)
+        if menu:
+            menu.status = MenuStatus.WAITING_FOR_PAYMENT
+            await self.session.commit()
+
+    async def mark_as_paid(self, menu_id: int, payment_id: str, payment_system: str) -> None:
+        """Фиксирует успешную оплату заказа и переводит в статус PAID."""
+        menu = await self.get(menu_id)
+        if menu:
+            menu.is_paid = True
+            menu.payment_id = payment_id
+            menu.payment_system = payment_system
+            menu.status = MenuStatus.PAID
+            await self.session.commit()
+
+    async def mark_sent_to_printshop(self, menu_id: int) -> None:
+        """Фиксирует успешную отправку заказа в типографию."""
+        menu = await self.get(menu_id)
+        if menu:
+            menu.status = MenuStatus.SENT_TO_PRINTSHOP
+            await self.session.commit()
+
 
 class ImageCacheRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -252,3 +276,27 @@ class ImageCacheRepository:
         await self.session.commit()
         await self.session.refresh(record)
         return record
+
+    async def set_waiting_for_payment(self, menu_id: int) -> None:
+        """Переводит меню в статус ожидания оплаты."""
+        menu = await self.get(menu_id)
+        if menu:
+            menu.status = MenuStatus.WAITING_FOR_PAYMENT
+            await self.session.commit()
+
+    async def mark_as_paid(self, menu_id: int, payment_id: str, payment_system: str) -> None:
+        """Фиксирует успешную оплату заказа и переводит в статус PAID."""
+        menu = await self.get(menu_id)
+        if menu:
+            menu.is_paid = True
+            menu.payment_id = payment_id
+            menu.payment_system = payment_system
+            menu.status = MenuStatus.PAID
+            await self.session.commit()
+
+    async def mark_sent_to_printshop(self, menu_id: int) -> None:
+        """Фиксирует успешную отправку заказа в типографию."""
+        menu = await self.get(menu_id)
+        if menu:
+            menu.status = MenuStatus.SENT_TO_PRINTSHOP
+            await self.session.commit()

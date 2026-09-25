@@ -15,7 +15,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from app.database.models import Customer, GenerationStatus, ItemCategory, Language, Menu, MenuItem
+from app.database.models import Customer, GenerationStatus, ItemCategory, Menu, MenuItem
 from app.render.booklet import BookletRenderer
 
 
@@ -35,7 +35,6 @@ def test_renderer_creates_two_previews_and_pdf(tmp_path) -> None:
         telegram_user_id=123,
         phone="+380000000000",
         name="Test",
-        language=Language.UK,
         country="Ukraine",
         city="Kyiv",
     )
@@ -43,7 +42,6 @@ def test_renderer_creates_two_previews_and_pdf(tmp_path) -> None:
         id=1,
         customer=customer,
         customer_id=1,
-        language=Language.UK,
         cover_photo_path=str(cover),
         spread_photo_path=str(spread),
     )

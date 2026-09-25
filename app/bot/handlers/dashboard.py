@@ -7,12 +7,12 @@ Layer: Interface
 ==========================================================
 """
 
-from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message
-from aiogram.utils.markdown import hbold, hblockquote
+from aiogram import F, Router
+from aiogram.types import CallbackQuery
+from aiogram.utils.markdown import hblockquote, hbold
+from app.bot.keyboards.dashboard import MenuAction, build_menu_dashboard_kb
 
 from app.database.repositories import MenuRepository
-from app.bot.keyboards.dashboard import MenuAction, build_menu_dashboard_kb
 
 router = Router()
 

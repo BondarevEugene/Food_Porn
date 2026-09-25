@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import List, Optional
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text, Enum as SQLEnum
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -24,7 +24,8 @@ class Base(DeclarativeBase):
 
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                 onupdate=func.now(), nullable=False)
 
 
 class Language(StrEnum):
@@ -36,8 +37,8 @@ class Language(StrEnum):
 class ItemCategory(StrEnum):
     MAIN = "main"
     APPETIZER = "appetizer"
-    SALAD = "salad"      # <-- категгория салаты
-    SOUP = "soup"        # <-- категория супы (раз у вас есть борщ и окрошка)
+    SALAD = "salad"
+    SOUP = "soup"
     DESSERT = "dessert"
     DRINK = "drink"
 
@@ -47,6 +48,9 @@ class MenuStatus(StrEnum):
     QUEUED = "queued"
     IMAGES_READY = "images_ready"
     PARTIAL_SUCCESS = "partial_success"
+    WAITING_FOR_PAYMENT = "waiting_for_payment"  # Превью готово, ожидается оплата
+    PAID = "paid"                               # Оплата успешно подтверждена
+    SENT_TO_PRINTSHOP = "sent_to_printshop"     # Заказ передан в типографию
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -55,6 +59,9 @@ class FileKind(StrEnum):
     PREVIEW_OUTSIDE = "preview_outside"
     PREVIEW_INSIDE = "preview_inside"
     PRINT_PDF = "print_pdf"
+    PREVIEW = "preview"           # Превью с защитными водяными знаками
+    PRODUCTION = "production"     # Чистый PDF для печати
+    RECIPE_SHEET = "recipe_sheet" # Пошаговая шпаргалка А4
 
 
 class GenerationStatus(StrEnum):
@@ -72,13 +79,13 @@ class Customer(TimestampMixin, Base):
     telegram_user_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     phone: Mapped[str] = mapped_column(String(30), nullable=False)
-    # native_enum=False заставляет SQLAlchemy использовать обычный VARCHAR в базе данных
-    language: Mapped[Language] = mapped_column(SQLEnum(Language, native_enum=False, length=20), default=Language.UK, nullable=False)
+    language: Mapped[Language] = mapped_column(SQLEnum(Language, native_enum=False, length=20), default=Language.UK,
+                                               nullable=False)
     country: Mapped[str] = mapped_column(String(100), nullable=False)
     city: Mapped[str] = mapped_column(String(100), nullable=False)
-    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    menus: Mapped[List[Menu]] = relationship("Menu", back_populates="customer", cascade="all, delete-orphan")
+    menus: Mapped[list[Menu]] = relationship("Menu", back_populates="customer", cascade="all, delete-orphan")
 
 
 class Menu(TimestampMixin, Base):
@@ -87,14 +94,20 @@ class Menu(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
-    status: Mapped[MenuStatus] = mapped_column(SQLEnum(MenuStatus, native_enum=False, length=30), default=MenuStatus.DRAFT, nullable=False)
-    cover_photo_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    spread_photo_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[MenuStatus] = mapped_column(SQLEnum(MenuStatus, native_enum=False, length=30),
+                                               default=MenuStatus.DRAFT, nullable=False)
+    cover_photo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    spread_photo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Поля для эквайринга и коммерческого цикла
+    is_paid: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    payment_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    payment_system: Mapped[str | None] = mapped_column(String(50), nullable=True)  # "portmone" или "redsys"
 
     customer: Mapped[Customer] = relationship("Customer", back_populates="menus")
-    items: Mapped[List[MenuItem]] = relationship("MenuItem", back_populates="menu", cascade="all, delete-orphan")
-    files: Mapped[List[GeneratedFile]] = relationship("GeneratedFile", cascade="all, delete-orphan")
+    items: Mapped[list[MenuItem]] = relationship("MenuItem", back_populates="menu", cascade="all, delete-orphan")
+    files: Mapped[list[GeneratedFile]] = relationship("GeneratedFile", cascade="all, delete-orphan")
 
 
 class MenuItem(TimestampMixin, Base):
@@ -106,11 +119,12 @@ class MenuItem(TimestampMixin, Base):
     category: Mapped[ItemCategory] = mapped_column(SQLEnum(ItemCategory, native_enum=False, length=30), nullable=False)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
-    image_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    image_path: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    generation_status: Mapped[GenerationStatus] = mapped_column(SQLEnum(GenerationStatus, native_enum=False, length=30), default=GenerationStatus.PENDING, nullable=False)
-    image_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    generation_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    generation_status: Mapped[GenerationStatus] = mapped_column(SQLEnum(GenerationStatus, native_enum=False, length=30),
+                                                                default=GenerationStatus.PENDING, nullable=False)
+    image_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generation_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     menu: Mapped[Menu] = relationship("Menu", back_populates="items")
 
@@ -131,7 +145,7 @@ class AppSetting(Base):
 
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ImageCache(TimestampMixin, Base):

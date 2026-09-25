@@ -19,6 +19,7 @@ CATEGORY_HINTS = {
     ItemCategory.APPETIZER: "an elegant small appetizer course",
     ItemCategory.DESSERT: "an elegant plated restaurant dessert",
     ItemCategory.SALAD: "an elegant freshly prepared salad",
+    ItemCategory.SOUP: "a refined restaurant soup served in a deep bowl with rich steam",
     ItemCategory.DRINK: "a refined drink in appropriate premium glassware",
 }
 

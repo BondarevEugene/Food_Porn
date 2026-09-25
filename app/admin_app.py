@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 # Импортируем настройки и модели из базы данных
 from app.config import get_settings
-from app.database.models import Customer, Menu, AppSetting
+from app.database.models import AppSetting, Customer, Menu
 
 settings = get_settings()
 
