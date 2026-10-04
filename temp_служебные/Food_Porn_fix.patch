@@ -1,0 +1,2070 @@
+diff --git a/.env.example b/.env.example
+index 1094eab..65776e6 100644
+--- a/.env.example
++++ b/.env.example
+@@ -113,3 +113,18 @@ ENABLE_IMAGE_CACHE=true
+ #   ADMIN_TELEGRAM_IDS=123456789,987654321
+ #   ADMIN_TELEGRAM_IDS=[123456789,987654321]
+ ADMIN_TELEGRAM_IDS=
++
++# Платёж за меню (UAH). Без настоящих реквизитов кнопка оплаты не появится.
++MENU_PRICE=499.00
++CURRENCY=UAH
++PORTMONE_PAYEE_ID=replace_me
++PORTMONE_LOGIN=replace_me
++PORTMONE_PASSWORD=replace_me
++
++# Передача оплаченного PDF в типографию. При пустых значениях отправка выключена.
++PRINTSHOP_EMAIL=
++SMTP_HOST=
++SMTP_PORT=465
++SMTP_USER=
++SMTP_PASSWORD=
++SMTP_USE_TLS=true
+diff --git a/README.md b/README.md
+index fc5e929..a49694d 100644
+--- a/README.md
++++ b/README.md
+@@ -15,7 +15,24 @@
+    - outside preview (back cover + front cover);
+    - inside preview (12 dishes/salads + 4 drinks + payment rules + second photo);
+    - two-page A3 production PDF with 3 mm bleed and CMYK artwork.
+-9. The files are sent to the customer and recorded in Neon.
++9. Previews are sent to the customer and all file paths are recorded in Neon.
++10. When Portmone merchant credentials are configured, the bot creates a checkout for this menu. Its callback checks the provider's order, merchant, amount and paid status before sending the full PDF and recipe sheet. The print PDF goes to the print shop only if SMTP is configured.
++
++## Personal wallpaper
++
++Choose «Створити шпалери-маніфестацію» in the bot, then send five photographs in order: your portrait and four scenes. Send five goals, one per line, then press «Втілити в реальність». The image editor receives all five photographs; the bot draws the exact phrases supplied by the user on a 1080 × 1920 PNG and sends a preview and the complete PNG as a Telegram document. No goals are built into the script. The artwork quality depends on the image editor and supplied photographs.
++
++Wallpaper checkout is not connected to Portmone. The full PNG is currently delivered without a payment requirement. Menu and wallpaper use separate checkout paths.
++
++## Payments and print dispatch
++
++Set `PORTMONE_PAYEE_ID`, `PORTMONE_LOGIN`, `PORTMONE_PASSWORD`, `MENU_PRICE` and `CURRENCY=UAH` in `.env` to enable menu payments. When these values are missing or the provider cannot create an invoice, the bot sends the menu preview without an active pay button. The order keeps its price snapshot in the database for later verification. The legacy Redsys link was removed because it had no signed gateway integration.
++
++Set `PRINTSHOP_EMAIL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_USE_TLS` for real print dispatch. Empty SMTP settings disable dispatch; they never report a simulated success. Run `alembic upgrade head` before starting the updated bot.
++
++The recipient email and separate shopping-list delivery are not collected in the current bot. The paid order's recipe PDF, including the shopping list, goes to the menu buyer in Telegram. The in-process task queue and wallpaper input state are not durable across process restarts; use a persistent queue/FSM store before scaling or promising uninterrupted orders.
++
++If an image or recipe cannot be generated, the menu is marked failed and no payment link is sent. The bot no longer sells a booklet with made-up recipe placeholders.
+ 
+ ## Project map
+ 
+@@ -133,7 +150,7 @@ It creates synthetic sample images and writes previews/PDF under `storage/genera
+ Run automated checks:
+ 
+ ```bash
+-pytest -q
++python -m pytest -q
+ ruff check .
+ ```
+ 
+@@ -154,10 +171,10 @@ Before commercial printing, ask the chosen print shop for its required ICC profi
+ 
+ ## Operational notes
+ 
+-- One order calls the image API 16 times. `IMAGE_CONCURRENCY=2` limits parallel requests.
++- One menu can call the image API 16 times. `IMAGE_CONCURRENCY=1` limits parallel requests.
+ - Successful images are cached by model, quality, size, and prompt, so repeated dishes can avoid duplicate spend.
+-- Failed image requests retry three times; an unavailable item is rendered with a branded placeholder instead of breaking the whole booklet.
+-- The included queue runs inside one Python process. Its job state is persisted in Neon and queued/generating menus resume after restart. For several bot replicas, replace it with Redis + ARQ/Celery and a distributed lock.
++- Failed image requests use configured retries; an unavailable item is rendered with a branded placeholder instead of breaking the whole booklet.
++- The included queue runs inside one Python process. For several bot replicas or reliable recovery after restart, use a durable queue and a distributed lock.
+ - Customer photos and generated files are stored locally. A single-server MVP is fine; production replicas should use S3-compatible object storage and store object keys in Neon.
+ - Telegram FSM state is in memory. For horizontal scaling, switch aiogram storage to Redis.
+ 
+diff --git a/alembic/env.py b/alembic/env.py
+index 0fbf211..9e3fc4e 100644
+--- a/alembic/env.py
++++ b/alembic/env.py
+@@ -20,8 +20,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
+ 
+ from alembic import context
+ from app.config import get_settings
+-from app.database import models  # noqa: F401
+-from app.database.base import Base
++from app.database.models import Base
+ 
+ config = context.config
+ config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
+diff --git a/alembic/versions/20260928_0003_payment_schema.py b/alembic/versions/20260928_0003_payment_schema.py
+new file mode 100644
+index 0000000..61c95ac
+--- /dev/null
++++ b/alembic/versions/20260928_0003_payment_schema.py
+@@ -0,0 +1,55 @@
++"""Bring persisted orders and enum columns in line with the current ORM.
++
++Revision ID: 20260928_0003
++Revises: 20260918_0002
++"""
++import sqlalchemy as sa
++
++from alembic import op
++
++revision = "20260928_0003"
++down_revision = "20260918_0002"
++branch_labels = None
++depends_on = None
++
++
++def upgrade() -> None:
++    # Existing PostgreSQL enums cannot accept the newer workflow states. ORM
++    # explicitly uses non-native SQLAlchemy enums (VARCHAR storing member names).
++    for table, column in (
++        ("customers", "language"),
++        ("menus", "status"),
++        ("menu_items", "category"),
++        ("menu_items", "generation_status"),
++        ("generated_files", "kind"),
++    ):
++        op.execute(
++            f"ALTER TABLE {table} ALTER COLUMN {column} TYPE VARCHAR(30) "
++            f"USING {column}::text"
++        )
++    op.execute("UPDATE menus SET status = 'QUEUED' WHERE status = 'GENERATING'")
++    op.execute("UPDATE menus SET status = 'IMAGES_READY' WHERE status = 'RENDERING'")
++    op.execute("UPDATE menus SET status = 'COMPLETED' WHERE status = 'COMPLETE'")
++
++    op.add_column("menus", sa.Column("is_paid", sa.Boolean(), server_default=sa.false(), nullable=False))
++    op.add_column("menus", sa.Column("payment_id", sa.String(100)))
++    op.add_column("menus", sa.Column("payment_system", sa.String(50)))
++    op.add_column("menus", sa.Column("price_amount", sa.Numeric(10, 2)))
++    op.create_table(
++        "app_settings",
++        sa.Column("key", sa.String(100), primary_key=True),
++        sa.Column("value", sa.Text(), nullable=False),
++        sa.Column("description", sa.Text()),
++    )
++    op.create_index("ix_customers_telegram_user_id", "customers", ["telegram_user_id"])
++    op.create_index("ix_image_cache_cache_key", "image_cache", ["cache_key"])
++
++
++def downgrade() -> None:
++    # Keep old enum columns as VARCHAR: payment and recipe data must survive
++    # rollback, including values not present in the original PostgreSQL enum.
++    op.drop_index("ix_image_cache_cache_key", table_name="image_cache")
++    op.drop_index("ix_customers_telegram_user_id", table_name="customers")
++    op.drop_table("app_settings")
++    for column in ("price_amount", "payment_system", "payment_id", "is_paid"):
++        op.drop_column("menus", column)
+diff --git a/app/bot/handlers/payment.py b/app/bot/handlers/payment.py
+index 81e5ba9..2a408b8 100644
+--- a/app/bot/handlers/payment.py
++++ b/app/bot/handlers/payment.py
+@@ -1,102 +1,71 @@
+-"""
+-==========================================================
+-FOOD_PORN
+-
+-Module: Payment Handlers & Callback Processing
+-Layer: Bot / Handlers
+-
+-Responsibilities:
+-    - Handle check payment button clicks from Telegram
+-    - Update menu status to PAID in database
+-    - Deliver clean production PDF and plain recipe sheet to user
+-    - Automatically dispatch files to printshop email
+-==========================================================
+-"""
+-
++"""Unlock only an order paid to our merchant for its saved price."""
+ from __future__ import annotations
+ 
+ import logging
++from pathlib import Path
+ 
+ from aiogram import F, Router
+ from aiogram.types import CallbackQuery, FSInputFile
+-from app.services.printshop import PrintshopService
+-from sqlalchemy.ext.asyncio import AsyncSession
++from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+ 
+-from app.config import get_settings
++from app.config import Settings
++from app.database.models import FileKind, MenuStatus
+ from app.database.repositories import MenuRepository
++from app.services.payment import PaymentService
++from app.services.printshop import PrintshopService
+ 
+ logger = logging.getLogger(__name__)
+ router = Router()
+ 
+ 
+ @router.callback_query(F.data.startswith("check_payment_"))
+-async def verify_payment_callback(callback: CallbackQuery, session: AsyncSession) -> None:
+-    """Обрабатывает клик по кнопке проверки оплаты, разблокирует чистый файл и отправляет в типографию."""
++async def verify_payment_callback(
++    callback: CallbackQuery, settings: Settings, session_factory: async_sessionmaker[AsyncSession]
++) -> None:
+     try:
+-        menu_id = int(callback.data.split("_")[-1])
+-    except (ValueError, IndexError):
+-        await callback.answer("Некорректный идентификатор заказа.", show_alert=True)
++        menu_id = int((callback.data or "").removeprefix("check_payment_"))
++    except ValueError:
++        await callback.answer("Некорректный номер заказа.", show_alert=True)
+         return
+ 
+-    settings = get_settings()
+-    repo = MenuRepository(session)
+-    menu = await repo.get(menu_id, full=True)
+-
+-    if not menu:
+-        await callback.answer("Меню не найдено в базе данных.", show_alert=True)
+-        return
+-
+-    # В реальном продакшн-окружении здесь делается запрос к API Portmone или Redsys для проверки статуса платежа.
+-    # Для демонстрации и тестирования симулируем успешную оплату (is_paid = True).
+-    is_paid = True
+-
+-    if not is_paid:
+-        await callback.answer(
+-            "Оплата еще не поступила в системе. Пожалуйста, завершите платеж по ссылке.",
+-            show_alert=True
+-        )
+-        return
+-
+-    # Обновляем статус в базе данных через репозиторий
+-    await repo.mark_as_paid(menu_id, payment_id=f"SIM_PAY_{menu_id}", payment_system="portmone")
+-
+-    language = getattr(menu.customer, "language", "uk") or "uk"
+-    is_uk = str(language).lower() in ("uk", "ukrainian")
+-
+-    wait_msg = "✅ <b>Оплату успішно підтверджено!</b>\n\nФормуємо чистий буклет та кулінарну шпаргалку..." if is_uk else "✅ <b>Оплата успешно подтверждена!</b>\n\nФормируем чистый буклет и кулинарную шпаргалку..."
+-    await callback.message.answer(wait_msg, parse_mode="HTML")
+-
+-    # Пути к чистым файлам на диске
+-    production_pdf = settings.generated_dir / str(menu_id) / f"food_porn_menu_{menu_id}_production.pdf"
+-    recipe_sheet = settings.generated_dir / str(menu_id) / f"food_porn_recipe_sheet_{menu_id}.pdf"
+-
+-    # 1. Отправляем чистый PDF-буклет без водяных знаков
+-    if production_pdf.exists():
+-        caption_prod = "🎉 <b>Ваш офіційний гастрономічний сет (без водяних знаків):</b>" if is_uk else "🎉 <b>Ваш официальный гастрономический сет (без водяных знаков):</b>"
+-        await callback.message.answer_document(
+-            document=FSInputFile(str(production_pdf)),
+-            caption=caption_prod,
+-            parse_mode="HTML"
+-        )
+-
+-    # 2. Отправляем пошаговую кулинарную шпаргалку на листе А4
+-    if recipe_sheet.exists():
+-        caption_recipe = "🍳 <b>Ваша покрокова кулінарна шпаргалка (формат А4 для друку):</b>" if is_uk else "🍳 <b>Ваша пошаговая кулинарная шпаргалка (формат А4 для печати):</b>"
+-        await callback.message.answer_document(
+-            document=FSInputFile(str(recipe_sheet)),
+-            caption=caption_recipe,
+-            parse_mode="HTML"
+-        )
+-
+-    # 3. Автоматически отправляем заказ в типографию на физическую печать
+-    printshop_service = PrintshopService(settings)
+-    customer_info = f"Telegram User ID: {callback.from_user.id} (@{callback.from_user.username or 'no_username'})"
+-
+-    if production_pdf.exists():
+-        success_dispatch = await printshop_service.dispatch_to_printshop(menu_id, production_pdf, customer_info)
+-        if success_dispatch:
++    async with session_factory() as session:
++        repo = MenuRepository(session)
++        menu = await repo.get(menu_id, full=True)
++        if not menu or menu.customer.telegram_user_id != callback.from_user.id:
++            await callback.answer("Заказ не найден.", show_alert=True)
++            return
++        if not menu.is_paid and (menu.status != MenuStatus.WAITING_FOR_PAYMENT or menu.price_amount is None):
++            await callback.answer("Для заказа пока нет действующего счёта.", show_alert=True)
++            return
++
++        if not menu.is_paid:
++            try:
++                verified = await PaymentService(settings).verify_portmone_payment(menu_id, menu.price_amount)
++            except Exception:
++                logger.exception("Payment verification failed for menu %s", menu_id)
++                await callback.answer("Проверка оплаты временно недоступна. Повторите позже.", show_alert=True)
++                return
++            if verified is None:
++                await callback.answer("Оплата пока не подтверждена Portmone.", show_alert=True)
++                return
++
++        pdf = next((Path(f.path) for f in menu.files if f.kind == FileKind.PRINT_PDF), None)
++        recipe = next((Path(f.path) for f in menu.files if f.kind == FileKind.RECIPE_SHEET), None)
++        if pdf is None or not pdf.is_file() or recipe is None or not recipe.is_file():
++            logger.error("Paid menu %s missing saved output files", menu_id)
++            await callback.answer("Платёж получен, но файлы недоступны. Напишите в поддержку.", show_alert=True)
++            return
++
++        if not menu.is_paid:
++            await repo.mark_as_paid(menu_id, verified.payment_id, "portmone")
++        await callback.answer("Оплата подтверждена!")
++        await callback.message.answer_document(FSInputFile(str(pdf)), caption="Ваш готовый буклет для печати")
++        await callback.message.answer_document(FSInputFile(str(recipe)), caption="Рецепты и список покупок")
++
++        customer_info = f"Telegram User ID: {callback.from_user.id}"
++        sent = False
++        if menu.status != MenuStatus.SENT_TO_PRINTSHOP:
++            sent = await PrintshopService(settings).dispatch_to_printshop(menu_id, pdf, customer_info)
++        if sent:
+             await repo.mark_sent_to_printshop(menu_id)
+-            print_msg = "🖨 <i>Ваше замовлення успішно передано до нашої друкарні! Скоро розпочнеться друк.</i>" if is_uk else "🖨 <i>Ваш заказ успешно передан в нашу типографию в обработку! Скоро начнется печать.</i>"
+-            await callback.message.answer(print_msg, parse_mode="HTML")
+-
+-    await callback.answer()
++            await callback.message.answer("Заказ передан в типографию.")
+diff --git a/app/bot/handlers/payment_callback.py b/app/bot/handlers/payment_callback.py
+deleted file mode 100644
+index 76a0a29..0000000
+--- a/app/bot/handlers/payment_callback.py
++++ /dev/null
+@@ -1,77 +0,0 @@
+-"""
+-==========================================================
+-FOOD_PORN
+-
+-Module: Payment Callback Handler
+-Layer: Bot / Handlers
+-
+-Responsibilities:
+-    - Handle payment confirmation callbacks from users
+-    - Unlock production PDF and plain recipe sheet
+-    - Dispatch files to printshop automatically
+-==========================================================
+-"""
+-
+-from __future__ import annotations
+-
+-import logging
+-
+-from aiogram import F, Router
+-from aiogram.types import CallbackQuery, FSInputFile
+-from app.services.printshop import PrintshopService
+-
+-from app.config import get_settings
+-
+-logger = logging.getLogger(__name__)
+-router = Router()
+-
+-
+-@router.callback_query(F.data.startswith("check_payment_"))
+-async def verify_payment_callback(callback: CallbackQuery) -> None:
+-    """Проверяет статус оплаты и в случае успеха выдает чистый файл и отправляет в типографию."""
+-    menu_id = int(callback.data.split("_")[-1])
+-    settings = get_settings()
+-
+-    # В реальном проекте здесь идет запрос к API Portmone/Redsys для проверки статуса транзакции.
+-    # Для демонстрации считаем, что оплата подтверждена пользователем.
+-    is_paid = True
+-
+-    if not is_paid:
+-        await callback.answer("Оплата еще не поступила. Пожалуйста, завершите платеж.", show_alert=True)
+-        return
+-
+-    await callback.message.answer(
+-        "✅ <b>Оплата успешно подтверждена!</b>\n\nГенерируем ваш чистый буклет и кулинарную шпаргалку...",
+-        parse_mode="HTML")
+-
+-    # Пути к чистым файлам
+-    production_pdf = settings.generated_dir / str(menu_id) / f"food_porn_menu_{menu_id}_production.pdf"
+-    recipe_sheet = settings.generated_dir / str(menu_id) / f"food_porn_recipe_sheet_{menu_id}.pdf"
+-
+-    # 1. Отправляем чистый PDF-буклет без водяных знаков клиенту
+-    if production_pdf.exists():
+-        await callback.message.answer_document(
+-            document=FSInputFile(str(production_pdf)),
+-            caption="🎉 <b>Ваш официальный гастрономический сет (без водяных знаков):</b>",
+-            parse_mode="HTML"
+-        )
+-
+-    # 2. Отправляем простой пошаговый рецепт на листе А4
+-    if recipe_sheet.exists():
+-        await callback.message.answer_document(
+-            document=FSInputFile(str(recipe_sheet)),
+-            caption="🍳 <b>Ваша пошаговая кулинарная шпаргалка (формат А4 для печати):</b>",
+-            parse_mode="HTML"
+-        )
+-
+-    # 3. Автоматически отправляем заказ в типографию на печать
+-    printshop_service = PrintshopService(settings)
+-    customer_info = f"Telegram ID: {callback.from_user.id} (@{callback.from_user.username})"
+-
+-    if production_pdf.exists():
+-        await printshop_service.dispatch_to_printshop(menu_id, production_pdf, customer_info)
+-        await callback.message.answer(
+-            "🖨 <i>Ваш заказ успешно передан в нашу типографию в обработку! Скоро начнется печать.</i>",
+-            parse_mode="HTML")
+-
+-    await callback.answer()
+diff --git a/app/bot/handlers/wallpaper.py b/app/bot/handlers/wallpaper.py
+index 94ae4d4..a2d3907 100644
+--- a/app/bot/handlers/wallpaper.py
++++ b/app/bot/handlers/wallpaper.py
+@@ -1,253 +1,169 @@
+-"""
+-==========================================================
+-FOOD_PORN
+-
+-Module: Premium AI Manifestation Handlers
+-Layer: Telegram Interface (Old Money Aesthetic)
+-==========================================================
+-"""
++"""Telegram workflow for a five-photo, five-goal personalized vision board."""
++from __future__ import annotations
+ 
++import asyncio
++import logging
+ import os
++import re
+ import shutil
++import uuid
++from io import BytesIO
+ from pathlib import Path
+ 
+ from aiogram import F, Router
+ from aiogram.fsm.context import FSMContext
+ from aiogram.types import (
+-    CallbackQuery, FSInputFile, Message,
+-    InlineKeyboardMarkup, InlineKeyboardButton,
+-    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
++    CallbackQuery,
++    FSInputFile,
++    KeyboardButton,
++    Message,
++    ReplyKeyboardMarkup,
++    ReplyKeyboardRemove,
+ )
+-from dotenv import load_dotenv
+-from PIL import Image, ImageOps
++from PIL import Image, ImageOps, UnidentifiedImageError
+ 
+ from app.bot.states.wallpaper import WallpaperStates
++from app.config import Settings
++from app.services.vision_board import create_preview, render_board
++from app.services.wallpaper_renderer import (
++    WallpaperBillingError,
++    WallpaperRateLimitError,
++    WallpaperRenderer,
++)
+ 
+ router = Router(name="wallpaper")
++logger = logging.getLogger(__name__)
++GENERATE_BUTTON = "✨ Втілити в реальність"
+ 
+-VIP_USERS = ["Voloshka0602", "MenuDishesForLove", "bondarev_e"]
+ 
+-def is_vip(user) -> bool:
+-    return user.username in VIP_USERS if user.username else False
++def upload_paths(settings: Settings, user_id: int) -> list[Path]:
++    directory = settings.uploads_dir / "wallpapers" / str(user_id)
++    return sorted(directory.glob("[0-9]*.jpg"), key=lambda path: int(path.stem)) if directory.exists() else []
+ 
+-def get_payment_keyboard(order_id: int) -> InlineKeyboardMarkup:
+-    return InlineKeyboardMarkup(
+-        inline_keyboard=[
+-            [InlineKeyboardButton(text="💳 Активувати Premium", url="https://portmone.com/")],
+-            [InlineKeyboardButton(text="🔄 Перевірити статус", callback_data=f"check_wp_pay_{order_id}")],
+-        ]
+-    )
+ 
+-def generate_keyboard() -> ReplyKeyboardMarkup:
+-    return ReplyKeyboardMarkup(
+-        keyboard=[[KeyboardButton(text="✨ Втілити в реальність")]],
+-        resize_keyboard=True,
+-        one_time_keyboard=True
+-    )
++def save_photo(payload: bytes, destination: Path) -> None:
++    with Image.open(BytesIO(payload)) as check:
++        check.verify()
++    with Image.open(BytesIO(payload)) as opened:
++        photo = ImageOps.exif_transpose(opened).convert("RGB")
++        photo.thumbnail((3000, 3000), Image.Resampling.LANCZOS)
++        if min(photo.size) < 300:
++            raise ValueError("Image is too small")
++        destination.parent.mkdir(parents=True, exist_ok=True)
++        temporary = destination.with_name(f".{uuid.uuid4().hex}.tmp.jpg")
++        try:
++            photo.save(temporary, "JPEG", quality=94, optimize=True)
++            os.replace(temporary, destination)
++        finally:
++            temporary.unlink(missing_ok=True)
++
+ 
+ @router.callback_query(F.data == "start_wallpaper_flow")
+-async def start_wallpaper(callback: CallbackQuery, state: FSMContext) -> None:
++async def start_wallpaper(callback: CallbackQuery, state: FSMContext, settings: Settings) -> None:
+     await state.clear()
+-
+-    upload_dir = Path("storage/uploads/wallpapers") / str(callback.from_user.id)
+-    if upload_dir.exists():
+-        shutil.rmtree(upload_dir, ignore_errors=True)
+-
++    directory = settings.uploads_dir / "wallpapers" / str(callback.from_user.id)
++    if directory.exists():
++        shutil.rmtree(directory)
+     await state.set_state(WallpaperStates.waiting_for_photos)
+-
+-    text = (
+-        "🗝 <b>Закритий Генератор Маніфестацій</b>\n\n"
+-        "Забудьте про шаблонні картинки з інтернету. Штучний інтелект візьме "
+-        "<b>саме ваші завантажені фотографії</b> та переосмислить їх у безшовний шедевр Old Money.\n\n"
+-        "🍷 <b>Що потрібно від вас:</b>\n"
+-        "1. Надішліть ваші найкращі <b>фото</b> (обличчя, стиль, атмосфера).\n"
+-        "2. Напишіть ваші <b>цілі</b> (кожна з нового рядка).\n\n"
+-        "<i>Коли завершите — натисніть кнопку внизу.</i>"
++    keyboard = ReplyKeyboardMarkup(
++        keyboard=[[KeyboardButton(text=GENERATE_BUTTON)]], resize_keyboard=True,
+     )
+-
+     if callback.message:
+-        await callback.message.delete()
+-        await callback.message.answer(text, parse_mode="HTML", reply_markup=generate_keyboard())
++        await callback.message.answer(
++            "🗝 <b>Ваш персональний колаж</b>\n\n"
++            "1. Надішліть рівно <b>5 фото</b>: спочатку свій портрет, потім 4 фото мрій.\n"
++            "2. Надішліть рівно <b>5 цілей</b>, кожну з нового рядка.\n"
++            "3. Натисніть кнопку генерації. Текст на картинці буде точно вашим.",
++            parse_mode="HTML", reply_markup=keyboard,
++        )
+     await callback.answer()
+ 
+ 
+ @router.message(WallpaperStates.waiting_for_photos, F.photo | F.document)
+-async def collect_photo(message: Message) -> None:
+-    if message.document and not message.document.mime_type.startswith("image/"):
++async def collect_photo(message: Message, settings: Settings) -> None:
++    if message.document and not (message.document.mime_type or "").startswith("image/"):
++        await message.answer("Надішліть фотографію або файл зображення.")
+         return
+-
+-    file_id = message.photo[-1].file_id if message.photo else message.document.file_id
+-    file = await message.bot.get_file(file_id)
+-
+-    upload_dir = Path("storage/uploads/wallpapers") / str(message.from_user.id)
+-    upload_dir.mkdir(parents=True, exist_ok=True)
+-
+-    file_path = upload_dir / f"{message.message_id}.jpg"
+-    await message.bot.download_file(file.file_path, destination=file_path)
++    if len(upload_paths(settings, message.from_user.id)) >= 5:
++        await message.answer("Уже отримано 5 фото. Можна переходити до цілей.")
++        return
++    photo = message.photo[-1] if message.photo else message.document
++    if photo.file_size and photo.file_size > settings.max_upload_mb * 1024 * 1024:
++        await message.answer("Фото перевищує допустимий розмір.")
++        return
++    telegram_file = await message.bot.get_file(photo.file_id)
++    buffer = BytesIO()
++    await message.bot.download(telegram_file, destination=buffer)
++    if buffer.tell() > settings.max_upload_mb * 1024 * 1024:
++        await message.answer("Фото перевищує допустимий розмір.")
++        return
++    destination = settings.uploads_dir / "wallpapers" / str(message.from_user.id) / f"{message.message_id}.jpg"
++    try:
++        await asyncio.to_thread(save_photo, buffer.getvalue(), destination)
++    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
++        await message.answer("Не вдалося прочитати фото. Завантажте інше зображення.")
++        return
++    await message.answer(f"Фото {len(upload_paths(settings, message.from_user.id))}/5 отримано.")
+ 
+ 
+-@router.message(WallpaperStates.waiting_for_photos, F.text & ~F.text.in_({"✨ Втілити в реальність"}))
++@router.message(WallpaperStates.waiting_for_photos, F.text & ~F.text.in_({GENERATE_BUTTON}))
+ async def collect_goals(message: Message, state: FSMContext) -> None:
+-    data = await state.get_data()
+-    goals = data.get("goals", [])
+-    new_goals = [line.strip() for line in message.text.split("\n") if line.strip()]
+-    goals.extend(new_goals)
++    goals = list((await state.get_data()).get("goals", []))
++    incoming = [re.sub(r"\s+", " ", line).strip() for line in message.text.splitlines() if line.strip()]
++    if not incoming or len(goals) + len(incoming) > 5 or any(len(goal) > 90 for goal in incoming):
++        await message.answer("Потрібно рівно 5 цілей, не більше 90 символів кожна. Надішліть коротші рядки.")
++        return
++    goals.extend(incoming)
+     await state.update_data(goals=goals)
++    await message.answer(f"Цілей отримано: {len(goals)}/5.")
+ 
+ 
+-def prepare_user_source_image(user_id: int) -> Path | None:
+-    """Собирает все загруженные пользователем фотографии (до 5 шт.) в единый художественный мудборд-колаж."""
+-    upload_dir = Path("storage/uploads/wallpapers") / str(user_id)
+-    if not upload_dir.exists():
+-        return None
+-
+-    image_paths = sorted(list(upload_dir.glob("*.jpg")) + list(upload_dir.glob("*.png")))
+-    if not image_paths:
+-        return None
+-
+-    processed_path = upload_dir / "prepared_source.png"
+-
+-    try:
+-        images = []
+-        for p in image_paths[:5]:  # Берем все 5 фото
+-            img = Image.open(p).convert("RGBA")
+-            images.append(img)
+-
+-        if not images:
+-            return None
+-
+-        canvas = Image.new("RGBA", (1024, 1024), (20, 18, 22, 255))
+-        num_photos = len(images)
+-        padding = 12
+-
+-        if num_photos == 5:
+-            w1 = (1024 - padding * 4) // 3
+-            h1 = 480
+-            for i in range(3):
+-                if i < len(images):
+-                    im_fit = ImageOps.fit(images[i], (w1, h1), method=Image.Resampling.LANCZOS)
+-                    x = padding + i * (w1 + padding)
+-                    y = padding
+-                    canvas.paste(im_fit, (x, y))
+-
+-            w2 = (1024 - padding * 3) // 2
+-            h2 = 500
+-            for i in range(2):
+-                idx = 3 + i
+-                if idx < len(images):
+-                    im_fit = ImageOps.fit(images[idx], (w2, h2), method=Image.Resampling.LANCZOS)
+-                    x = padding + i * (w2 + padding)
+-                    y = padding + h1 + padding
+-                    canvas.paste(im_fit, (x, y))
+-        else:
+-            w_box = (1024 - padding * 3) // 2
+-            h_box = (1024 - padding * 3) // 2
+-            for i, img in enumerate(images[:4]):
+-                r = i // 2
+-                c = i % 2
+-                im_fit = ImageOps.fit(img, (w_box, h_box), method=Image.Resampling.LANCZOS)
+-                x = padding + c * (w_box + padding)
+-                y = padding + r * (h_box + padding)
+-                canvas.paste(im_fit, (x, y))
+-
+-        canvas.save(processed_path, "PNG")
+-        return processed_path
+-    except Exception:
+-        return None
+-
+-
+-@router.message(WallpaperStates.waiting_for_photos, F.text == "✨ Втілити в реальність")
+-async def generate_wallpapers(message: Message, state: FSMContext) -> None:
+-    from app.services.wallpaper_renderer import (
+-        WallpaperRenderer,
+-        WallpaperBillingError,
+-        WallpaperRateLimitError
+-    )
+-
+-    data = await state.get_data()
+-    goals = data.get("goals", [])
+-
+-    if not goals:
+-        await message.answer("🖋 Ви забули вказати свої цілі. Напишіть хоча б кілька рядків.")
++@router.message(WallpaperStates.waiting_for_photos, F.text == GENERATE_BUTTON)
++async def generate_wallpapers(message: Message, state: FSMContext, settings: Settings) -> None:
++    goals = (await state.get_data()).get("goals", [])
++    paths = upload_paths(settings, message.from_user.id)
++    if len(paths) != 5 or len(goals) != 5:
++        await message.answer(f"Потрібно 5 фото і 5 цілей. Зараз: {len(paths)} фото, {len(goals)} цілей.")
+         return
+-
+-    wait_msg = await message.answer(
+-        "🕰 <i>Штучний інтелект створює ваш персональний арт-колаж з усіх завантажених фото та цілей... 🍷</i>",
+-        parse_mode="HTML",
+-        reply_markup=ReplyKeyboardRemove()
+-    )
+-
+-    load_dotenv()
+-    api_key = os.getenv("OPENAI_API_KEY")
+-    model_name = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1.5")
+-    image_size = os.getenv("OPENAI_IMAGE_SIZE", "1024x1024")
+-
+-    if not api_key:
+-        await wait_msg.delete()
+-        await message.answer("⚠️ Помилка доступу: Ключ OpenAI не знайдено.")
++    api_key = settings.openai_api_key.get_secret_value()
++    if not api_key or api_key == "replace_me":
++        await message.answer("Генерація тимчасово недоступна: API ключ не налаштовано.")
+         return
+-
+-    upload_dir = Path("storage/uploads/wallpapers") / str(message.from_user.id)
+-    photo_count = len(list(upload_dir.glob("*.jpg"))) + len(list(upload_dir.glob("*.png"))) if upload_dir.exists() else 1
+-
+-    renderer = WallpaperRenderer(
+-        api_key=api_key,
+-        model=model_name,
+-        output_dir=Path(f"storage/wallpapers/{message.from_user.id}")
+-    )
+-
+-    goals_str = ", ".join(goals[:5])
+-
++    notice = await message.answer("🕰 Створюємо арт-колаж із ваших фото…", reply_markup=ReplyKeyboardRemove())
++    output_dir = settings.generated_dir / "wallpapers" / str(message.from_user.id)
++    renderer = WallpaperRenderer(api_key=api_key, model=settings.openai_image_model, output_dir=output_dir)
+     prompt = (
+-        f"A breathtaking, hyper-realistic luxury fine art multi-image collage and wallpaper in strict Old Money aesthetic. "
+-        f"Incorporate elements, atmosphere, and visual motifs from all {photo_count} user-uploaded reference photos. "
+-        f"Deep graphite, warm dark brown, and soft gold tones, cinematic Vogue editorial lighting. "
+-        f"Harmoniously integrate visual representations of these exact personal goals: {goals_str}. "
+-        f"Seamless composition, masterpiece. NO random external people, ONLY authentic elements from the user's references."
++        "Create one vertical photorealistic fine-art vision board from the five uploaded photographs. "
++        "Image 1 is the client's portrait: make this person the prominent central subject while keeping "
++        "their facial features recognizable. Images 2–5 are four dream scenes: blend their actual "
++        "subjects into top-left, top-right, bottom-left and bottom-right areas. "
++        "Warm champagne and natural dark-brown Old Money editorial light, subtle transitions, tasteful "
++        "negative space near edges and lower center for later captions. "
++        "Do not add typography, lettering, logos or watermarks. Do not invent extra people."
+     )
+-
+     try:
+-        result = await renderer.generate_image(
+-            prompt=prompt,
+-            size=image_size,
+-            file_name=f"manifestation_{message.from_user.id}.png"
++        edited = await renderer.edit_images(
++            image_paths=paths, prompt=prompt, size="1024x1536",
++            file_name=f"ai_base_{message.from_user.id}.png",
+         )
+-
++        full_path = output_dir / f"manifestation_{message.from_user.id}_mobile.png"
++        preview_path = output_dir / f"manifestation_{message.from_user.id}_preview.jpg"
++        await asyncio.to_thread(render_board, edited.path, goals, full_path)
++        await asyncio.to_thread(create_preview, full_path, preview_path)
+     except WallpaperBillingError:
+-        await wait_msg.delete()
+-        await message.answer("⚠️ Помилка: вичерпано баланс OpenAI.")
++        await message.answer("⚠️ Баланс генерації зображень вичерпано.")
+         return
+     except WallpaperRateLimitError:
+-        await wait_msg.delete()
+-        await message.answer("⚠️ Сервери перевантажені. Спробуйте за хвилину.")
++        await message.answer("⚠️ Сервіс зображень перевантажений. Спробуйте пізніше.")
+         return
+-    except Exception as e:
+-        await wait_msg.delete()
+-        await message.answer(f"⚠️ Помилка генерації: {e}")
++    except Exception:
++        logger.exception("Wallpaper generation failed for user %s", message.from_user.id)
++        await message.answer("⚠️ Не вдалося завершити колаж. Спробуйте ще раз пізніше.")
+         return
++    finally:
++        await renderer.close()
++        await notice.delete()
+ 
+-    await wait_msg.delete()
+-
+-    user_is_vip = is_vip(message.from_user)
+-
+-    if user_is_vip:
+-        await message.answer("⚜️ <b>Ваша реальність на основі всіх фото та цілей успішно створена.</b>", parse_mode="HTML")
+-        await message.answer_document(
+-            FSInputFile(str(result.path)),
+-            caption="🖼 <i>Original HQ Fine Art (Print Quality)</i>",
+-            parse_mode="HTML"
+-        )
+-        await message.answer_photo(
+-            FSInputFile(str(result.path)),
+-            caption="📱 <i>Mobile Aesthetic Wallpaper (9:16)</i>",
+-            parse_mode="HTML"
+-        )
+-        await state.clear()
+-    else:
+-        await message.answer_photo(FSInputFile(str(result.path)), caption="📱 <i>Прев'ю маніфестації</i>", parse_mode="HTML")
+-        await message.answer(
+-            "⚜️ <b>Концепт створено.</b>\n\n"
+-            "Щоб отримати оригінал у максимальній роздільній здатності, активуйте преміум-доступ.",
+-            reply_markup=get_payment_keyboard(order_id=message.from_user.id),
+-            parse_mode="HTML"
+-        )
++    await message.answer_photo(FSInputFile(str(preview_path)), caption="📱 Попередній перегляд 9:16")
++    await message.answer_document(FSInputFile(str(full_path)), caption="🖼 Повний файл PNG 1080×1920 — збережіть на телефон")
++    await state.clear()
+diff --git a/app/bot/keyboards.py b/app/bot/keyboards.py
+index 002e55f..430743f 100644
+--- a/app/bot/keyboards.py
++++ b/app/bot/keyboards.py
+@@ -67,12 +67,11 @@ def phone_keyboard(language: str = "uk") -> ReplyKeyboardMarkup:
+     )
+ 
+ 
+-def get_payment_keyboard(menu_id: int, portmone_url: str, redsys_url: str, language: str = "uk") -> InlineKeyboardMarkup:
+-    """Создает инлайн-клавиатуру с выбором эквайринга и кнопкой проверки статуса оплаты."""
++def get_payment_keyboard(menu_id: int, portmone_url: str, language: str = "uk") -> InlineKeyboardMarkup:
++    """Кнопка реального checkout и проверки заказа на стороне платёжного провайдера."""
+     is_uk = language.lower() in ("uk", "ukrainian")
+ 
+     portmone_text = "💳 Оплатити через Portmone (UAH)" if is_uk else "💳 Оплатить через Portmone (UAH)"
+-    redsys_text = "🌍 Pay with Redsys (Cards / EUR)" if is_uk else "🌍 Pay with Redsys (Cards / EUR)"
+     check_text = "🔄 Перевірити оплату" if is_uk else "🔄 Проверить оплату"
+ 
+     return InlineKeyboardMarkup(
+@@ -80,11 +79,8 @@ def get_payment_keyboard(menu_id: int, portmone_url: str, redsys_url: str, langu
+             [
+                 InlineKeyboardButton(text=portmone_text, url=portmone_url),
+             ],
+-            [
+-                InlineKeyboardButton(text=redsys_text, url=redsys_url),
+-            ],
+             [
+                 InlineKeyboardButton(text=check_text, callback_data=f"check_payment_{menu_id}"),
+             ],
+         ]
+-    )
+\ No newline at end of file
++    )
+diff --git a/app/config.py b/app/config.py
+index f413d61..62c225b 100644
+--- a/app/config.py
++++ b/app/config.py
+@@ -55,8 +55,13 @@ class Settings(BaseSettings):
+     currency: str = Field(default="UAH")
+ 
+     # --- Настройки типографии для отправки готовых макетов ---
+-    printshop_email: str = Field(default="bondarev.e.1707@gmail.com")
++    printshop_email: str = ""
+     printshop_name: str = Field(default="Студия Печати 'ArtPress'")
++    smtp_host: str = ""
++    smtp_port: int = Field(default=465, ge=1, le=65535)
++    smtp_user: str = ""
++    smtp_password: SecretStr = SecretStr("")
++    smtp_use_tls: bool = True
+ 
+     # --- Платежный шлюз: Portmone ---
+     portmone_payee_id: str = Field(default="replace_me")
+@@ -135,4 +140,4 @@ class Settings(BaseSettings):
+ 
+ @lru_cache(maxsize=1)
+ def get_settings() -> Settings:
+-    return Settings()
+\ No newline at end of file
++    return Settings()
+diff --git a/app/database/base.py b/app/database/base.py
+index bd5b62c..22bf5d9 100644
+--- a/app/database/base.py
++++ b/app/database/base.py
+@@ -11,8 +11,4 @@ Responsibilities:
+ ==========================================================
+ """
+ 
+-from sqlalchemy.orm import DeclarativeBase
+-
+-
+-class Base(DeclarativeBase):
+-    pass
++from app.database.models import Base as Base
+diff --git a/app/database/models.py b/app/database/models.py
+index 9543ace..c7513a0 100644
+--- a/app/database/models.py
++++ b/app/database/models.py
+@@ -10,9 +10,10 @@ Layer: Data Access
+ from __future__ import annotations
+ 
+ from datetime import datetime
++from decimal import Decimal
+ from enum import StrEnum
+ 
+-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text
++from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
+ from sqlalchemy import Enum as SQLEnum
+ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+ from sqlalchemy.sql import func
+@@ -104,6 +105,7 @@ class Menu(TimestampMixin, Base):
+     is_paid: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+     payment_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+     payment_system: Mapped[str | None] = mapped_column(String(50), nullable=True)  # "portmone" или "redsys"
++    price_amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+ 
+     customer: Mapped[Customer] = relationship("Customer", back_populates="menus")
+     items: Mapped[list[MenuItem]] = relationship("MenuItem", back_populates="menu", cascade="all, delete-orphan")
+@@ -156,4 +158,4 @@ class ImageCache(TimestampMixin, Base):
+     cache_key: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+     model: Mapped[str] = mapped_column(String(100), nullable=False)
+     prompt: Mapped[str] = mapped_column(Text, nullable=False)
+-    path: Mapped[str] = mapped_column(Text, nullable=False)
+\ No newline at end of file
++    path: Mapped[str] = mapped_column(Text, nullable=False)
+diff --git a/app/database/repositories.py b/app/database/repositories.py
+index 6d774a6..30d3831 100644
+--- a/app/database/repositories.py
++++ b/app/database/repositories.py
+@@ -15,6 +15,7 @@ Responsibilities:
+ 
+ import logging
+ from datetime import UTC, datetime
++from decimal import Decimal
+ 
+ from sqlalchemy import delete, select
+ from sqlalchemy.ext.asyncio import AsyncSession
+@@ -195,8 +196,8 @@ class MenuRepository:
+         if isinstance(kind, str):
+             try:
+                 file_kind_enum = FileKind(kind.lower())
+-            except ValueError:
+-                file_kind_enum = FileKind.PDF
++            except ValueError as exc:
++                raise ValueError(f"Unsupported file kind: {kind}") from exc
+         else:
+             file_kind_enum = kind
+ 
+@@ -226,33 +227,35 @@ class MenuRepository:
+ 
+     async def resumable(self) -> list[Menu]:
+         result = await self.session.execute(
+-            select(Menu).where(Menu.status.in_([MenuStatus.QUEUED, MenuStatus.GENERATING]))
++            select(Menu).where(Menu.status.in_([MenuStatus.QUEUED, MenuStatus.IMAGES_READY]))
+         )
+         return list(result.scalars())
+ 
+-    async def set_waiting_for_payment(self, menu_id: int) -> None:
+-        """Переводит меню в статус ожидания оплаты."""
++    async def set_waiting_for_payment(self, menu_id: int, amount: Decimal) -> None:
+         menu = await self.get(menu_id)
+-        if menu:
+-            menu.status = MenuStatus.WAITING_FOR_PAYMENT
+-            await self.session.commit()
++        if menu is None:
++            raise LookupError(f"Menu {menu_id} not found")
++        menu.status = MenuStatus.WAITING_FOR_PAYMENT
++        menu.price_amount = amount
++        await self.session.commit()
+ 
+     async def mark_as_paid(self, menu_id: int, payment_id: str, payment_system: str) -> None:
+-        """Фиксирует успешную оплату заказа и переводит в статус PAID."""
+         menu = await self.get(menu_id)
+-        if menu:
+-            menu.is_paid = True
+-            menu.payment_id = payment_id
+-            menu.payment_system = payment_system
+-            menu.status = MenuStatus.PAID
+-            await self.session.commit()
++        if menu is None:
++            raise LookupError(f"Menu {menu_id} not found")
++        menu.is_paid = True
++        menu.payment_id = payment_id
++        menu.payment_system = payment_system
++        menu.status = MenuStatus.PAID
++        await self.session.commit()
+ 
+     async def mark_sent_to_printshop(self, menu_id: int) -> None:
+-        """Фиксирует успешную отправку заказа в типографию."""
+         menu = await self.get(menu_id)
+-        if menu:
+-            menu.status = MenuStatus.SENT_TO_PRINTSHOP
+-            await self.session.commit()
++        if menu is None:
++            raise LookupError(f"Menu {menu_id} not found")
++        menu.status = MenuStatus.SENT_TO_PRINTSHOP
++        await self.session.commit()
++
+ 
+ 
+ class ImageCacheRepository:
+@@ -276,27 +279,3 @@ class ImageCacheRepository:
+         await self.session.commit()
+         await self.session.refresh(record)
+         return record
+-
+-    async def set_waiting_for_payment(self, menu_id: int) -> None:
+-        """Переводит меню в статус ожидания оплаты."""
+-        menu = await self.get(menu_id)
+-        if menu:
+-            menu.status = MenuStatus.WAITING_FOR_PAYMENT
+-            await self.session.commit()
+-
+-    async def mark_as_paid(self, menu_id: int, payment_id: str, payment_system: str) -> None:
+-        """Фиксирует успешную оплату заказа и переводит в статус PAID."""
+-        menu = await self.get(menu_id)
+-        if menu:
+-            menu.is_paid = True
+-            menu.payment_id = payment_id
+-            menu.payment_system = payment_system
+-            menu.status = MenuStatus.PAID
+-            await self.session.commit()
+-
+-    async def mark_sent_to_printshop(self, menu_id: int) -> None:
+-        """Фиксирует успешную отправку заказа в типографию."""
+-        menu = await self.get(menu_id)
+-        if menu:
+-            menu.status = MenuStatus.SENT_TO_PRINTSHOP
+-            await self.session.commit()
+diff --git a/app/main.py b/app/main.py
+index 3901736..b96f2ec 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -12,8 +12,8 @@ Description: Точка входа в приложение. Инициализи
+ 
+ from __future__ import annotations
+ 
+-import logging
+ import asyncio
++import logging
+ 
+ from aiogram import Bot, Dispatcher
+ from aiogram.client.default import DefaultBotProperties
+@@ -22,7 +22,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
+ from aiogram.types import BotCommand
+ 
+ # Импорты маршрутизаторов (хендлеров)
+-from app.bot.handlers import menu, registration, start
++from app.bot.handlers import menu, payment, registration, start
+ from app.bot.handlers.wallpaper import router as wallpaper_router
+ 
+ # Основные компоненты системы
+@@ -72,6 +72,7 @@ async def main() -> None:
+     dispatcher.include_router(registration.router)
+     dispatcher.include_router(menu.router)
+     dispatcher.include_router(wallpaper_router)  # Модуль AI Манифестаций
++    dispatcher.include_router(payment.router)
+ 
+     # 6. Настройка командного меню бота
+     await bot.set_my_commands(
+diff --git a/app/render/recipes.py b/app/render/recipes.py
+new file mode 100644
+index 0000000..236d2ab
+--- /dev/null
++++ b/app/render/recipes.py
+@@ -0,0 +1,56 @@
++"""Printable recipe and shopping list for a paid menu."""
++from __future__ import annotations
++
++from html import escape
++from pathlib import Path
++
++from reportlab.lib.enums import TA_CENTER
++from reportlab.lib.pagesizes import A4
++from reportlab.lib.styles import ParagraphStyle
++from reportlab.lib.units import mm
++from reportlab.pdfbase import pdfmetrics
++from reportlab.pdfbase.ttfonts import TTFont
++from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer
++
++
++def render_recipe_sheet(
++    destination: Path, details: dict, shopping_list: list[str], language: str = "uk"
++) -> Path:
++    """Render exact user dish names, ingredients and instructions to A4 PDF."""
++    font_name = "FoodPornDejaVu"
++    if font_name not in pdfmetrics.getRegisteredFontNames():
++        fonts = (
++            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
++            Path("C:/Windows/Fonts/arial.ttf"),
++            Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
++        )
++        available = next((path for path in fonts if path.is_file()), None)
++        if available is None:
++            raise RuntimeError("Install a Unicode TrueType font to render the recipe sheet")
++        pdfmetrics.registerFont(TTFont(font_name, str(available)))
++    destination.parent.mkdir(parents=True, exist_ok=True)
++    title = ParagraphStyle("title", fontName=font_name, fontSize=15, leading=21, alignment=TA_CENTER)
++    heading = ParagraphStyle("heading", fontName=font_name, fontSize=11, leading=16, spaceBefore=12)
++    body = ParagraphStyle("body", fontName=font_name, fontSize=9, leading=14, spaceAfter=4)
++    is_uk = language.lower() == "uk"
++    story = [Paragraph("Рецепти та список покупок" if is_uk else "Рецепты и список покупок", title), Spacer(1, 8 * mm)]
++    story.append(Paragraph("Список покупок" if is_uk else "Список покупок", heading))
++    for ingredient in shopping_list:
++        story.append(Paragraph("• " + escape(str(ingredient).removeprefix("• ")), body))
++    for dish, info in details.items():
++        if not isinstance(info, dict):
++            continue
++        lines = [Paragraph(escape(str(dish)), heading)]
++        for ingredient in info.get("ingredients", []):
++            lines.append(Paragraph("• " + escape(str(ingredient)), body))
++        recipe = str(info.get("recipe", "")).strip()
++        if recipe:
++            lines.append(Paragraph(escape(recipe).replace("\n", "<br/>"), body))
++        story.append(KeepTogether(lines[:2]) if len(lines) > 1 else lines[0])
++        story.extend(lines[2:] if len(lines) > 1 else [])
++    doc = SimpleDocTemplate(
++        str(destination), pagesize=A4, rightMargin=18 * mm, leftMargin=18 * mm,
++        topMargin=18 * mm, bottomMargin=18 * mm, title="Food Porn Recipes",
++    )
++    doc.build(story)
++    return destination
+diff --git a/app/services/payment.py b/app/services/payment.py
+index b00ef07..e05c85d 100644
+--- a/app/services/payment.py
++++ b/app/services/payment.py
+@@ -1,52 +1,135 @@
+-"""
+-==========================================================
+-FOOD_PORN
+-
+-Module: Payment Service (Portmone & Redsys)
+-Layer: Service
++"""Portmone checkout and server-side payment verification.
+ 
+-Responsibilities:
+-    - Generate secure checkout links for Portmone (UAH) and Redsys (EUR)
+-==========================================================
++API: https://docs.portmone.com.ua/en/docs/en/PaymentGatewayEng/
++Sections 12.4 (getLinkInvoice) and 8.2.2 (authorization results).
++Never trust a redirect or Telegram callback as proof of payment.
+ """
+-
+ from __future__ import annotations
+ 
+ import logging
++from dataclasses import dataclass
++from decimal import Decimal, InvalidOperation
++from urllib.parse import urlparse
++
++import httpx
+ 
+ from app.config import Settings
+ 
+ logger = logging.getLogger(__name__)
++LINK_API = "https://www.portmone.com.ua/r3/api/gateway/"
++STATUS_API = "https://www.portmone.com.ua/gateway/"
++
++
++class PaymentError(RuntimeError):
++    """Payment could not be safely initiated or verified."""
++
++
++@dataclass(frozen=True)
++class VerifiedPayment:
++    payment_id: str
++    order_number: str
++    amount: Decimal
+ 
+ 
+ class PaymentService:
+     def __init__(self, settings: Settings) -> None:
+         self.settings = settings
+ 
+-    def create_portmone_invoice(self, menu_id: int, amount: float, description: str) -> str:
+-        """Генерирует ссылку на оплату через Portmone."""
+-        payee_id = self.settings.portmone_payee_id
+-        checkout_url = (
+-            f"https://www.portmone.com.ua/gateway/?"
+-            f"shop_order_number={menu_id}&"
+-            f"payee_id={payee_id}&"
+-            f"bill_amount={amount}&"
+-            f"description={description}"
+-        )
+-        logger.info(f"Generated Portmone invoice for menu {menu_id}: {amount} {self.settings.currency}")
+-        return checkout_url
+-
+-    def create_redsys_invoice(self, menu_id: int, amount: float, description: str) -> str:
+-        """Генерирует ссылку на оплату через Redsys (международные карты)."""
+-        merchant_code = self.settings.redsys_merchant_code
+-        currency = self.settings.redsys_currency
+-        checkout_url = (
+-            f"https://sis.redsys.es/sis/realizarPago?"
+-            f"merchantCode={merchant_code}&"
+-            f"amount={int(amount * 100)}&"
+-            f"currency={currency}&"
+-            f"order={menu_id:04d}&"
+-            f"merchantName=Food_Porn"
++    @property
++    def portmone_ready(self) -> bool:
++        return all(
++            value and value != "replace_me"
++            for value in (
++                self.settings.portmone_payee_id,
++                self.settings.portmone_login,
++                self.settings.portmone_password.get_secret_value(),
++            )
+         )
+-        logger.info(f"Generated Redsys invoice for menu {menu_id}: {amount} EUR")
+-        return checkout_url
++
++    def _credentials(self) -> dict[str, str]:
++        if not self.portmone_ready:
++            raise PaymentError("Portmone merchant credentials are not configured")
++        return {
++            "login": self.settings.portmone_login,
++            "password": self.settings.portmone_password.get_secret_value(),
++            "payeeId": self.settings.portmone_payee_id,
++        }
++
++    @staticmethod
++    def _order_number(menu_id: int) -> str:
++        if menu_id <= 0:
++            raise ValueError("menu_id must be positive")
++        return f"menu_{menu_id}"
++
++    async def create_portmone_invoice(self, menu_id: int, amount: float, description: str) -> str:
++        """Ask Portmone to issue a real, order-specific checkout link."""
++        if self.settings.currency != "UAH":
++            raise PaymentError("Portmone checkout currently supports UAH only")
++        money = Decimal(str(amount)).quantize(Decimal("0.01"))
++        if money <= 0:
++            raise PaymentError("Payment amount must be positive")
++        payload = {
++            "method": "getLinkInvoice",
++            "params": {"data": {
++                **self._credentials(),
++                "amount": str(money),
++                "billCurrency": "UAH",
++                "shopOrderNumber": self._order_number(menu_id),
++                "comment": description[:250],
++                "preauthFlag": "N",
++            }},
++            "id": str(menu_id),
++        }
++        async with httpx.AsyncClient(timeout=15) as client:
++            response = await client.post(LINK_API, json=payload)
++            response.raise_for_status()
++        try:
++            data = response.json()
++            link = data["result"]["linkInvoice"]
++        except (ValueError, KeyError, TypeError) as exc:
++            raise PaymentError("Portmone did not return a checkout link") from exc
++        parsed = urlparse(str(link))
++        if parsed.scheme != "https" or parsed.hostname not in {"www.portmone.com.ua", "portmone.com.ua"}:
++            raise PaymentError("Portmone returned an unexpected checkout URL")
++        return str(link)
++
++    async def verify_portmone_payment(self, menu_id: int, expected_amount: float) -> VerifiedPayment | None:
++        """Return a payment only after matching merchant, order, amount and final status."""
++        order_number = self._order_number(menu_id)
++        payload = {
++            "method": "result",
++            "params": {"data": {
++                **self._credentials(),
++                "shopOrderNumber": order_number,
++                "status": "PAYED",
++            }},
++            "id": str(menu_id),
++        }
++        async with httpx.AsyncClient(timeout=15) as client:
++            response = await client.post(STATUS_API, json=payload)
++            response.raise_for_status()
++        try:
++            entries = response.json()
++        except ValueError as exc:
++            raise PaymentError("Portmone returned an invalid status response") from exc
++        if not isinstance(entries, list):
++            raise PaymentError("Portmone status response has an unexpected structure")
++        expected = Decimal(str(expected_amount)).quantize(Decimal("0.01"))
++        for item in entries:
++            if not isinstance(item, dict):
++                continue
++            try:
++                amount = Decimal(str(item["billAmount"])).quantize(Decimal("0.01"))
++            except (InvalidOperation, ValueError, KeyError):
++                continue
++            if (
++                item.get("shopOrderNumber") == order_number
++                and str(item.get("payee_id", item.get("payeeId"))) == self.settings.portmone_payee_id
++                and item.get("status") == "PAYED"
++                and item.get("payee_export_flag") == "Y"
++                and item.get("chargeback") != "Y"
++                and amount == expected
++                and item.get("shopBillId")
++            ):
++                return VerifiedPayment(str(item["shopBillId"]), order_number, amount)
++        return None
+diff --git a/app/services/printshop.py b/app/services/printshop.py
+index f296e46..136cded 100644
+--- a/app/services/printshop.py
++++ b/app/services/printshop.py
+@@ -38,12 +38,16 @@ class PrintshopService:
+             return False
+ 
+         message = EmailMessage()
+-        message["From"] = self.settings.smtp_user or "bot@foodporn.internal"
++        if not self.settings.smtp_host or not self.settings.smtp_user:
++            logger.warning("Printshop dispatch skipped: SMTP is not configured")
++            return False
++
++        message["From"] = self.settings.smtp_user
+         message["To"] = self.settings.printshop_email
+         message["Subject"] = f"🖨 New Print Order #{menu_id} — Food_Porn"
+ 
+         body = (
+-            f"Здравствуйте!\поступил новый заказ на печать гастрономического буклета.\n\n"
++            f"Здравствуйте! Поступил новый заказ на печать гастрономического буклета.\n\n"
+             f"Номер заказа: #{menu_id}\n"
+             f"Клиент: {customer_info}\n\n"
+             f"Файл для печати прикреплен к этому письму."
+@@ -62,19 +66,15 @@ class PrintshopService:
+ 
+         # Отправка через SMTP (если настроено) либо логирование
+         try:
+-            if self.settings.smtp_host and self.settings.smtp_port:
+-                await aiosmtplib.send(
+-                    message,
+-                    hostname=self.settings.smtp_host,
+-                    port=self.settings.smtp_port,
+-                    username=self.settings.smtp_user,
+-                    password=self.settings.smtp_password,
+-                    use_tls=self.settings.smtp_use_tls,
+-                )
+-                logger.info(
+-                    f"Successfully dispatched menu {menu_id} to printshop email: {self.settings.printshop_email}")
+-            else:
+-                logger.info(f"[SIMULATION] Print order #{menu_id} dispatched to {self.settings.printshop_email}")
++            await aiosmtplib.send(
++                message,
++                hostname=self.settings.smtp_host,
++                port=self.settings.smtp_port,
++                username=self.settings.smtp_user,
++                password=self.settings.smtp_password.get_secret_value(),
++                use_tls=self.settings.smtp_use_tls,
++            )
++            logger.info("Print order %s sent to %s", menu_id, self.settings.printshop_email)
+             return True
+         except Exception as smtp_exc:
+             logger.error(f"SMTP dispatch failed: {smtp_exc}")
+diff --git a/app/services/recipe_generator.py b/app/services/recipe_generator.py
+index cbf0274..3c86e45 100644
+--- a/app/services/recipe_generator.py
++++ b/app/services/recipe_generator.py
+@@ -61,7 +61,16 @@ class RecipeGeneratorService:
+                 temperature=0.3,
+             )
+             content = response.choices[0].message.content
+-            return json.loads(content)
++            details = json.loads(content)
++            if not isinstance(details, dict) or any(
++                title not in details
++                or not isinstance(details[title], dict)
++                or not details[title].get("ingredients")
++                or not details[title].get("recipe")
++                for title in dishes
++            ):
++                raise ValueError("Recipe response is incomplete")
++            return details
+ 
+         except Exception as exc:
+             logger.error(f"Failed to generate recipes via LLM ({exc}). Switching to fallback chain...")
+@@ -70,8 +79,11 @@ class RecipeGeneratorService:
+             for title in dishes:
+                 success = False
+ 
+-                # Попытка №2: Ищем через бесплатный Spoonacular API
++                # Попытка №2: проверяем реальный источник рецепта, если настроен.
+                 try:
++                    spoonacular_key = self.settings.spoonacular_api_key.get_secret_value()
++                    if not spoonacular_key or spoonacular_key == "replace_me":
++                        raise RuntimeError("Spoonacular key is not configured")
+                     async with httpx.AsyncClient() as client:
+                         url = "https://api.spoonacular.com/recipes/complexSearch"
+                         params = {
+@@ -79,7 +91,7 @@ class RecipeGeneratorService:
+                             "number": 1,
+                             "addRecipeInformation": "true",
+                             "fillIngredients": "true",
+-                            "apiKey": self.settings.spoonacular_api_key.get_secret_value()
++                            "apiKey": spoonacular_key
+                         }
+                         resp = await client.get(url, params=params, timeout=10.0)
+                         resp.raise_for_status()
+@@ -104,83 +116,8 @@ class RecipeGeneratorService:
+                 except Exception as sp_exc:
+                     logger.warning(f"Spoonacular fallback failed for '{title}' ({sp_exc}).")
+ 
+-                # Попытка №3: Интеллектуальный анализатор блюда (Smart Local Mock)
++                # Не продаём сгенерированную заглушку как проверенный рецепт.
+                 if not success:
+-                    logger.warning(f"Using smart local analysis fallback for '{title}'.")
+-                    fallback_result[title] = self._analyze_and_generate_mock(title, language)
++                    raise RuntimeError(f"Recipe unavailable for dish: {title}") from exc
+ 
+             return fallback_result
+-
+-    def _analyze_and_generate_mock(self, title: str, language: str) -> dict[str, Any]:
+-        """Анализирует название блюда на лету и подбирает релевантные продукты и рецепт."""
+-        lower_title = title.lower()
+-        is_uk = language.lower() == "uk"
+-
+-        # База умных шаблонов для популярных блюд
+-        if "оливье" in lower_title:
+-            ingredients = [
+-                "Картопля - 300г" if is_uk else "Картофель - 300г",
+-                "Морква - 150г" if is_uk else "Морковь - 150г",
+-                "Ковбаса варена - 300г" if is_uk else "Колбаса вареная - 300г",
+-                "Яйця курячі - 4 шт" if is_uk else "Яйца куриные - 4 шт",
+-                "Огірки солоні - 200г" if is_uk else "Огурцы соленые - 200г",
+-                "Горошок зелений консервований - 1 банка" if is_uk else "Горошек зеленый консервированный - 1 банка",
+-                "Майонез - 150г" if is_uk else "Майонез - 150г"
+-            ]
+-            recipe = (
+-                "1. Відварити картоплю, моркву та яйця до готовності, остудити та почистити.\n"
+-                "2. Нарізати всі інгредієнти акуратними дрібними кубиками.\n"
+-                "3. Додати зелений горошок і заправити салат майонезом перед подачею.\n"
+-                "4. Перемішати, посолити за смаком та прикрасити зеленню."
+-                if is_uk else
+-                "1. Отварить картофель, морковь и яйца до готовности, остудить и очистить.\n"
+-                "2. Нарезать все ингредиенты аккуратными мелкими кубиками.\n"
+-                "3. Добавить зеленый горошек и заправить салат майонезом перед подачей.\n"
+-                "4. Перемешать, посолить по вкусу и украсить зеленью."
+-            )
+-        elif "плов" in lower_title:
+-            ingredients = [
+-                "М'ясо (свинина або баранина) - 500г" if is_uk else "Мясо (свинина или баранина) - 500г",
+-                "Рис довгозернистий - 400г" if is_uk else "Рис длиннозернистый - 400г",
+-                "Морква - 300г" if is_uk else "Морковь - 300г",
+-                "Цибуля ріпчаста - 200г" if is_uk else "Лук репчатый - 200г",
+-                "Олія соняшникова - 80 мл" if is_uk else "Масло подсолнечное - 80 мл",
+-                "Часник - 1 головка" if is_uk else "Чеснок - 1 головка",
+-                "Спеції для плову (зіра, барбарис) - 10г" if is_uk else "Специи для плова (зира, барбарис) - 10г"
+-            ]
+-            recipe = (
+-                "1. Обсмажити на олії нарізане м'ясо до золотистої скоринки.\n"
+-                "2. Додати нарізану півкільцями цибулю та соломкою моркву, тушкувати 10 хвилин.\n"
+-                "3. Висипати промитий рис, залити гарячою водою на 1.5 см вище рівня ризу, занурити головку часнику.\n"
+-                "4. Тушкувати під кришкою на повільному вогні до повного випаровування води."
+-                if is_uk else
+-                "1. Обжарить на масле нарезанное мясо до золотистой корочки.\n"
+-                "2. Добавить нарезанный полукольцами лук и соломкой морковь, тушить 10 минут.\n"
+-                "3. Высыпать промытый рис, залить горячей водой на 1.5 см выше уровня риса, погрузить головку чеснока.\n"
+-                "4. Тушить под крышкой на медленном огне до полного выпаривания воды."
+-            )
+-        else:
+-            # Универсальный качественный шаблон для любого другого блюда
+-            ingredients = [
+-                f"Основний продукт ({title}) - 500г" if is_uk else f"Основной продукт ({title}) - 500г",
+-                "Оливкова олія - 30 мл" if is_uk else "Оливковое масло - 30 мл",
+-                "Сіль, перець чорний мелений - за смаком" if is_uk else "Соль, перец черный молотый - по вкусу",
+-                "Часник та свіжі спеції - 15г" if is_uk else "Чеснок и свежие специи - 15г",
+-                "Вершкове масло - 20г" if is_uk else "Сливочное масло - 20г"
+-            ]
+-            recipe = (
+-                f"1. Підготуйте свіжі інгредієнти для приготування страви: {title}.\n"
+-                "2. Зробіть попередню маринадну обробку з додаванням олії та спецій.\n"
+-                "3. Здійсніть термічну обробку (запікання або обсмажування) до повної готовності.\n"
+-                "4. Подавайте до столу гарячим, прикрасивши зеленню."
+-                if is_uk else
+-                f"1. Подготовьте свежие ингредиенты для приготовления блюда: {title}.\n"
+-                "2. Сделайте предварительную маринадную обработку с добавлением масла и специй.\n"
+-                "3. Произведите термическую обработку (запекание или обжаривание) до полной готовности.\n"
+-                "4. Подавайте к столу горячим, украсив зеленью."
+-            )
+-
+-        return {
+-            "ingredients": ingredients,
+-            "recipe": recipe
+-        }
+diff --git a/app/services/vision_board.py b/app/services/vision_board.py
+new file mode 100644
+index 0000000..3751288
+--- /dev/null
++++ b/app/services/vision_board.py
+@@ -0,0 +1,113 @@
++"""Exact typography and preview generation for the five-goal wallpaper."""
++from __future__ import annotations
++
++import os
++import re
++import uuid
++from pathlib import Path
++
++from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
++
++SIZE = (1080, 1920)
++FONT_PATHS = (
++    Path("C:/Windows/Fonts/georgia.ttf"),
++    Path("C:/Windows/Fonts/arial.ttf"),
++    Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"),
++    Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
++)
++
++
++def _font(size: int) -> ImageFont.FreeTypeFont:
++    for path in FONT_PATHS:
++        if path.is_file():
++            return ImageFont.truetype(str(path), size)
++    raise RuntimeError("Install a Cyrillic TrueType font or configure a system font")
++
++
++def _wrap(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, width: int) -> str:
++    lines: list[str] = []
++    line = ""
++    for word in text.split():
++        candidate = f"{line} {word}".strip()
++        if line and draw.textlength(candidate, font=font) > width:
++            lines.append(line)
++            line = word
++        else:
++            line = candidate
++    if line:
++        lines.append(line)
++    return "\n".join(lines)
++
++
++def _draw_label(layer: Image.Image, text: str, box: tuple[int, int, int, int], large: bool = False) -> None:
++    draw = ImageDraw.Draw(layer)
++    x0, y0, x1, y1 = box
++    for size in range(55 if large else 33, 15, -1):
++        face = _font(size)
++        wrapped = _wrap(draw, text, face, x1-x0-20)
++        bbox = draw.multiline_textbbox((0, 0), wrapped, font=face, spacing=round(size*.20), align="center")
++        tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
++        if tw <= x1-x0-20 and th <= y1-y0-15:
++            break
++    else:
++        raise ValueError(f"Goal phrase does not fit: {text!r}")
++    x = x0+(x1-x0-tw)//2
++    y = y0+(y1-y0-th)//2-bbox[1]
++    # Soft halo keeps exact Cyrillic captions legible on diverse photographs.
++    halo = Image.new("RGBA", layer.size)
++    ImageDraw.Draw(halo).multiline_text(
++        (x, y), wrapped, font=face, spacing=round(size*.20), align="center",
++        fill=(10, 7, 5, 225), stroke_width=max(5, size//7), stroke_fill=(10, 7, 5, 230),
++    )
++    layer.alpha_composite(halo.filter(ImageFilter.GaussianBlur(11)))
++    ImageDraw.Draw(layer).multiline_text(
++        (x, y), wrapped, font=face, spacing=round(size*.20), align="center",
++        fill=(255, 242, 215, 255), stroke_width=1, stroke_fill=(42, 29, 19, 180),
++    )
++
++
++def render_board(ai_image: Path, goals: list[str], destination: Path) -> Path:
++    """Place each of the five user phrases exactly once; no text comes from AI."""
++    if len(goals) != 5 or any(not isinstance(g, str) or not g.strip() or len(g) > 90 for g in goals):
++        raise ValueError("Exactly five nonempty goals of up to 90 characters are required")
++    with Image.open(ai_image) as original:
++        base = ImageOps.fit(ImageOps.exif_transpose(original).convert("RGB"), SIZE, Image.Resampling.LANCZOS)
++    # Dim the lower section for the principal phrase.
++    shade = Image.new("RGBA", SIZE)
++    draw = ImageDraw.Draw(shade)
++    for y in range(1050, SIZE[1]):
++        alpha = int(148 * (y-1050)/(SIZE[1]-1050))
++        draw.line((0, y, SIZE[0], y), fill=(10, 8, 7, alpha))
++    board = Image.alpha_composite(base.convert("RGBA"), shade)
++    text = Image.new("RGBA", SIZE)
++    boxes = [
++        (40, 235, 365, 470), (715, 235, 1040, 470),
++        (40, 890, 360, 1150), (720, 890, 1040, 1150),
++        (175, 1470, 905, 1745),
++    ]
++    for i, (goal, box) in enumerate(zip(goals, boxes, strict=True)):
++        _draw_label(text, re.sub(r"\s+", " ", goal).strip(), box, large=i == 4)
++    result = Image.alpha_composite(board, text).convert("RGB")
++    destination.parent.mkdir(parents=True, exist_ok=True)
++    temporary = destination.with_name(f".{uuid.uuid4().hex}.tmp.png")
++    try:
++        result.save(temporary, format="PNG", optimize=True)
++        os.replace(temporary, destination)
++    finally:
++        temporary.unlink(missing_ok=True)
++    return destination
++
++
++def create_preview(board_path: Path, destination: Path) -> Path:
++    """A smaller, visibly marked preview; full-resolution art is delivered separately."""
++    with Image.open(board_path) as original:
++        image = original.convert("RGB").resize((540, 960), Image.Resampling.LANCZOS)
++    overlay = Image.new("RGBA", image.size)
++    draw = ImageDraw.Draw(overlay)
++    face = _font(29)
++    for y in (160, 420, 680, 900):
++        draw.text((95, y), "FOOD_PORN  •  ПРЕВЬЮ", font=face,
++                  fill=(255, 255, 255, 150), stroke_width=2, stroke_fill=(0, 0, 0, 110))
++    destination.parent.mkdir(parents=True, exist_ok=True)
++    Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB").save(destination, "JPEG", quality=82)
++    return destination
+diff --git a/app/services/wallpaper_renderer.py b/app/services/wallpaper_renderer.py
+index 9076d53..81d91be 100644
+--- a/app/services/wallpaper_renderer.py
++++ b/app/services/wallpaper_renderer.py
+@@ -8,16 +8,16 @@ Layer: Service (OpenAI)
+ """
+ from __future__ import annotations
+ 
+-import aiohttp
+ import asyncio
+ import base64
+ import logging
+ import os
+ import uuid
++from contextlib import ExitStack
+ from dataclasses import dataclass
+ from pathlib import Path
+-from typing import Any, Optional
+ 
++import aiohttp
+ from openai import (
+     APIConnectionError,
+     APIStatusError,
+@@ -59,7 +59,7 @@ class RenderedWallpaper:
+     prompt: str
+     model: str
+     size: str
+-    revised_prompt: Optional[str] = None
++    revised_prompt: str | None = None
+ 
+ 
+ # =========================
+@@ -86,7 +86,7 @@ class WallpaperRenderer:
+     def __init__(
+         self,
+         *,
+-        api_key: Optional[str] = None,
++        api_key: str | None = None,
+         model: str = "gpt-image-1.5",
+         output_dir: str | Path = "storage/wallpapers",
+         max_attempts: int = 3,
+@@ -118,7 +118,7 @@ class WallpaperRenderer:
+         *,
+         prompt: str,
+         size: str = "1024x1024",
+-        file_name: Optional[str] = None,
++        file_name: str | None = None,
+     ) -> RenderedWallpaper:
+         """
+         Generate image and save it to disk.
+@@ -197,7 +197,7 @@ class WallpaperRenderer:
+         image_path: Path | str,
+         prompt: str,
+         size: str = "1024x1024",
+-        file_name: Optional[str] = None,
++        file_name: str | None = None,
+     ) -> RenderedWallpaper:
+         """
+         Edit/variation of user's photo using OpenAI Images Edit API,
+@@ -271,12 +271,73 @@ class WallpaperRenderer:
+ 
+         raise WallpaperRenderError("Image editing failed unexpectedly.")
+ 
++    async def edit_images(
++        self,
++        *,
++        image_paths: list[Path],
++        prompt: str,
++        size: str = "1024x1536",
++        file_name: str | None = None,
++    ) -> RenderedWallpaper:
++        """Send all five real user photos to the Images Edit API in order."""
++        if len(image_paths) != 5 or any(not Path(path).is_file() for path in image_paths):
++            raise WallpaperRenderError("Exactly five existing photographs are required")
++        if not prompt.strip():
++            raise WallpaperRenderError("Prompt is empty")
++        if size not in {"1024x1536", "1024x1024", "1536x1024"}:
++            raise WallpaperRenderError("Unsupported wallpaper size")
++        name = file_name or f"{uuid.uuid4().hex}.png"
++        if Path(name).name != name or not name.endswith(".png"):
++            raise WallpaperRenderError("file_name must be a plain PNG filename")
++        destination = self.output_dir / name
++        for attempt in range(1, self.max_attempts + 1):
++            try:
++                with ExitStack() as stack:
++                    images = [stack.enter_context(Path(path).open("rb")) for path in image_paths]
++                    response = await self.client.images.edit(
++                        model=self.model,
++                        image=images,
++                        prompt=prompt,
++                        size=size,
++                        quality="high",
++                    )
++                item = response.data[0]
++                if item.b64_json:
++                    content = base64.b64decode(item.b64_json)
++                elif getattr(item, "url", None):
++                    async with aiohttp.ClientSession() as session:
++                        async with session.get(str(item.url), timeout=aiohttp.ClientTimeout(total=90)) as result:
++                            result.raise_for_status()
++                            content = await result.read()
++                else:
++                    raise WallpaperRenderError("Image edit response contains no image")
++                from io import BytesIO
++
++                from PIL import Image
++                with Image.open(BytesIO(content)) as rendered:
++                    rendered.verify()
++                destination.write_bytes(content)
++                return RenderedWallpaper(destination, name, prompt, self.model, size)
++            except RateLimitError as exc:
++                code, _ = self._extract_error_info(exc)
++                if code in self.BILLING_ERROR_CODES:
++                    raise WallpaperBillingError("OpenAI image balance exhausted") from exc
++                if attempt >= self.max_attempts:
++                    raise WallpaperRateLimitError("OpenAI image rate limit exceeded") from exc
++                await self._sleep_before_retry(attempt)
++            except (APIStatusError, APIConnectionError, AuthenticationError, BadRequestError) as exc:
++                raise WallpaperRenderError(f"Image editing failed: {exc}") from exc
++        raise WallpaperRenderError("Image editing failed")
++
++    async def close(self) -> None:
++        await self.client.close()
++
+     async def _sleep_before_retry(self, attempt: int) -> None:
+         delay = self.base_delay_seconds * (2 ** (attempt - 1))
+         logger.info("Sleeping %.1f seconds before retry...", delay)
+         await asyncio.sleep(delay)
+ 
+-    def _extract_error_info(self, exc: Exception) -> tuple[Optional[str], str]:
++    def _extract_error_info(self, exc: Exception) -> tuple[str | None, str]:
+         error_code = None
+         error_message = str(exc)
+         body = getattr(exc, "body", None)
+diff --git a/app/workers/menu_pipeline.py b/app/workers/menu_pipeline.py
+index c999c46..de5e1e6 100644
+--- a/app/workers/menu_pipeline.py
++++ b/app/workers/menu_pipeline.py
+@@ -15,6 +15,7 @@ from __future__ import annotations
+ 
+ import asyncio
+ import logging
++from decimal import Decimal
+ from pathlib import Path
+ 
+ from aiogram.types import FSInputFile
+@@ -25,6 +26,7 @@ from app.config import Settings
+ from app.database.models import FileKind, GenerationStatus, MenuStatus
+ from app.database.repositories import MenuRepository
+ from app.render.booklet import BookletRenderer
++from app.render.recipes import render_recipe_sheet
+ from app.services.image_generation import ImageGenerationService
+ from app.services.payment import PaymentService
+ from app.services.printshop import PrintshopService
+@@ -98,6 +100,8 @@ class MenuPipeline:
+             try:
+                 # Шаг 1: Генерация изображений блюд с защитой от дублирования
+                 for item in menu.items:
++                    if item.title == "—":
++                        continue
+                     if item.generation_status == GenerationStatus.DONE and item.image_path:
+                         continue
+ 
+@@ -112,32 +116,42 @@ class MenuPipeline:
+                         logger.error(f"Image generation failed for item {item.id}: {img_exc}")
+                         await repo.set_item_failed(item, str(img_exc))
+ 
++                failed_titles = [item.title for item in menu.items if item.title != "—" and
++                                 (item.generation_status != GenerationStatus.DONE or not item.image_path)]
++                if failed_titles:
++                    raise RuntimeError(f"Menu images are incomplete: {', '.join(failed_titles[:3])}")
++
+                 # Шаг 2: Генерация рецептов через LLM или локальный фоллбэк
+                 language = getattr(menu.customer, "language", "uk") or "uk"
+-                dish_titles = [item.title for item in menu.items]
++                dish_titles = [item.title for item in menu.items if item.title != "—"]
+                 menu_details = await self.recipe_service.generate_menu_details(dish_titles, language)
+ 
+                 # Шаг 3: Агрегация списка покупок
+                 shopping_list = aggregate_shopping_list(menu_details)
+                 shopping_text = self._format_shopping_list(shopping_list, language)
+ 
+-                # Шаг 4: Рендеринг через штатный метод BookletRenderer
++                # Рецепты и список продуктов выдаются вместе с оплаченным PDF.
+                 rendered_artifacts = await asyncio.to_thread(self.renderer.render, menu)
+                 preview_image_path = rendered_artifacts.outside_preview
+                 production_pdf_path = rendered_artifacts.print_pdf
++                recipe_path = await asyncio.to_thread(
++                    render_recipe_sheet,
++                    self.settings.generated_dir / str(menu.id) / f"food_porn_recipe_sheet_{menu.id}.pdf",
++                    menu_details,
++                    shopping_list,
++                    str(language),
++                )
++                for kind, path in rendered_artifacts.as_mapping().items():
++                    await repo.save_file(menu.id, kind, str(path))
++                await repo.save_file(menu.id, FileKind.RECIPE_SHEET, str(recipe_path))
+ 
+                 logger.info(f"Render artifacts created successfully -> Outside preview: {preview_image_path}")
+ 
+                 # Получение chat_id и идентификации пользователя
+-                chat_id = getattr(menu.customer, "telegram_user_id", None) or getattr(menu.customer, "chat_id", None)
+-                if not chat_id and menu.customer:
+-                    chat_id = getattr(menu.customer, "id", None)
++                chat_id = menu.customer.telegram_user_id
+ 
+-                # Проверка на VIP-пользователей (@bondarev_e / @Voloshka0602 или ваш Telegram ID)
+-                customer_telegram_id = getattr(menu.customer, "telegram_user_id", 0)
+-                # Укажите здесь ваш реальный Telegram ID или проверяйте по нику/флагу
+-                VIP_IDS = {725003786}  # Ваш ID из предыдущих логов воркера
+-                is_vip = customer_telegram_id in VIP_IDS
++                customer_telegram_id = menu.customer.telegram_user_id
++                is_vip = customer_telegram_id in self.settings.admin_telegram_ids
+ 
+                 is_uk = str(language).lower() in ("uk", "ukrainian")
+ 
+@@ -145,12 +159,13 @@ class MenuPipeline:
+                     # ВИП-режим: сразу отмечаем как оплаченное и выдаем чистые файлы без эквайринга
+                     await repo.mark_as_paid(menu_id, payment_id=f"VIP_PASS_{menu_id}", payment_system="vip_bypass")
+ 
++                    success_dispatch = False
+                     if preview_image_path and Path(preview_image_path).exists() and chat_id:
+                         vip_msg = (
+-                            "👑 <b>VIP-доступ активовано для @bondarev_e / @Voloshka0602!</b>\n\n"
++                            "👑 <b>Адміністраторський доступ активовано!</b>\n\n"
+                             "Оплата для цього акаунта пропущена автоматично. Завантажуємо чистий буклет..."
+                             if is_uk else
+-                            "👑 <b>VIP-доступ активирован!</b>\n\n"
++                            "👑 <b>Администраторский доступ активирован!</b>\n\n"
+                             "Оплата для вашего акаунта пропущена автоматически. Загружаем чистый буклет..."
+                         )
+                         await self.bot.send_message(chat_id=chat_id, text=vip_msg, parse_mode="HTML")
+@@ -164,6 +179,7 @@ class MenuPipeline:
+                                 caption=caption_prod,
+                                 parse_mode="HTML"
+                             )
++                        await self.bot.send_document(chat_id=chat_id, document=FSInputFile(str(recipe_path)))
+ 
+                         # Автоматическая отправка в типографию
+                         if production_pdf_path and Path(production_pdf_path).exists():
+@@ -176,35 +192,41 @@ class MenuPipeline:
+ 
+                         await self.bot.send_message(chat_id=chat_id, text=shopping_text, parse_mode="HTML")
+ 
+-                    await repo.set_status(menu_id, MenuStatus.COMPLETED)
++                    if not success_dispatch:
++                        await repo.set_status(menu_id, MenuStatus.COMPLETED)
+                     logger.info(f"VIP Pipeline successfully finished for Menu ID:{menu_id}")
+                     return
+ 
+                 # Стандартный коммерческий режим для остальных пользователей
+-                price = self.settings.menu_price
++                price = Decimal(str(self.settings.menu_price)).quantize(Decimal("0.01"))
+                 currency = self.settings.currency
+-                portmone_link = self.payment_service.create_portmone_invoice(menu.id, price, f"Menu #{menu.id}")
+-                redsys_link = self.payment_service.create_redsys_invoice(menu.id, price / 42.0, f"Menu #{menu.id}")
+-                pay_keyboard = get_payment_keyboard(menu.id, portmone_link, redsys_link, language)
+-
+-                if preview_image_path and Path(preview_image_path).exists() and chat_id:
++                pay_keyboard = None
++                if self.payment_service.portmone_ready:
+                     try:
+-                        file_kind = getattr(FileKind, "PREVIEW", None) or list(FileKind)[0]
+-                        await repo.save_file(menu.id, file_kind, str(preview_image_path))
+-                    except Exception as db_file_exc:
+-                        logger.warning(f"Non-critical DB file save warning: {db_file_exc}")
++                        portmone_link = await self.payment_service.create_portmone_invoice(
++                            menu.id, float(price), f"Menu #{menu.id}"
++                        )
++                        pay_keyboard = get_payment_keyboard(menu.id, portmone_link, language)
++                        await repo.set_waiting_for_payment(menu.id, price)
++                    except Exception as exc:
++                        logger.error("Payment checkout unavailable for menu %s: %s", menu.id, exc)
++                if pay_keyboard is None:
++                    await repo.set_status(menu.id, MenuStatus.IMAGES_READY)
+ 
++                if preview_image_path and Path(preview_image_path).exists() and chat_id:
+                     caption = (
+                         f"✨ <b>Ваш превью-гастрономічний сет #{menu.id} готовий!</b>\n\n"
+                         f"🔒 <i>На превью нанесені захисні водяні знаки.</i>\n"
+                         f"💰 <b>Вартість повного комплекту:</b> {price} {currency}\n\n"
+-                        f"Після оплати ви миттєво отримаєте чистий буклет і замовлення відправиться в друкарню!"
++                        f"Після підтвердження оплати ви отримаєте чистий буклет та рецепти."
+                         if is_uk else
+                         f"✨ <b>Ваш превью-гастрономический сет #{menu.id} готов!</b>\n\n"
+                         f"🔒 <i>На превью нанесены защитные водяные знаки.</i>\n"
+                         f"💰 <b>Стоимость полного комплекта:</b> {price} {currency}\n\n"
+-                        f"После оплаты вы получите чистый буклет, а заказ уйдет в типографию!"
++                        f"После подтверждения оплаты вы получите чистый буклет и рецепты."
+                     )
++                    if pay_keyboard is None:
++                        caption += "\n\nОплата тимчасово недоступна." if is_uk else "\n\nОплата временно недоступна."
+ 
+                     await self.bot.send_photo(
+                         chat_id=chat_id,
+@@ -214,18 +236,18 @@ class MenuPipeline:
+                         reply_markup=pay_keyboard
+                     )
+ 
+-                    await self.bot.send_message(
+-                        chat_id=chat_id,
+-                        text=shopping_text,
+-                        parse_mode="HTML"
+-                    )
+-
+-                await repo.set_status(menu_id, MenuStatus.COMPLETED)
+                 logger.info(f"Pipeline successfully finished for Menu ID:{menu_id}")
+ 
+             except Exception as proc_exc:
+                 logger.error(f"Pipeline processing failed for Menu ID:{menu_id}: {proc_exc}", exc_info=True)
+                 await repo.set_status(menu_id, MenuStatus.FAILED, error_message=str(proc_exc))
++                try:
++                    await self.bot.send_message(
++                        menu.customer.telegram_user_id,
++                        "Не удалось подготовить полный комплект. Оплата не выставлена; повторите создание позже.",
++                    )
++                except Exception:
++                    logger.exception("Could not notify customer about failed menu %s", menu_id)
+ 
+     @staticmethod
+     def _format_shopping_list(shopping_list: dict | list, language: str) -> str:
+diff --git a/pyproject.toml b/pyproject.toml
+index 86be97f..1a517b4 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -15,6 +15,8 @@ dependencies = [
+   "aiofiles>=24.1,<25",
+   "phonenumbers>=9.0,<10",
+   "greenlet>=3.2,<4",
++  "httpx>=0.27,<1",
++  "aiosmtplib>=3.0,<6",
+ ]
+ 
+ [tool.pytest.ini_options]
+diff --git a/requirements.txt b/requirements.txt
+index a96fe1f..90b609b 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -9,3 +9,5 @@ reportlab>=4.4,<5
+ aiofiles>=24.1,<25
+ phonenumbers>=9.0,<10
+ greenlet>=3.2,<4
++httpx>=0.27,<1
++aiosmtplib>=3.0,<6
+diff --git a/tests/test_payment_verification.py b/tests/test_payment_verification.py
+new file mode 100644
+index 0000000..340db11
+--- /dev/null
++++ b/tests/test_payment_verification.py
+@@ -0,0 +1,65 @@
++"""A callback must not release files without a merchant-verified payment."""
++from decimal import Decimal
++
++import pytest
++
++from app.config import Settings
++from app.services import payment
++
++
++class MockResponse:
++    def __init__(self, data):
++        self.data = data
++
++    def raise_for_status(self):
++        pass
++
++    def json(self):
++        return self.data
++
++
++@pytest.mark.asyncio
++async def test_payment_matches_order_merchant_and_amount(monkeypatch):
++    captured = []
++    entries = [
++        {"shopOrderNumber": "menu_17", "payee_id": "merchant",
++         "billAmount": "499.00", "status": "PAYED", "payee_export_flag": "Y",
++         "shopBillId": "p17"},
++    ]
++
++    class Client:
++        def __init__(self, **kwargs):
++            pass
++
++        async def __aenter__(self):
++            return self
++
++        async def __aexit__(self, *args):
++            pass
++
++        async def post(self, url, json):
++            captured.append((url, json))
++            return MockResponse(entries)
++
++    monkeypatch.setattr(payment.httpx, "AsyncClient", Client)
++    settings = Settings(_env_file=None, portmone_payee_id="merchant", portmone_login="login",
++                        portmone_password="secret", currency="UAH")
++    service = payment.PaymentService(settings)
++    assert (await service.verify_portmone_payment(17, Decimal("499"))).payment_id == "p17"
++    assert captured[-1][1]["params"]["data"]["shopOrderNumber"] == "menu_17"
++
++    for field, other in (("shopOrderNumber", "menu_18"), ("payee_id", "other"),
++                         ("billAmount", "1.00"), ("status", "CREATED"),
++                         ("payee_export_flag", "N")):
++        original = entries[0][field]
++        entries[0][field] = other
++        assert await service.verify_portmone_payment(17, Decimal("499")) is None
++        entries[0][field] = original
++
++
++@pytest.mark.asyncio
++async def test_unconfigured_payment_fails_closed():
++    service = payment.PaymentService(Settings(_env_file=None))
++    assert not service.portmone_ready
++    with pytest.raises(payment.PaymentError):
++        await service.verify_portmone_payment(5, Decimal("499"))
+diff --git a/tests/test_recipe_generator.py b/tests/test_recipe_generator.py
+new file mode 100644
+index 0000000..526e275
+--- /dev/null
++++ b/tests/test_recipe_generator.py
+@@ -0,0 +1,21 @@
++from types import SimpleNamespace
++
++import pytest
++
++from app.config import Settings
++from app.services import recipe_generator
++
++
++@pytest.mark.asyncio
++async def test_unavailable_recipe_does_not_create_a_billable_placeholder(monkeypatch):
++    class FailedCompletions:
++        async def create(self, **kwargs):
++            raise RuntimeError("service unavailable")
++
++    monkeypatch.setattr(
++        recipe_generator, "AsyncOpenAI",
++        lambda **kwargs: SimpleNamespace(chat=SimpleNamespace(completions=FailedCompletions())),
++    )
++    service = recipe_generator.RecipeGeneratorService(Settings(_env_file=None, openai_api_key="test"))
++    with pytest.raises(RuntimeError, match="Recipe unavailable"):
++        await service.generate_menu_details(["Борщ"], "ru")
+diff --git a/tests/test_recipe_sheet.py b/tests/test_recipe_sheet.py
+new file mode 100644
+index 0000000..25c142b
+--- /dev/null
++++ b/tests/test_recipe_sheet.py
+@@ -0,0 +1,13 @@
++from app.render.recipes import render_recipe_sheet
++
++
++def test_recipe_pdf_contains_paid_order_recipe_and_shopping_list(tmp_path):
++    path = render_recipe_sheet(
++        tmp_path / "recipe.pdf",
++        {"Борщ": {"ingredients": ["Свёкла - 300 г"],
++                   "recipe": "1. Нарезать овощи.\n2. Сварить суп."}},
++        ["• Свёкла: 300 г"],
++        "ru",
++    )
++    assert path.read_bytes().startswith(b"%PDF")
++    assert path.stat().st_size > 5000
+diff --git a/tests/test_vision_board.py b/tests/test_vision_board.py
+new file mode 100644
+index 0000000..1ae711f
+--- /dev/null
++++ b/tests/test_vision_board.py
+@@ -0,0 +1,50 @@
++import base64
++from io import BytesIO
++from types import SimpleNamespace
++
++import pytest
++from PIL import Image
++
++from app.services import wallpaper_renderer
++from app.services.vision_board import create_preview, render_board
++
++
++@pytest.mark.asyncio
++async def test_five_input_photos_reach_image_edit_and_custom_goals_reach_board(tmp_path, monkeypatch):
++    photos = []
++    for number in range(5):
++        path = tmp_path / f"photo_{number}.jpg"
++        Image.new("RGB", (400, 500), (number * 40, 20, 20)).save(path)
++        photos.append(path)
++    output = BytesIO()
++    Image.new("RGB", (64, 96), "#504030").save(output, "PNG")
++    encoded = base64.b64encode(output.getvalue()).decode()
++    received = []
++
++    class FakeImages:
++        async def edit(self, **kwargs):
++            received.extend(file.read() for file in kwargs["image"])
++            assert kwargs["size"] == "1024x1536"
++            return SimpleNamespace(data=[SimpleNamespace(b64_json=encoded, revised_prompt=None)])
++
++    class FakeClient:
++        def __init__(self, **kwargs):
++            self.images = FakeImages()
++
++        async def close(self):
++            pass
++
++    monkeypatch.setattr(wallpaper_renderer, "AsyncOpenAI", FakeClient)
++    renderer = wallpaper_renderer.WallpaperRenderer(api_key="test", output_dir=tmp_path)
++    edited = await renderer.edit_images(image_paths=photos, prompt="Compose five photos")
++    assert len(received) == 5
++    assert len(set(received)) == 5
++    goals = ["Моя семья", "Новое дело", "Путешествие", "Любимый дом", "Свобода выбора"]
++    full = render_board(edited.path, goals, tmp_path / "full.png")
++    preview = create_preview(full, tmp_path / "preview.jpg")
++    assert Image.open(full).size == (1080, 1920)
++    assert Image.open(preview).size == (540, 960)
++    assert full.stat().st_size > 10000
++    with pytest.raises(ValueError):
++        render_board(edited.path, goals[:4], tmp_path / "invalid.png")
++    await renderer.close()

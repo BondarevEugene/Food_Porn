@@ -1,0 +1,56 @@
+.table thead th {
+    text-transform: none;
+}
+
+.required-label::before {
+    content: "*";
+    color: red;
+    margin-right: 5px;
+}
+
+.min-w-0 {
+    min-width: 0 !important;
+}
+
+.navbar-brand-logo {
+    object-fit: contain;
+}
+
+.filter-sidebar-col {
+    width: 300px;
+    flex-shrink: 0;
+}
+
+.admin-toast {
+    width: auto;
+}
+
+.filter-form {
+    gap: 8px;
+}
+
+.filter-form-actions {
+    gap: 8px;
+}
+
+.import-csv-file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.autoresize-textarea {
+  min-height: 25px;
+  overflow-y: hidden;
+  height: 25px;
+}
+
+.chars-count-label.warning {
+  color: red;
+}

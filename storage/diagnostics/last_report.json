@@ -1,0 +1,186 @@
+{
+  "application": "Food_Porn",
+  "generated_at": "2026-10-04T14:15:19.932829+00:00",
+  "health_score": 86,
+  "results": [
+    {
+      "section": "SYSTEM",
+      "name": "Python runtime",
+      "status": "PASS",
+      "details": "Python 3.12.0 · AMD64 · C:\\Users\\bonda\\PycharmProjects\\Food_Porn\\.venv\\Scripts\\python.exe",
+      "duration_ms": 67.3,
+      "critical": true,
+      "remedy": "Установите Python 3.11 или новее.",
+      "metrics": {}
+    },
+    {
+      "section": "SYSTEM",
+      "name": "Virtual environment",
+      "status": "PASS",
+      "details": "активировано · prefix=C:\\Users\\bonda\\PycharmProjects\\Food_Porn\\.venv",
+      "duration_ms": 0.0,
+      "critical": false,
+      "remedy": "PowerShell: .\\.venv\\Scripts\\Activate.ps1",
+      "metrics": {}
+    },
+    {
+      "section": "PROJECT",
+      "name": "Project structure",
+      "status": "PASS",
+      "details": "11/11 обязательных файлов",
+      "duration_ms": 1.5,
+      "critical": true,
+      "remedy": "Проверьте наличие всех файлов проекта.",
+      "metrics": {}
+    },
+    {
+      "section": "PYTHON",
+      "name": "Dependencies",
+      "status": "PASS",
+      "details": "14/14 пакетов · aiogram 3.31.0, SQLAlchemy 2.0.54, asyncpg 0.31.0, alembic 1.20.0…",
+      "duration_ms": 44.9,
+      "critical": true,
+      "remedy": "python -m pip install -r requirements.txt",
+      "metrics": {
+        "installed": 14,
+        "required": 14
+      }
+    },
+    {
+      "section": "PYTHON",
+      "name": "Source syntax",
+      "status": "PASS",
+      "details": "проверено 114 Python-файлов",
+      "duration_ms": 375.4,
+      "critical": true,
+      "remedy": "Исправьте синтаксис перечисленных Python-файлов.",
+      "metrics": {
+        "python_files": 114,
+        "syntax_errors": 0
+      }
+    },
+    {
+      "section": "PYTHON",
+      "name": "Core module imports",
+      "status": "FAIL",
+      "details": "9/11 основных модулей импортируются · app.admin_app: ModuleNotFoundError: No module named 'psycopg2'; app.main: ModuleNotFoundError: No module named 'psycopg2'",
+      "duration_ms": 10586.6,
+      "critical": true,
+      "remedy": "Проверьте зависимости и ошибки импорта.",
+      "metrics": {
+        "modules": 11,
+        "failed": 2
+      }
+    },
+    {
+      "section": "CONFIG",
+      "name": ".env file",
+      "status": "PASS",
+      "details": "локальный файл настроек найден",
+      "duration_ms": 0.1,
+      "critical": true,
+      "remedy": "Создайте файл .env на основе .env.example.",
+      "metrics": {}
+    },
+    {
+      "section": "CONFIG",
+      "name": "Settings parser",
+      "status": "PASS",
+      "details": "окружение=development · логирование=INFO",
+      "duration_ms": 3.9,
+      "critical": true,
+      "remedy": null,
+      "metrics": {}
+    },
+    {
+      "section": "CONFIG",
+      "name": "Required credentials",
+      "status": "PASS",
+      "details": "Telegram=8659••••••••OUA · DB=postgresql+asyncpg://***@ep-young-sea-b5amnpui-pooler.c-7.us-east-2.aws.neon.tech/neondb",
+      "duration_ms": 0.1,
+      "critical": true,
+      "remedy": "Заполните секреты в .env.",
+      "metrics": {}
+    },
+    {
+      "section": "CONFIG",
+      "name": "Database URL",
+      "status": "PASS",
+      "details": "driver=postgresql+asyncpg · host=ep-young-sea-b5amnpui-pooler.c-7.us-east-2.aws.neon.tech · database=neondb",
+      "duration_ms": 0.1,
+      "critical": true,
+      "remedy": "Используйте postgresql+asyncpg:// в DATABASE_URL.",
+      "metrics": {}
+    },
+    {
+      "section": "STORAGE",
+      "name": "Local storage",
+      "status": "PASS",
+      "details": "5/5 каталогов доступны · свободно 12.86 GB",
+      "duration_ms": 0.7,
+      "critical": true,
+      "remedy": null,
+      "metrics": {}
+    },
+    {
+      "section": "DATABASE",
+      "name": "Local Alembic chain",
+      "status": "PASS",
+      "details": "head=6579641ea68a",
+      "duration_ms": 374.3,
+      "critical": true,
+      "remedy": null,
+      "metrics": {}
+    },
+    {
+      "section": "PROJECT",
+      "name": "Project inventory",
+      "status": "INFO",
+      "details": "🐍 Python: 114 · 🧪 тесты: 22 · 🗃️ миграции: 8 · 🖼️ demo: 19",
+      "duration_ms": 9.0,
+      "critical": false,
+      "remedy": null,
+      "metrics": {}
+    },
+    {
+      "section": "NETWORK",
+      "name": "Telegram API",
+      "status": "PASS",
+      "details": "@MenuDishesForLove_bot · id=8659225756 · MenuDishesForLove_bot",
+      "duration_ms": 894.4,
+      "critical": true,
+      "remedy": null,
+      "metrics": {}
+    },
+    {
+      "section": "NETWORK",
+      "name": "Neon PostgreSQL",
+      "status": "PASS",
+      "details": "database=neondb · PostgreSQL 18.6 (4e955f5) · TLS connected",
+      "duration_ms": 4544.8,
+      "critical": true,
+      "remedy": null,
+      "metrics": {}
+    },
+    {
+      "section": "QUALITY",
+      "name": "Pytest suite",
+      "status": "FAIL",
+      "details": "exit=2 · !!!!!!!!!!!!!!!!!!! Interrupted: 2 errors during collection !!!!!!!!!!!!!!!!!!! · 1 warning, 2 errors in 13.34s",
+      "duration_ms": 16304.5,
+      "critical": true,
+      "remedy": null,
+      "metrics": {}
+    },
+    {
+      "section": "QUALITY",
+      "name": "Ruff lint",
+      "status": "WARN",
+      "details": "exit=1 · Found 26 errors. · [*] 14 fixable with the `--fix` option (3 hidden fixes can be enabled with the `--unsafe-fixes` option).",
+      "duration_ms": 147.2,
+      "critical": false,
+      "remedy": null,
+      "metrics": {}
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 150" role="img" aria-label="Сервировка и венчик">
+  <defs><linearGradient id="brass" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f4d3ab"/><stop offset=".55" stop-color="#b48559"/><stop offset="1" stop-color="#e5bc89"/></linearGradient></defs>
+  <path d="M27 110h123" fill="none" stroke="url(#brass)" stroke-width="5" stroke-linecap="round"/>
+  <path d="M38 103a52 52 0 0 1 104 0Z" fill="#5d3d49" stroke="url(#brass)" stroke-width="4"/>
+  <path d="M90 45c0-7 3-10 8-10s8 3 8 10" fill="none" stroke="url(#brass)" stroke-width="3"/>
+  <path d="M43 92c20-47 66-49 89-2" fill="none" stroke="#dfc29a" opacity=".25" stroke-width="3"/>
+  <path d="M138 36c-11 11-10 20-5 29m12-39c-8 8-8 17-4 27m12-20c-7 6-7 14-4 20" fill="none" stroke="#ae7e69" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M129 67c11-16 28-14 27 3-1 14-15 22-18 34m-7-35c-8-19-22-15-21 0 2 14 18 24 28 35" fill="none" stroke="url(#brass)" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M138 104l-3 27" stroke="url(#brass)" stroke-width="5" stroke-linecap="round"/>
+  <path d="M19 45v11m-5-5h11" stroke="#c08a6f" stroke-width="1.4" stroke-linecap="round"/>
+</svg>

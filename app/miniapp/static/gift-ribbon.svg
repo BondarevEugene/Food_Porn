@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 150" role="img" aria-label="Сатиновая лента и переплетённые кольца">
+  <defs>
+    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f5d9ae"/><stop offset=".47" stop-color="#b78b60"/><stop offset="1" stop-color="#f0d2a5"/></linearGradient>
+    <linearGradient id="silk" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c88182"/><stop offset=".52" stop-color="#793b54"/><stop offset="1" stop-color="#d3988a"/></linearGradient>
+  </defs>
+  <circle cx="78" cy="77" r="39" fill="none" stroke="url(#metal)" stroke-width="7"/>
+  <circle cx="116" cy="77" r="39" fill="none" stroke="url(#metal)" stroke-width="7"/>
+  <path d="M91 39c-8-27-31-29-33-13-3 16 17 25 35 24M100 39c8-27 31-29 33-13 3 16-17 25-35 24" fill="none" stroke="url(#silk)" stroke-width="10" stroke-linecap="round"/>
+  <path d="M91 48c-18 15-13 41-31 82M101 49c20 17 15 40 33 79" fill="none" stroke="url(#silk)" stroke-width="9" stroke-linecap="round"/>
+  <path d="M88 47c-1-10 16-11 17-2 1 10-17 13-17 2Z" fill="#ad6973" stroke="#e9b6a5" stroke-width="2"/>
+  <path d="M56 126l-9 15 16-6M137 125l10 15-17-6" fill="#9a5968"/>
+  <circle cx="19" cy="50" r="2" fill="#e5bb96"/><circle cx="162" cy="23" r="1.8" fill="#e5bb96"/>
+  <path d="M17 24v11m-5-5h11M157 104v11m-5-5h11" stroke="#d3a579" stroke-width="1.4" stroke-linecap="round"/>
+</svg>
