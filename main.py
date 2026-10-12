@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import errno
 import logging
+import os
 import signal
 import socket
 from collections.abc import Awaitable, Callable, Iterator
@@ -45,6 +46,12 @@ app.include_router(portmone_router)
 app.include_router(miniapp_router)
 
 
+@app.get("/health", include_in_schema=False)
+async def healthcheck() -> dict[str, str]:
+    """Быстрая Railway-проверка без обращений к Telegram, OpenAI и базе."""
+    return {"status": "ok", "service": "food-porn"}
+
+
 class ApplicationServer(uvicorn.Server):
     """Сигналами управляет bootstrap, а не отдельный HTTP-сервер."""
 
@@ -63,6 +70,18 @@ def configure_logging(log_level: str) -> None:
     )
     # Не заменяем обработчики, которые мог установить launcher.
     logging.getLogger().setLevel(level)
+
+
+def resolve_web_port(settings: Settings) -> int:
+    """Возвращает порт Railway либо локальный MINIAPP_PORT."""
+    raw_port = os.environ.get("PORT") or settings.miniapp_port or 8000
+    try:
+        port = int(raw_port)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"Invalid web port: {raw_port!r}") from exc
+    if not 1 <= port <= 65535:
+        raise RuntimeError(f"Web port is outside 1..65535: {port}")
+    return port
 
 
 def reserve_miniapp_port(port: int) -> socket.socket:
@@ -258,7 +277,7 @@ async def main() -> None:
     configure_logging(settings.log_level)
     settings.validate_runtime()
     settings.ensure_directories()
-    web_port = settings.miniapp_port or 8000
+    web_port = resolve_web_port(settings)
     logger.info("Starting Food_Porn | environment=%s | web_port=%s", settings.app_env, web_port)
 
     # Каждый созданный ресурс сразу получает обработчик очистки.

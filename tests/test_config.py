@@ -11,6 +11,8 @@ Responsibilities:
 ==========================================================
 """
 
+from sqlalchemy.engine import make_url
+
 from app.config import Settings
 
 
@@ -46,3 +48,16 @@ def test_safe_image_request_defaults() -> None:
     assert settings.image_concurrency == 1
     assert settings.image_retries == 2
     assert settings.openai_quota_cooldown_seconds == 300
+
+
+def test_neon_database_url_is_normalized_for_asyncpg() -> None:
+    settings = Settings(
+        _env_file=None,
+        database_url=(
+            "postgresql://owner:secret@example.neon.tech/neondb"
+            "?sslmode=require&channel_binding=require"
+        ),
+    )
+    url = make_url(settings.database_url)
+    assert url.drivername == "postgresql+asyncpg"
+    assert dict(url.query) == {"ssl": "require"}

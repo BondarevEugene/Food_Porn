@@ -16,6 +16,7 @@ from typing import Annotated
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 
 class Settings(BaseSettings):
@@ -114,10 +115,22 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_database_url(cls, value: str) -> str:
         if value.startswith("postgres://"):
-            return value.replace("postgres://", "postgresql+asyncpg://", 1)
-        if value.startswith("postgresql://"):
-            return value.replace("postgresql://", "postgresql+asyncpg://", 1)
-        return value
+            value = value.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif value.startswith("postgresql://"):
+            value = value.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+        url = make_url(value)
+        if url.drivername != "postgresql+asyncpg":
+            return value
+
+        # Neon показывает URL для libpq/psycopg. Драйвер asyncpg принимает
+        # параметр ``ssl``, но не понимает ``sslmode`` и ``channel_binding``.
+        query = dict(url.query)
+        ssl_mode = query.pop("sslmode", None)
+        query.pop("channel_binding", None)
+        if ssl_mode and "ssl" not in query:
+            query["ssl"] = ssl_mode
+        return url.set(query=query).render_as_string(hide_password=False)
 
     @field_validator("admin_telegram_ids", "free_generation_telegram_ids", mode="before")
     @classmethod
