@@ -101,6 +101,7 @@ class Settings(BaseSettings):
     admin_username: str = ""
     admin_password: SecretStr = SecretStr("")
     admin_session_secret: SecretStr = SecretStr("")
+    crm_encryption_key: SecretStr = SecretStr("")
 
     model_config = SettingsConfigDict(
         env_file=".env",

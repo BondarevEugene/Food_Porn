@@ -9,12 +9,17 @@ import logging
 import os
 from pathlib import Path
 from typing import Any
+from decimal import Decimal
 
 import httpx
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, RateLimitError
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.config import Settings
+
+# --- NEW: Import AI cost tracker ---
+from app.services.cost_tracker import log_ai_generation
+from app.database.session import async_session_maker
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +61,7 @@ class ImageGenerationService:
     def allow_quota_probe(self) -> None:
         self._quota_blocked_until = 0.0
 
-    async def generate(self, prompt: str, destination: Path) -> Path:
+    async def generate(self, prompt: str, destination: Path, customer_id: int | None = None) -> Path:
         # A demo placeholder must never become a paid PDF or a VIP delivery.
         if self.settings.use_mock_images:
             raise ImageGenerationError("USE_MOCK_IMAGES=true: выключите режим заглушек в .env для настоящих блюд")
@@ -66,7 +71,7 @@ class ImageGenerationService:
         attempts = max(1, self.settings.image_retries)
         for attempt in range(attempts):
             try:
-                data = await self._request_image(prompt)
+                data = await self._request_image(prompt, customer_id=customer_id)
                 return self._save_verified_jpeg(data, destination)
             except RateLimitError as exc:
                 code = self._openai_error_code(exc)
@@ -87,7 +92,7 @@ class ImageGenerationService:
             await asyncio.sleep(min(2**attempt, 8))
         raise RetryableImageGenerationError("Image API unavailable")
 
-    async def _request_image(self, prompt: str, destination: Path | None = None) -> bytes | Path:
+    async def _request_image(self, prompt: str, destination: Path | None = None, customer_id: int | None = None) -> bytes | Path:
         # GPT Image returns b64_json; its URL is often null. Preserve the exact
         # dish name and styling instructions already composed by PromptBuilder.
         response = await self.openai_client.images.generate(
@@ -97,6 +102,30 @@ class ImageGenerationService:
             quality=self.settings.openai_image_quality,
             n=1,
         )
+
+        # --- NEW: Log AI generation cost ---
+        # Стоимость генерации изображения зависит от модели и разрешения.
+        # Например, DALL-E 3 (standard, 1024x1024) = $0.040, HD = $0.080.
+        # Для DALL-E 2 512x512 = $0.018. Мы возьмем дефолт DALL-E 3 Standard ($0.040).
+        cost_usd = Decimal("0.040")
+        if "dall-e-2" in self.settings.openai_image_model.lower():
+            cost_usd = Decimal("0.018")
+
+        if customer_id:
+            try:
+                async with async_session_maker() as session:
+                    await log_ai_generation(
+                        session=session,
+                        user_id=customer_id,
+                        model_name=self.settings.openai_image_model,
+                        prompt_tokens=0,      # DALL-E тарифицируется поштучно, не за токены
+                        completion_tokens=0,
+                        cost_usd=cost_usd
+                    )
+            except Exception as e:
+                logger.error("Failed to log AI image generation cost: %s", e)
+        # -----------------------------------
+
         if not response.data:
             raise ImageGenerationError("Image API returned no image")
         image = response.data[0]
@@ -111,6 +140,7 @@ class ImageGenerationService:
             payload = result.content
         else:
             raise ImageGenerationError("Image API returned neither image bytes nor URL")
+
         if destination is not None:
             return self._save_verified_jpeg(payload, destination)
         return payload

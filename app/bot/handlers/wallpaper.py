@@ -41,12 +41,15 @@ logger = logging.getLogger(__name__)
 # Безопасный кеш блокировок пользователей с ограничением/очисткой при необходимости
 _locks_cache: dict[int, asyncio.Lock] = {}
 
+
 def get_user_lock(user_id: int) -> asyncio.Lock:
     if user_id not in _locks_cache:
         _locks_cache[user_id] = asyncio.Lock()
     return _locks_cache[user_id]
 
+
 MAX_GIFT_PHOTOS = 7
+
 
 def text_for(lang: str, uk: str, ru: str, en: str) -> str:
     return {"ru": ru, "en": en}.get(lang, uk)
@@ -59,9 +62,10 @@ def gift_keyboard(lang: str, selected: str = "dark") -> InlineKeyboardMarkup:
         ("color", "🌈 Кольорова", "🌈 Цветная", "🌈 Color"),
     )
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=text_for(lang, "✨ Додати до 7 фото", "✨ Добавить до 7 фото", "✨ Add up to 7 photos"), callback_data="gift_five_photos")],
+        [InlineKeyboardButton(text=text_for(lang, "✨ Додати до 7 фото", "✨ Добавить до 7 фото", "✨ Add up to 7 photos"),
+                              callback_data="gift_five_photos")],
         [InlineKeyboardButton(text=("✓ " if key == selected else "")
-                             + text_for(lang, uk, ru, en), callback_data=f"gift_style:{key}")
+                                   + text_for(lang, uk, ru, en), callback_data=f"gift_style:{key}")
          for key, uk, ru, en in styles],
         [InlineKeyboardButton(text=text_for(lang, "⬅️ До меню", "⬅️ В меню", "⬅️ Back"),
                               callback_data="back_to_products")],
@@ -103,9 +107,9 @@ async def recover_blocked_gift(callback: CallbackQuery, state: FSMContext,
     if callback.data == "gift_safety_goals":
         await state.set_state(WallpaperStates.waiting_for_goals)
         await callback.message.answer(text_for(lang,
-            "Фото збережені 💛 Напишіть від 5 до 9 оновлених цілей, кожну з нового рядка.",
-            "Фото сохранены 💛 Напишите от 5 до 9 уточнённых целей, каждую с новой строки.",
-            "Your photos are saved 💛 Send 5 to 9 revised goals, one per line."))
+                                               "Фото збережені 💛 Напишіть від 5 до 9 оновлених цілей, кожну з нового рядка.",
+                                               "Фото сохранены 💛 Напишите от 5 до 9 уточнённых целей, каждую с новой строки.",
+                                               "Your photos are saved 💛 Send 5 to 9 revised goals, one per line."))
     else:
         if callback.data == "gift_safety_five_photos" and len(upload_paths(settings, callback.from_user.id)) <= 1:
             await callback.answer("Цей варіант доступний для замовлення з кількома фото.")
@@ -118,12 +122,12 @@ async def recover_blocked_gift(callback: CallbackQuery, state: FSMContext,
         await state.set_state(WallpaperStates.waiting_for_five_photos if five else
                               WallpaperStates.waiting_for_photo)
         await callback.message.answer(text_for(lang,
-            "Цілі й стиль збережені 💛 Надішліть від 1 до 7 нових фото й натисніть «Готово»." if five else
-            "Цілі й стиль збережені 💛 Надішліть інше фото.",
-            "Цели и стиль сохранены 💛 Пришлите от 1 до 7 новых фото и нажмите «Готово»." if five else
-            "Цели и стиль сохранены 💛 Пришлите другое фото.",
-            "Your goals and style are saved 💛 Send 1 to 7 new photos and tap Done." if five else
-            "Your goals and style are saved 💛 Send another photo."))
+                                               "Цілі й стиль збережені 💛 Надішліть від 1 до 7 нових фото й натисніть «Готово»." if five else
+                                               "Цілі й стиль збережені 💛 Надішліть інше фото.",
+                                               "Цели и стиль сохранены 💛 Пришлите от 1 до 7 новых фото и нажмите «Готово»." if five else
+                                               "Цели и стиль сохранены 💛 Пришлите другое фото.",
+                                               "Your goals and style are saved 💛 Send 1 to 7 new photos and tap Done." if five else
+                                               "Your goals and style are saved 💛 Send another photo."))
     await callback.answer()
 
 
@@ -222,10 +226,10 @@ async def resume_saved_photos(message: Message, state: FSMContext, settings: Set
     await state.update_data(ui_lang=lang, lang=lang, style="dark")
     await state.set_state(WallpaperStates.waiting_for_goals)
     await message.answer(text_for(lang,
-        f"Ваші {len(photos)} фото збережені 💛 Після перезапуску потрібно ще раз надіслати від 5 до 9 цілей, кожну з нового рядка. Можна змінити стиль кнопками нижче.",
-        f"Ваши {len(photos)} фото сохранены 💛 После перезапуска нужно ещё раз отправить от 5 до 9 целей, каждую с новой строки. Стиль можно выбрать кнопками ниже.",
-        f"Your {len(photos)} photos are saved 💛 After restart, please send your 5 to 9 goals again, one per line. You can change style below."),
-        reply_markup=gift_keyboard(lang))
+                                  f"Ваші {len(photos)} фото збережені 💛 Після перезапуску потрібно ще раз надіслати від 5 до 9 цілей, кожну з нового рядка. Можна змінити стиль кнопками нижче.",
+                                  f"Ваши {len(photos)} фото сохранены 💛 После перезапуска нужно ещё раз отправить от 5 до 9 целей, каждую с новой строки. Стиль можно выбрать кнопками ниже.",
+                                  f"Your {len(photos)} photos are saved 💛 After restart, please send your 5 to 9 goals again, one per line. You can change style below."),
+                         reply_markup=gift_keyboard(lang))
 
 
 @router.callback_query(F.data.startswith("gift_style:"))
@@ -253,9 +257,9 @@ async def select_gift_style(callback: CallbackQuery, state: FSMContext) -> None:
         except Exception:
             logger.debug("Could not update gift style buttons for user %s", callback.from_user.id)
     await callback.answer(text_for(lang,
-        f"Обрав {label[0]} атмосферу 💛",
-        f"Выбрал {label[1]} атмосферу 💛",
-        f"Selected the {label[2]} atmosphere 💛"))
+                                   f"Обрав {label[0]} атмосферу 💛",
+                                   f"Выбрал {label[1]} атмосферу 💛",
+                                   f"Selected the {label[2]} atmosphere 💛"))
 
 
 @router.callback_query(F.data == "start_wallpaper_flow")
@@ -298,9 +302,9 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
         await generate_wallpapers(callback.message, state, settings, session_factory)
     else:
         await callback.message.answer(text_for(data.get("lang", "uk"),
-            f"Зберіг {count} фото 💛 Тепер надішліть від 5 до 9 цілей, кожну з нового рядка.",
-            f"Сохранил {count} фото 💛 Теперь пришлите от 5 до 9 целей, каждую с новой строки.",
-            f"Saved {count} photos 💛 Now send 5 to 9 goals, one per line."))
+                                               f"Зберіг {count} фото 💛 Тепер надішліть від 5 до 9 цілей, кожну з нового рядка.",
+                                               f"Сохранил {count} фото 💛 Теперь пришлите от 5 до 9 целей, каждую с новой строки.",
+                                               f"Saved {count} photos 💛 Now send 5 to 9 goals, one per line."))
 
 
 @router.message(WallpaperStates.waiting_for_photo, F.photo | F.document)
@@ -309,7 +313,9 @@ async def collect_photo(message: Message, state: FSMContext, settings: Settings,
     data = await state.get_data()
     lang = data.get("lang", "uk")
     if message.document and not (message.document.mime_type or "").startswith("image/"):
-        await message.answer(text_for(lang, "Надішліть фото людини, якій хочете зробити подарунок.", "Пришлите фото человека, которому хотите сделать подарок.", "Send a photo of the gift recipient."))
+        await message.answer(text_for(lang, "Надішліть фото людини, якій хочете зробити подарунок.",
+                                      "Пришлите фото человека, которому хотите сделать подарок.",
+                                      "Send a photo of the gift recipient."))
         return
     photo = message.photo[-1] if message.photo else message.document
     if photo.file_size and photo.file_size > settings.max_upload_mb * 1024 * 1024:
@@ -333,9 +339,9 @@ async def collect_photo(message: Message, state: FSMContext, settings: Settings,
             await state.update_data(goals=parse_five_goals(message.caption))
         except ValueError:
             await message.answer(text_for(lang,
-                "Фото отримав 💛 Тепер надішліть від 5 до 9 цілей одним повідомленням, по одній на рядок.",
-                "Фото получил 💛 Теперь пришлите от 5 до 9 целей одним сообщением, по одной на строку.",
-                "Photo received 💛 Please send your 5 to 9 goals in one message, one per line."))
+                                          "Фото отримав 💛 Тепер надішліть від 5 до 9 цілей одним повідомленням, по одній на рядок.",
+                                          "Фото получил 💛 Теперь пришлите от 5 до 9 целей одним сообщением, по одной на строку.",
+                                          "Photo received 💛 Please send your 5 to 9 goals in one message, one per line."))
     if (await state.get_data()).get("goals"):
         await state.set_state(WallpaperStates.generating)
         await generate_wallpapers(message, state, settings, session_factory)
@@ -343,9 +349,9 @@ async def collect_photo(message: Message, state: FSMContext, settings: Settings,
         await state.set_state(WallpaperStates.waiting_for_goals)
         if not message.caption:
             await message.answer(text_for(lang,
-                "Фото отримав 💛 Надішліть від 5 до 9 цілей одним повідомленням, по одній на рядок.",
-                "Фото получил 💛 Пришлите от 5 до 9 целей одним сообщением, по одной на строку.",
-                "Photo received 💛 Send 5 to 9 goals in one message, one per line."))
+                                          "Фото отримав 💛 Надішліть від 5 до 9 цілей одним повідомленням, по одній на рядок.",
+                                          "Фото получил 💛 Пришлите от 5 до 9 целей одним сообщением, по одной на строку.",
+                                          "Photo received 💛 Send 5 to 9 goals in one message, one per line."))
 
 
 @router.message(WallpaperStates.waiting_for_five_photos, F.photo | F.document)
@@ -359,7 +365,9 @@ async def collect_five_photos(message: Message, state: FSMContext, settings: Set
         if count >= MAX_GIFT_PHOTOS:
             return
         if message.document and not (message.document.mime_type or "").startswith("image/"):
-            await message.answer(text_for(lang, "Надішліть зображення, будь ласка.", "Пришлите изображение, пожалуйста.", "Please send an image."))
+            await message.answer(
+                text_for(lang, "Надішліть зображення, будь ласка.", "Пришлите изображение, пожалуйста.",
+                         "Please send an image."))
             return
         photo = message.photo[-1] if message.photo else message.document
         if photo.file_size and photo.file_size > settings.max_upload_mb * 1024 * 1024:
@@ -376,7 +384,9 @@ async def collect_five_photos(message: Message, state: FSMContext, settings: Set
         try:
             await asyncio.to_thread(save_photo, payload.getvalue(), destination)
         except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
-            await message.answer(text_for(lang, "Фото не читається. Спробуйте інше.", "Фото не читается. Попробуйте другое.", "I can't read that photo. Please try another."))
+            await message.answer(
+                text_for(lang, "Фото не читається. Спробуйте інше.", "Фото не читается. Попробуйте другое.",
+                         "I can't read that photo. Please try another."))
             return
         await state.update_data(render_job=None, blocked_input=False)
         if message.caption and not data.get("goals"):
@@ -398,18 +408,18 @@ async def collect_five_photos(message: Message, state: FSMContext, settings: Set
             await generate_wallpapers(message, state, settings, session_factory)
         else:
             await message.answer(text_for(lang,
-                "Усі 7 фото отримав 💛 Тепер напишіть від 5 до 9 цілей одним повідомленням — кожну з нового рядка.",
-                "Все 7 фото получил 💛 Теперь напишите от 5 до 9 целей одним сообщением — каждую с новой строки.",
-                "I have all 7 photos 💛 Now send 5 to 9 goals in one message, one per line."))
+                                          "Усі 7 фото отримав 💛 Тепер напишіть від 5 до 9 цілей одним повідомленням — кожну з нового рядка.",
+                                          "Все 7 фото получил 💛 Теперь напишите от 5 до 9 целей одним сообщением — каждую с новой строки.",
+                                          "I have all 7 photos 💛 Now send 5 to 9 goals in one message, one per line."))
 
 
 @router.message(WallpaperStates.waiting_for_five_photos)
 async def waiting_for_five_notice(message: Message, state: FSMContext) -> None:
     lang = (await state.get_data()).get("lang", "uk")
     await message.answer(text_for(lang,
-        "Чекаю фото 💛 Якщо хочете почати спочатку, надішліть /start.",
-        "Жду фотографии 💛 Если хотите начать заново, отправьте /start.",
-        "I'm waiting for photos 💛 Send /start to begin again."))
+                                  "Чекаю фото 💛 Якщо хочете почати спочатку, надішліть /start.",
+                                  "Жду фотографии 💛 Если хотите начать заново, отправьте /start.",
+                                  "I'm waiting for photos 💛 Send /start to begin again."))
 
 
 @router.message(WallpaperStates.waiting_for_photo, F.text)
@@ -419,9 +429,9 @@ async def goals_before_photo(message: Message, state: FSMContext) -> None:
         goals = parse_five_goals(message.text or "")
     except ValueError:
         await message.answer(text_for(data.get("lang", "uk"),
-            "Напишіть від 5 до 9 цілей, кожну з нового рядка, або спочатку надішліть фото 💛",
-            "Напишите от 5 до 9 целей, каждую с новой строки, либо сначала пришлите фото 💛",
-            "Send 5 to 9 goals, one per line, or send the photo first 💛"))
+                                      "Напишіть від 5 до 9 цілей, кожну з нового рядка, або спочатку надішліть фото 💛",
+                                      "Напишите от 5 до 9 целей, каждую с новой строки, либо сначала пришлите фото 💛",
+                                      "Send 5 to 9 goals, one per line, or send the photo first 💛"))
         return
     if data.get("goals") != goals:
         await state.update_data(render_job=None, blocked_input=False)
@@ -441,17 +451,17 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
         goals = parse_five_goals(message.text or "")
     except ValueError:
         await message.answer(text_for(data.get("lang", "uk"),
-            "Потрібні саме від 5 до 9 цілей: кожна з нового рядка. Спробуйте ще раз 💛",
-            "Нужны именно от 5 до 9 целей: каждая с новой строки. Попробуйте ещё раз 💛",
-            "Please send exactly 5 to 9 goals, one per line 💛"))
+                                      "Потрібні саме від 5 до 9 цілей: кожна з нового рядка. Спробуйте ще раз 💛",
+                                      "Нужны именно от 5 до 9 целей: каждая с новой строки. Попробуйте ещё раз 💛",
+                                      "Please send exactly 5 to 9 goals, one per line 💛"))
         return
     if data.get("blocked_input") and data.get("goals") == goals:
         await message.answer(text_for(data.get("lang", "uk"),
-            "Ці фото й цілі вже не пройшли перевірку. Оберіть інше фото або уточніть цілі 💛",
-            "Эти фото и цели уже не прошли проверку. Выберите другое фото или уточните цели 💛",
-            "These photos and goals were already declined. Choose another photo or revise the goals 💛"),
-            reply_markup=safety_recovery_keyboard(data.get("lang", "uk"),
-                                                  len(upload_paths(settings, message.from_user.id))))
+                                      "Ці фото й цілі вже не пройшли перевірку. Оберіть інше фото або уточніть цілі 💛",
+                                      "Эти фото и цели уже не прошли проверку. Выберите другое фото или уточните цели 💛",
+                                      "These photos and goals were already declined. Choose another photo or revise the goals 💛"),
+                             reply_markup=safety_recovery_keyboard(data.get("lang", "uk"),
+                                                                   len(upload_paths(settings, message.from_user.id))))
         return
     if data.get("goals") != goals:
         await state.update_data(render_job=None, blocked_input=False)
@@ -463,9 +473,9 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
 @router.message(WallpaperStates.waiting_for_goals)
 async def waiting_for_goals_notice(message: Message, state: FSMContext) -> None:
     await message.answer(text_for((await state.get_data()).get("lang", "uk"),
-        "Фото вже є 💛 Надішліть від 5 до 9 цілей текстом.",
-        "Фото уже есть 💛 Пришлите от 5 до 9 целей текстом.",
-        "I have your photos 💛 Please send the 5 to 9 goals as text."))
+                                  "Фото вже є 💛 Надішліть від 5 до 9 цілей текстом.",
+                                  "Фото уже есть 💛 Пришлите от 5 до 9 целей текстом.",
+                                  "I have your photos 💛 Please send the 5 to 9 goals as text."))
 
 
 @router.message(WallpaperStates.generating)
@@ -511,9 +521,9 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
     if not goals or not 5 <= len(goals) <= 9:
         await state.set_state(WallpaperStates.waiting_for_goals)
         await message.answer(text_for(data.get("lang", "uk"),
-            "Ще потрібно від 5 до 9 ваших цілей, по одній на рядок 💛",
-            "Ещё нужны от 5 до 9 ваших целей, по одной на строку 💛",
-            "I still need your 5 to 9 goals, one per line 💛"))
+                                      "Ще потрібно від 5 до 9 ваших цілей, по одній на рядок 💛",
+                                      "Ещё нужны от 5 до 9 ваших целей, по одной на строку 💛",
+                                      "I still need your 5 to 9 goals, one per line 💛"))
         return
     lang = data.get("lang", "uk")
     free_access = await has_free_generation_access(
@@ -521,9 +531,9 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
     if not free_access and settings.gift_price_stars < 1:
         await state.set_state(WallpaperStates.waiting_for_goals)
         await message.answer(text_for(lang,
-            "Оплата недоступна, а для цього акаунта безкоштовний доступ не налаштовано. Фото й цілі збережено 💛",
-            "Оплата недоступна, а для этого аккаунта бесплатный доступ не настроен. Фото и цели сохранены 💛",
-            "Payment is unavailable and this account has no free access. Your photos and goals are saved 💛"))
+                                      "Оплата недоступна, а для цього акаунта безкоштовний доступ не налаштовано. Фото й цілі збережено 💛",
+                                      "Оплата недоступна, а для этого аккаунта бесплатный доступ не настроен. Фото и цели сохранены 💛",
+                                      "Payment is unavailable and this account has no free access. Your photos and goals are saved 💛"))
         return
     notice = await message.answer(text_for(
         lang, "Фото отримав 💛 Підбираю теплу історію й створюю подарунок. Це може зайняти кілька хвилин.",
@@ -536,7 +546,7 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
         if style not in {"dark", "light", "color"}:
             style = "dark"
         if not isinstance(job, dict) or job.get("goals") != goals or job.get("style") != style or not re.fullmatch(
-            r"[0-9a-f]{32}", str(job.get("id", ""))):
+                r"[0-9a-f]{32}", str(job.get("id", ""))):
             plan = await GoalScenePlanner(settings).plan(photos=photos, goals=goals, lang=lang)
             job = {
                 "id": uuid.uuid4().hex, "goals": list(goals), "style": style,
@@ -567,25 +577,25 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
         await state.set_state(WallpaperStates.waiting_for_goals)
         if exc.stage == "output":
             await message.answer(text_for(lang,
-                "Один із сюжетів не пройшов перевірку зображення. Готові сцени збережені; повторно надішліть свої цілі, щоб продовжити, або почніть з /start з іншими фото 💛",
-                "Один из сюжетов не прошёл проверку изображения. Готовые сцены сохранены; повторно отправьте свои цели, чтобы продолжить, или начните с /start с другими фото 💛",
-                "One scene did not pass the image check. Finished scenes are saved; resend the same 5 to 9 goals to continue, or send /start with different photos 💛"))
+                                          "Один із сюжетів не пройшов перевірку зображення. Готові сцени збережені; повторно надішліть свої цілі, щоб продовжити, або почніть з /start з іншими фото 💛",
+                                          "Один из сюжетов не прошёл проверку изображения. Готовые сцены сохранены; повторно отправьте свои цели, чтобы продолжить, или начните с /start с другими фото 💛",
+                                          "One scene did not pass the image check. Finished scenes are saved; resend the same 5 to 9 goals to continue, or send /start with different photos 💛"))
         else:
             await state.update_data(blocked_input=True)
             await message.answer(text_for(lang,
-                "Сервіс відхилив вхідне фото або формулювання. Ваші цілі й стиль збережено. Оберіть інше фото чи уточніть цілі 💛",
-                "Сервис отклонил входное фото или формулировку. Ваши цели и стиль сохранены. Выберите другое фото или уточните цели 💛",
-                "The service declined an input photo or wording. Your 5 to 9 goals and style are saved. Choose another photo or revise the goals 💛"),
-                reply_markup=safety_recovery_keyboard(lang, len(photos)))
+                                          "Сервіс відхилив вхідне фото або формулювання. Ваші цілі й стиль збережено. Оберіть інше фото чи уточніть цілі 💛",
+                                          "Сервис отклонил входное фото или формулировку. Ваши цели и стиль сохранены. Выберите другое фото или уточните цели 💛",
+                                          "The service declined an input photo or wording. Your 5 to 9 goals and style are saved. Choose another photo or revise the goals 💛"),
+                                 reply_markup=safety_recovery_keyboard(lang, len(photos)))
         return
     except Exception:
         logger.exception("Wallpaper rendering failed for user %s", message.from_user.id)
         await state.set_state(WallpaperStates.waiting_for_goals)
         await message.answer(text_for(lang,
-            "Вибачте, не вдалося завершити візуалізацію. Фото й цілі збережено; повторно надішліть цілі трохи пізніше або /start, щоб почати заново.",
-            "Простите, не удалось закончить визуализацию. Фото и цели сохранены; повторно отправьте цели немного позже или /start, чтобы начать заново.",
-            "Sorry, I couldn't finish it. Your photos and goals are saved; resend the goals later to retry, or use /start to begin again.",
-        ))
+                                      "Вибачте, не вдалося завершити візуалізацію. Фото й цілі збережено; повторно надішліть цілі трохи пізніше або /start, щоб почати заново.",
+                                      "Простите, не удалось закончить визуализацию. Фото и цели сохранены; повторно отправьте цели немного позже или /start, чтобы начать заново.",
+                                      "Sorry, I couldn't finish it. Your photos and goals are saved; resend the goals later to retry, or use /start to begin again.",
+                                      ))
         return
     finally:
         try:
@@ -627,8 +637,11 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
         await message.answer("Оплата тимчасово недоступна. Колаж збережено; спробуйте пізніше.")
         return
     buttons = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=text_for(lang, f"⭐ Отримати подарунок · {order.stars_amount} Stars", f"⭐ Получить подарок · {order.stars_amount} Stars", f"⭐ Get the gift · {order.stars_amount} Stars"), url=url)],
-        [InlineKeyboardButton(text=text_for(lang, "🔄 Перевірити оплату", "🔄 Проверить оплату", "🔄 Check payment"), callback_data=f"check_pay_{order.id}")],
+        [InlineKeyboardButton(text=text_for(lang, f"⭐ Отримати подарунок · {order.stars_amount} Stars",
+                                            f"⭐ Получить подарок · {order.stars_amount} Stars",
+                                            f"⭐ Get the gift · {order.stars_amount} Stars"), url=url)],
+        [InlineKeyboardButton(text=text_for(lang, "🔄 Перевірити оплату", "🔄 Проверить оплату", "🔄 Check payment"),
+                              callback_data=f"check_pay_{order.id}")],
     ])
     await message.answer(text_for(
         lang,
@@ -670,8 +683,8 @@ async def verify_wallpaper_payment(callback: CallbackQuery, settings: Settings,
                 return
             if verified is None:
                 await callback.answer(text_for(lang, "Оплату ще не підтверджено Portmone.",
-                    "Оплата пока не подтверждена Portmone.",
-                    "Portmone has not confirmed the payment yet."), show_alert=True)
+                                               "Оплата пока не подтверждена Portmone.",
+                                               "Portmone has not confirmed the payment yet."), show_alert=True)
                 return
         mobile, desktop = Path(order.mobile_path), Path(order.desktop_path)
         if not mobile.is_file() or not desktop.is_file():
@@ -680,7 +693,7 @@ async def verify_wallpaper_payment(callback: CallbackQuery, settings: Settings,
         if not order.paid:
             await repo.mark_paid(order, verified.payment_id)
         await callback.answer(text_for(lang, "Оплату підтверджено!",
-            "Оплата подтверждена!", "Payment confirmed!"))
+                                       "Оплата подтверждена!", "Payment confirmed!"))
         await _send_full(callback.message, mobile, desktop, lang)
         try:
             archive = await asyncio.to_thread(
@@ -690,18 +703,18 @@ async def verify_wallpaper_payment(callback: CallbackQuery, settings: Settings,
                 dpi=settings.print_dpi,
             )
             await callback.message.answer_document(FSInputFile(str(archive)), caption=text_for(lang,
-                "Архів для друкарні 💛 Усередині постер, PDF, оригінали й параметри друку. "
-                "Перед великим тиражем попросіть пробний друк.",
-                "Архив для типографии 💛 Внутри постер, PDF, оригиналы и параметры печати. "
-                "Перед большим тиражом попросите пробную печать.",
-                "Print archive 💛 Contains the poster, PDF, originals and print details. "
-                "Please request a proof before a large run."))
+                                                                                               "Архів для друкарні 💛 Усередині постер, PDF, оригінали й параметри друку. "
+                                                                                               "Перед великим тиражем попросіть пробний друк.",
+                                                                                               "Архив для типографии 💛 Внутри постер, PDF, оригиналы и параметры печати. "
+                                                                                               "Перед большим тиражом попросите пробную печать.",
+                                                                                               "Print archive 💛 Contains the poster, PDF, originals and print details. "
+                                                                                               "Please request a proof before a large run."))
         except Exception:
             logger.exception("Could not deliver print bundle for paid order %s", order.id)
             await callback.message.answer(text_for(lang,
-                "Оплату підтверджено, зображення надіслано. Архів ще не готовий; повторіть перевірку пізніше.",
-                "Оплата подтверждена, изображения отправлены. Архив ещё не готов; повторите проверку позже.",
-                "Payment confirmed and images sent. The print archive is not ready; check again later."))
+                                                   "Оплату підтверджено, зображення надіслано. Архів ще не готовий; повторіть перевірку пізніше.",
+                                                   "Оплата подтверждена, изображения отправлены. Архив ещё не готов; повторите проверку позже.",
+                                                   "Payment confirmed and images sent. The print archive is not ready; check again later."))
 
 
 @router.callback_query(F.data == "order_print_poster")

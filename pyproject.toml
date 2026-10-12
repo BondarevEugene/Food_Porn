@@ -21,6 +21,8 @@ dependencies = [
   "uvicorn>=0.30,<1",
   "sqladmin>=0.20,<1",
   "python-multipart>=0.0.20,<1",
+  "cryptography>=44,<51",
+  "itsdangerous>=2.2,<3",
 ]
 
 [tool.pytest.ini_options]

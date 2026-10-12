@@ -16,12 +16,13 @@ from aiogram.types import InlineQueryResultArticle, InputTextMessageContent
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from PIL import Image
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 
 from app.bot.handlers.wallpaper import make_preview, parse_five_goals, save_photo
 from app.config import get_settings
+from app.crm.service import dashboard as crm_dashboard
+from app.crm.service import save_settings as crm_save_settings
 from app.database.models import (
-    Customer,
     EmailDelivery,
     FileKind,
     ItemCategory,
@@ -34,6 +35,7 @@ from app.database.models import (
 from app.database.repositories import CustomerRepository, MenuRepository, WallpaperOrderRepository
 from app.database.session import async_session_maker
 from app.miniapp.auth import current_user
+from app.services.admin_access import has_admin_access
 from app.services.email_service import normalize_recipient, send_ready_order_email
 from app.services.free_access import has_free_generation_access
 from app.services.gift_pricing import checkout_price_uah
@@ -223,7 +225,7 @@ async def home(user: Annotated[dict, Depends(current_user)]) -> dict:
                     continue
     return {
         "user": {"id": uid, "name": user.get("first_name", ""), "username": user.get("username")},
-        "admin": uid in settings.admin_telegram_ids,
+        "admin": await has_admin_access(uid, user.get("username"), settings, async_session_maker),
         "language": customer.language.value if customer else user.get("language_code", "uk")[:2],
         "customer": {"name": customer.name, "phone": customer.phone} if customer else None,
         "payment_ready": settings.menu_price_stars > 0 and settings.gift_price_stars > 0,
@@ -321,6 +323,16 @@ async def _generate_gift(uid: int, job_id: str, photos: list[Path], username: st
         await asyncio.to_thread(_validate_gift_files, mobile, desktop)
         await asyncio.to_thread(make_preview, mobile)
         if job["free"]:
+            async with async_session_maker() as session:
+                order = WallpaperOrder(
+                    telegram_user_id=uid, amount=Decimal("0"), stars_amount=0,
+                    mobile_path=str(mobile), desktop_path=str(desktop), paid=True,
+                    payment_id=f"VIP_JOB_{job_id}", payment_system="vip_bypass",
+                )
+                session.add(order)
+                await session.commit()
+                await session.refresh(order)
+            job["order_id"] = order.id
             job["status"] = "ready"
         else:
             cost = plan.ai_cost_usd + renderer.total_cost_usd
@@ -869,33 +881,16 @@ async def menu_evening(menu_id: int, user: Annotated[dict, Depends(current_user)
 @router.get("/api/admin")
 async def admin_dashboard(user: Annotated[dict, Depends(current_user)]) -> dict:
     settings = get_settings()
-    if user["id"] not in settings.admin_telegram_ids:
+    if not await has_admin_access(user["id"], user.get("username"), settings, async_session_maker):
         raise HTTPException(403)
     async with async_session_maker() as session:
-        customers = await session.scalar(select(func.count(Customer.id)))
-        menus = await session.scalar(select(func.count(Menu.id)))
-        gifts = await session.scalar(select(func.count(WallpaperOrder.id)))
-        paid_gifts = await session.scalar(select(func.count(WallpaperOrder.id)).where(WallpaperOrder.paid.is_(True)))
-        gift_revenue = await session.scalar(select(func.sum(WallpaperOrder.amount)).where(
-            WallpaperOrder.paid.is_(True), or_(WallpaperOrder.payment_system.is_(None),
-                                               WallpaperOrder.payment_system != "telegram_stars")))
-        menu_revenue = await session.scalar(select(func.sum(Menu.price_amount)).where(
-            Menu.is_paid.is_(True), or_(Menu.payment_system.is_(None),
-                                       Menu.payment_system != "telegram_stars")))
-        gift_stars = await session.scalar(select(func.sum(WallpaperOrder.stars_amount)).where(
-            WallpaperOrder.paid.is_(True), WallpaperOrder.payment_system == "telegram_stars"))
-        menu_stars = await session.scalar(select(func.sum(Menu.stars_amount)).where(
-            Menu.is_paid.is_(True), Menu.payment_system == "telegram_stars"))
+        data = await crm_dashboard(session, 30)
         vip = await get_vip_users(session, settings.default_vip_users)
         menu_price = await get_setting(session, "menu_price_uah", str(settings.menu_price))
-        recent = (await session.execute(select(Menu).order_by(Menu.id.desc()).limit(10))).scalars().all()
-    return {"customers": customers, "menus": menus, "gifts": gifts, "paid_gifts": paid_gifts,
-            "vip": vip, "menu_price": menu_price,
-            "revenue": str((gift_revenue or 0) + (menu_revenue or 0)),
-            "stars_revenue": (gift_stars or 0) + (menu_stars or 0),
+    return {**data, "paid_gifts": data["paid_gifts"], "vip": vip, "menu_price": menu_price,
+            "revenue": data["revenue_uah"], "stars_revenue": data["revenue_stars"],
             "stars_ready": settings.menu_price_stars > 0 and settings.gift_price_stars > 0,
-            "payment_ready": PaymentService(settings).portmone_ready,
-            "recent": [{"id": item.id, "status": item.status.value} for item in recent]}
+            "payment_ready": PaymentService(settings).portmone_ready, "crm_url": "/crm", "owner": user["id"] in settings.admin_telegram_ids}
 
 
 @router.post("/api/admin/vip")
@@ -915,7 +910,7 @@ async def update_vip(payload: dict, user: Annotated[dict, Depends(current_user)]
 
 @router.post("/api/admin/menu-price")
 async def update_menu_price(payload: dict, user: Annotated[dict, Depends(current_user)]) -> dict:
-    if user["id"] not in get_settings().admin_telegram_ids:
+    if not await has_admin_access(user["id"], user.get("username"), get_settings(), async_session_maker):
         raise HTTPException(403)
     try:
         price = Decimal(str(payload["price"])).quantize(Decimal("0.01"))
@@ -924,5 +919,5 @@ async def update_menu_price(payload: dict, user: Annotated[dict, Depends(current
     except (KeyError, ValueError, ArithmeticError) as exc:
         raise HTTPException(422, "Enter a price from 1 to 100000 UAH") from exc
     async with async_session_maker() as session:
-        await set_setting(session, "menu_price_uah", str(price))
+        await crm_save_settings(session, {"menu_price_uah": str(price)}, f"telegram:{user['id']}")
     return {"menu_price": str(price)}

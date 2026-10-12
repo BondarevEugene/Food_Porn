@@ -60,8 +60,8 @@ class MenuStatus(StrEnum):
     IMAGES_READY = "images_ready"
     PARTIAL_SUCCESS = "partial_success"
     WAITING_FOR_PAYMENT = "waiting_for_payment"  # Превью готово, ожидается оплата
-    PAID = "paid"                                # Оплата успешно подтверждена
-    SENT_TO_PRINTSHOP = "sent_to_printshop"      # Заказ передан в типографию
+    PAID = "paid"  # Оплата успешно подтверждена
+    SENT_TO_PRINTSHOP = "sent_to_printshop"  # Заказ передан в типографию
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -105,8 +105,7 @@ class Menu(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
-    status: Mapped[MenuStatus] = mapped_column(SQLEnum(MenuStatus, native_enum=False, length=30),
-                                               default=MenuStatus.DRAFT, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="draft", nullable=False)
     cover_photo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     spread_photo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -222,3 +221,26 @@ class EmailDelivery(TimestampMixin, Base):
     kind: Mapped[str] = mapped_column(String(20), nullable=False)
     reference_id: Mapped[str] = mapped_column(String(64), nullable=False)
     recipient_email: Mapped[str] = mapped_column(String(254), nullable=False)
+
+# --- ДОБАВИТЬ В САМЫЙ КОНЕЦ ФАЙЛА ---
+class CurrencyRate(TimestampMixin, Base):
+    __tablename__ = "currency_rates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    date: Mapped[str] = mapped_column(String(10), unique=True, index=True)
+    currency_from: Mapped[str] = mapped_column(String(10), default="USD")
+    currency_to: Mapped[str] = mapped_column(String(10), default="UAH")
+    rate: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)
+
+
+class AIGenerationLog(TimestampMixin, Base):
+    __tablename__ = "ai_generation_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    model_name: Mapped[str] = mapped_column(String(100), index=True)
+    prompt_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    completion_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    cost_usd: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal("0.000000"))
+    exchange_rate: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=Decimal("41.0000"))
+    cost_uah: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=Decimal("0.0000"))

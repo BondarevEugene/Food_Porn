@@ -29,6 +29,7 @@ from app.config import get_settings
 from app.database import async_session_maker
 from app.database.models import FileKind, Language, Menu, MenuStatus, ShareLink, WallpaperOrder
 from app.database.repositories import CustomerRepository, MenuRepository
+from app.services.admin_access import crm_url, has_admin_access
 
 router = Router(name="start")
 
@@ -50,11 +51,22 @@ async def open_shared_gift(message: Message) -> None:
             menu = await session.get(Menu, int(link.reference_id))
             if menu and menu.is_paid and menu.status not in (MenuStatus.FAILED, MenuStatus.QUEUED):
                 await session.refresh(menu, ["files"])
-                path = next((Path(file.path) for file in menu.files if file.kind == FileKind.PREVIEW_OUTSIDE), None)
-                attachments = [Path(file.path) for file in menu.files
-                               if file.kind in (FileKind.PRINT_PDF, FileKind.RECIPE_SHEET)]
+                path = next(
+                    (
+                        Path(file.path)
+                        for file in menu.files
+                        if file.kind == FileKind.PREVIEW_OUTSIDE
+                    ),
+                    None,
+                )
+                attachments = [
+                    Path(file.path)
+                    for file in menu.files
+                    if file.kind in (FileKind.PRINT_PDF, FileKind.RECIPE_SHEET)
+                ]
         elif link.kind == "gift":
             from app.miniapp.api import _read_job
+
             try:
                 job = _read_job(link.owner_telegram_id, link.reference_id)
                 if job["status"] == "ready":
@@ -65,9 +77,18 @@ async def open_shared_gift(message: Message) -> None:
                             path = mobile.with_name(f"preview_{mobile.stem}.jpg")
                             attachments = [mobile, Path(order.desktop_path)]
                     elif job.get("free"):
-                        mobile = get_settings().generated_dir / "wallpapers" / str(link.owner_telegram_id) / link.reference_id / f"manifestation_{link.owner_telegram_id}_mobile.png"
+                        mobile = (
+                            get_settings().generated_dir
+                            / "wallpapers"
+                            / str(link.owner_telegram_id)
+                            / link.reference_id
+                            / f"manifestation_{link.owner_telegram_id}_mobile.png"
+                        )
                         path = mobile.with_name(f"preview_{mobile.stem}.jpg")
-                        attachments = [mobile, mobile.with_name(mobile.name.replace("_mobile.png", "_desktop.png"))]
+                        attachments = [
+                            mobile,
+                            mobile.with_name(mobile.name.replace("_mobile.png", "_desktop.png")),
+                        ]
             except Exception:
                 path = None
         elif link.kind == "wallpaper":
@@ -81,16 +102,38 @@ async def open_shared_gift(message: Message) -> None:
         return
     url = get_settings().miniapp_url
     if url:
-        await message.answer("Для вас підготували дещо особливе ✦ Відкрийте конверт — усередині подарунок.",
-                             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
-                                 text="✦ Відкрити подарунок",
-                                 web_app=WebAppInfo(url=f"{url.rstrip('/')}/open/{token}"),
-                             )]]))
+        await message.answer(
+            "Для вас підготували дещо особливе ✦ Відкрийте конверт — усередині подарунок.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="✦ Відкрити подарунок",
+                            web_app=WebAppInfo(url=f"{url.rstrip('/')}/open/{token}"),
+                        )
+                    ]
+                ]
+            ),
+        )
         return
-    keyboard = (InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
-        text="Створити власний подарунок ✦", web_app=WebAppInfo(url=url))]]) if url else None)
-    await message.answer_photo(FSInputFile(str(path)),
-                               caption="Для вас підготували особливий подарунок 💛", reply_markup=keyboard)
+    keyboard = (
+        InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="Створити власний подарунок ✦", web_app=WebAppInfo(url=url)
+                    )
+                ]
+            ]
+        )
+        if url
+        else None
+    )
+    await message.answer_photo(
+        FSInputFile(str(path)),
+        caption="Для вас підготували особливий подарунок 💛",
+        reply_markup=keyboard,
+    )
     for attachment in attachments:
         if attachment.is_file():
             try:
@@ -98,6 +141,7 @@ async def open_shared_gift(message: Message) -> None:
             except Exception:
                 # Keep the share link valid; Telegram may reject an unusually large file.
                 import logging
+
                 logging.getLogger(__name__).exception("Could not send shared file %s", attachment)
 
 
@@ -106,33 +150,74 @@ def get_phone_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=text, request_contact=True)],
-            [KeyboardButton(text=text_for(lang, "🏠 Головне меню", "🏠 Главное меню", "🏠 Main menu"))]
+            [
+                KeyboardButton(
+                    text=text_for(lang, "🏠 Головне меню", "🏠 Главное меню", "🏠 Main menu")
+                )
+            ],
         ],
         resize_keyboard=True,
         one_time_keyboard=True,
     )
 
 
-def get_products_menu_keyboard(user_id: int | None = None, lang: str = "uk") -> InlineKeyboardMarkup:
+def get_products_menu_keyboard(
+    user_id: int | None = None, lang: str = "uk", *, is_admin: bool = False
+) -> InlineKeyboardMarkup:
     """Головне меню вибору продуктів екосистеми."""
     buttons = [
-        [InlineKeyboardButton(text=text_for(lang, "🍷 Гастрономічний подарунок",
-            "🍷 Гастрономический подарок", "🍷 A food gift"), callback_data="prod_food_porn")],
-        [InlineKeyboardButton(text=text_for(lang,
-            "🎁 Подарунок для близької людини", "🎁 Подарок близкому человеку",
-            "🎁 A gift for someone special"), callback_data="prod_manifestation")],
+        [
+            InlineKeyboardButton(
+                text=text_for(
+                    lang,
+                    "🍷 Гастрономічний подарунок",
+                    "🍷 Гастрономический подарок",
+                    "🍷 A food gift",
+                ),
+                callback_data="prod_food_porn",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=text_for(
+                    lang,
+                    "🎁 Подарунок для близької людини",
+                    "🎁 Подарок близкому человеку",
+                    "🎁 A gift for someone special",
+                ),
+                callback_data="prod_manifestation",
+            )
+        ],
     ]
-    buttons.append([InlineKeyboardButton(text=text_for(lang, "🌐 Мова", "🌐 Язык", "🌐 Language"),
-                                         callback_data="choose_language")])
-    if user_id in get_settings().admin_telegram_ids:
-        buttons.append([InlineKeyboardButton(text="👑 Панель керування (Адмін)", callback_data="admin_home")])
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text=text_for(lang, "🌐 Мова", "🌐 Язык", "🌐 Language"),
+                callback_data="choose_language",
+            )
+        ]
+    )
+    if is_admin or user_id in get_settings().admin_telegram_ids:
+        buttons.append(
+            [InlineKeyboardButton(text="👑 Панель керування (Адмін)", callback_data="admin_home")]
+        )
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+async def get_user_products_menu_keyboard(user: object, lang: str = "uk") -> InlineKeyboardMarkup:
+    allowed = await has_admin_access(
+        user.id, getattr(user, "username", None), get_settings(), async_session_maker
+    )
+    return get_products_menu_keyboard(user.id, lang, is_admin=allowed)
+
+
 def language_menu() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
-        text=label, callback_data=f"ui_lang:{code}")]
-        for code, label in (("uk", "🇺🇦 Українська"), ("ru", "🇷🇺 Русский"), ("en", "🇬🇧 English"))])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=label, callback_data=f"ui_lang:{code}")]
+            for code, label in (("uk", "🇺🇦 Українська"), ("ru", "🇷🇺 Русский"), ("en", "🇬🇧 English"))
+        ]
+    )
 
 
 async def preferred_language(user: object, state: FSMContext) -> str:
@@ -144,8 +229,11 @@ async def preferred_language(user: object, state: FSMContext) -> str:
     return customer.language.value if customer else language_for(user)
 
 
-@router.message(F.text.in_({"🏠 Головне меню", "🏠 Главное меню", "🏠 Main menu",
-                           "/start", "⬅️ Назад до продуктів"}))
+@router.message(
+    F.text.in_(
+        {"🏠 Головне меню", "🏠 Главное меню", "🏠 Main menu", "/start", "⬅️ Назад до продуктів"}
+    )
+)
 async def cmd_start(message: Message, state: FSMContext) -> None:
     selected = (await state.get_data()).get("lang_selected", False)
     lang = await preferred_language(message.from_user, state)
@@ -154,24 +242,54 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     name = escape((message.from_user.first_name or "") if message.from_user else "")
     miniapp_url = get_settings().miniapp_url
     if miniapp_url:
-        await message.answer(text_for(lang,
-            f"Привіт, {name}! 💛 Відкрийте майстерню подарунків: фото, бажання й замовлення тепер в одному місці.",
-            f"Привет, {name}! 💛 Откройте мастерскую подарков: фото, желания и заказы теперь в одном месте.",
-            f"Hi, {name}! 💛 Open your gift studio to create and track everything in one place."),
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
-                text=text_for(lang, "✨ Відкрити майстерню", "✨ Открыть мастерскую", "✨ Open the studio"),
-                web_app=WebAppInfo(url=miniapp_url),
-            )]]))
+        rows = [
+            [
+                InlineKeyboardButton(
+                    text=text_for(
+                        lang, "✨ Відкрити майстерню", "✨ Открыть мастерскую", "✨ Open the studio"
+                    ),
+                    web_app=WebAppInfo(url=miniapp_url),
+                )
+            ]
+        ]
+        allowed = await has_admin_access(
+            message.from_user.id,
+            getattr(message.from_user, "username", None),
+            get_settings(),
+            async_session_maker,
+        )
+        if allowed:
+            url = crm_url(get_settings())
+            rows.append(
+                [InlineKeyboardButton(text="✦ Mini CRM", web_app=WebAppInfo(url=url))]
+                if url
+                else [InlineKeyboardButton(text="👑 Админка", callback_data="admin_home")]
+            )
+        await message.answer(
+            text_for(
+                lang,
+                f"Привіт, {name}! 💛 Відкрийте майстерню подарунків: фото, бажання й замовлення тепер в одному місці.",
+                f"Привет, {name}! 💛 Откройте мастерскую подарков: фото, желания и заказы теперь в одном месте.",
+                f"Hi, {name}! 💛 Open your gift studio to create and track everything in one place.",
+            ),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        )
         return
     await message.answer(
-        text_for(lang,
+        text_for(
+            lang,
             f"Привіт, {name}! 💛 Допоможу візуалізувати п’ять ваших бажань у подарунку для близької людини. Потрібні фото та 5 цілей. Або оберіть гастрономічний сет.",
             f"Привет, {name}! 💛 Помогу визуализировать пять ваших желаний в подарке для близкого человека. Нужны фото и 5 целей. Или выберите гастрономический сет.",
-            f"Hi, {name}! 💛 Let's visualize five of your wishes as a gift for someone special. Send photos and 5 goals, or choose a food menu."),
+            f"Hi, {name}! 💛 Let's visualize five of your wishes as a gift for someone special. Send photos and 5 goals, or choose a food menu.",
+        ),
         reply_markup=ReplyKeyboardRemove(),
     )
-    await message.answer(text_for(lang, "Чим порадуємо сьогодні?", "Чем порадуем сегодня?", "What shall we create today?"),
-                         reply_markup=get_products_menu_keyboard(message.from_user.id, lang))
+    await message.answer(
+        text_for(
+            lang, "Чим порадуємо сьогодні?", "Чем порадуем сегодня?", "What shall we create today?"
+        ),
+        reply_markup=await get_user_products_menu_keyboard(message.from_user, lang),
+    )
 
 
 @router.callback_query(F.data == "back_to_products")
@@ -180,11 +298,24 @@ async def callback_back_to_products(callback: CallbackQuery, state: FSMContext) 
     lang = await preferred_language(callback.from_user, state)
     await state.clear()
     await state.update_data(ui_lang=lang, lang_selected=selected)
-    text = text_for(lang, "Оберіть подарунок або меню:", "Выберите подарок или меню:", "Choose a gift or a menu:")
+    text = text_for(
+        lang,
+        "Оберіть подарунок або меню:",
+        "Выберите подарок или меню:",
+        "Choose a gift or a menu:",
+    )
     try:
-        await callback.message.edit_text(text, reply_markup=get_products_menu_keyboard(callback.from_user.id, lang), parse_mode="HTML")
+        await callback.message.edit_text(
+            text,
+            reply_markup=await get_user_products_menu_keyboard(callback.from_user, lang),
+            parse_mode="HTML",
+        )
     except Exception:
-        await callback.message.answer(text, reply_markup=get_products_menu_keyboard(callback.from_user.id, lang), parse_mode="HTML")
+        await callback.message.answer(
+            text,
+            reply_markup=await get_user_products_menu_keyboard(callback.from_user, lang),
+            parse_mode="HTML",
+        )
     await callback.answer()
 
 
@@ -206,14 +337,22 @@ async def set_ui_language(callback: CallbackQuery, state: FSMContext) -> None:
         if customer:
             customer.language = Language(lang)
             await session.commit()
-    await callback.message.answer(text_for(lang,
-        "Готово 💛 Оберіть подарунок:", "Готово 💛 Выберите подарок:",
-        "All set 💛 Choose a gift:"), reply_markup=get_products_menu_keyboard(callback.from_user.id, lang))
+    await callback.message.answer(
+        text_for(
+            lang,
+            "Готово 💛 Оберіть подарунок:",
+            "Готово 💛 Выберите подарок:",
+            "All set 💛 Choose a gift:",
+        ),
+        reply_markup=await get_user_products_menu_keyboard(callback.from_user, lang),
+    )
     await callback.answer()
 
 
 @router.message(F.contact)
-async def receive_contact(message: Message, state: FSMContext, session_factory: async_sessionmaker[AsyncSession] = None) -> None:
+async def receive_contact(
+    message: Message, state: FSMContext, session_factory: async_sessionmaker[AsyncSession] = None
+) -> None:
     if message.from_user is None or message.contact is None:
         return
     if message.contact.user_id != message.from_user.id:
@@ -246,22 +385,32 @@ async def receive_contact(message: Message, state: FSMContext, session_factory: 
 
     if (await state.get_data()).get("pending_food"):
         await state.update_data(pending_food=False)
-        await message.answer(text_for(lang, "Дякую! Створімо гастрономічний подарунок 🍷",
-            "Спасибо! Создадим гастрономический подарок 🍷", "Thank you! Let's make a food gift 🍷"),
-            reply_markup=ReplyKeyboardRemove())
+        await message.answer(
+            text_for(
+                lang,
+                "Дякую! Створімо гастрономічний подарунок 🍷",
+                "Спасибо! Создадим гастрономический подарок 🍷",
+                "Thank you! Let's make a food gift 🍷",
+            ),
+            reply_markup=ReplyKeyboardRemove(),
+        )
         await _send_food_start(message, state)
         return
 
     text = text_for(lang, "Мову встановлено 💛", "Язык установлен 💛", "Language selected 💛")
     await message.answer(text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
-    await message.answer(text_for(lang, "Оберіть подарунок:", "Выберите подарок:", "Choose a gift:"),
-                         reply_markup=get_products_menu_keyboard(message.from_user.id, lang))
+    await message.answer(
+        text_for(lang, "Оберіть подарунок:", "Выберите подарок:", "Choose a gift:"),
+        reply_markup=await get_user_products_menu_keyboard(message.from_user, lang),
+    )
 
 
 @router.callback_query(F.data == "prod_manifestation")
 async def start_manifestation_flow(callback: CallbackQuery, state: FSMContext) -> None:
     await start_wallpaper_from_start(
-        callback.message, state, user_id=callback.from_user.id,
+        callback.message,
+        state,
+        user_id=callback.from_user.id,
         lang=await preferred_language(callback.from_user, state),
     )
     await callback.answer()
@@ -273,8 +422,10 @@ async def cancel_wallpaper_flow(message: Message, state: FSMContext) -> None:
     lang = await preferred_language(message.from_user, state)
     await state.clear()
     await state.update_data(ui_lang=lang, lang_selected=selected)
-    await message.answer(text_for(lang, "Головне меню 💛", "Главное меню 💛", "Main menu 💛"),
-                         reply_markup=get_products_menu_keyboard(message.from_user.id, lang))
+    await message.answer(
+        text_for(lang, "Головне меню 💛", "Главное меню 💛", "Main menu 💛"),
+        reply_markup=await get_user_products_menu_keyboard(message.from_user, lang),
+    )
 
 
 @router.callback_query(F.data == "prod_food_porn")
@@ -286,9 +437,12 @@ async def start_food_porn_flow(callback: CallbackQuery, state: FSMContext) -> No
         await state.update_data(pending_food=True)
         lang = await preferred_language(callback.from_user, state)
         await callback.message.answer(
-            text_for(lang, "Для замовлення меню потрібен ваш контакт. Поділіться ним, будь ласка.",
-                     "Для заказа меню нужен ваш контакт. Поделитесь им, пожалуйста.",
-                     "Please share your contact to order a food gift."),
+            text_for(
+                lang,
+                "Для замовлення меню потрібен ваш контакт. Поділіться ним, будь ласка.",
+                "Для заказа меню нужен ваш контакт. Поделитесь им, пожалуйста.",
+                "Please share your contact to order a food gift.",
+            ),
             reply_markup=get_phone_keyboard(lang),
         )
         await callback.answer()
@@ -311,11 +465,13 @@ async def _send_food_start(message: Message, state: FSMContext, customer=None) -
     kb = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="🏠 Головне меню")]],
         resize_keyboard=True,
-        one_time_keyboard=True
+        one_time_keyboard=True,
     )
 
-    text = text_for(customer.language.value,
+    text = text_for(
+        customer.language.value,
         "🍷 <b>Гастрономічний подарунок</b>\n\nНапишіть назву першої страви:",
         "🍷 <b>Гастрономический подарок</b>\n\nНапишите название первого блюда:",
-        "🍷 <b>A food gift</b>\n\nType the first dish:")
+        "🍷 <b>A food gift</b>\n\nType the first dish:",
+    )
     await message.answer(text, parse_mode="HTML", reply_markup=kb)
