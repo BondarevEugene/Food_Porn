@@ -51,6 +51,16 @@ class PremiumMenuStates(StatesGroup):
     waiting_for_spread = State()
 
 
+async def begin_menu_entry(
+    state: FSMContext,
+    menu_id: int,
+    category: ItemCategory = ItemCategory.MAIN,
+) -> None:
+    """Переводит новый сет в режим ожидания первого блюда."""
+    await state.set_state(PremiumMenuStates.waiting_for_dish_name)
+    await state.update_data(menu_id=menu_id, category=category.value)
+
+
 class MenuAction(CallbackData, prefix="menu"):
     action: str
     menu_id: int
@@ -157,6 +167,15 @@ def build_category_kb(menu_id: int) -> InlineKeyboardMarkup:
     builder.button(text="🔙 Назад к сету", callback_data=MenuAction(action="view", menu_id=menu_id))
     builder.adjust(2, 2, 2, 1)
     return builder.as_markup()
+
+
+@router.callback_query(F.data == "ignore")
+async def explain_generation_requirements(callback: CallbackQuery) -> None:
+    """Объясняет, какие данные ещё нужны для запуска генерации."""
+    await callback.answer(
+        "Добавьте хотя бы одно блюдо и загрузите фото обложки и разворота.",
+        show_alert=True,
+    )
 
 
 # --- НОВЫЕ ИНТЕРАКТИВНЫЕ ФУНКЦИИ (на уровне модуля) ---

@@ -23,6 +23,7 @@ from aiogram.types import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.bot.handlers.menu import begin_menu_entry
 from app.bot.handlers.wallpaper import language_for, start_wallpaper_from_start, text_for
 from app.bot.states.wallpaper import WallpaperStates
 from app.config import get_settings
@@ -460,7 +461,7 @@ async def _send_food_start(message: Message, state: FSMContext, customer=None) -
         return
     async with async_session_maker() as session:
         menu = await MenuRepository(session).create(customer)
-    await state.update_data(menu_id=menu.id)
+    await begin_menu_entry(state, menu.id)
 
     kb = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="🏠 Головне меню")]],
