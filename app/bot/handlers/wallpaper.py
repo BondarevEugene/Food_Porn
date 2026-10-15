@@ -31,6 +31,7 @@ from app.services.free_access import has_free_generation_access
 from app.services.gift_pricing import checkout_price_uah
 from app.services.goal_story import GoalScenePlanner
 from app.services.payment import PaymentService
+from app.services.portmone_sandbox import send_portmone_sandbox_offer
 from app.services.print_bundle import create_print_bundle
 from app.services.replicate_vision_board import ImageSafetyError, ReplicateVisionBoardRenderer
 from app.services.stars import OrderRef, create_invoice
@@ -610,6 +611,16 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
     ))
     if free_access:
         await _send_full(message, mobile, desktop, lang)
+        if settings.portmone_test_mode:
+            await send_portmone_sandbox_offer(
+                bot=message.bot,
+                settings=settings,
+                session_factory=session_factory,
+                telegram_user_id=message.from_user.id,
+                product="wallpaper",
+                reference_id=str(job["id"]),
+                language=lang,
+            )
         await state.clear()
         await state.update_data(ui_lang=lang, lang_selected=selected)
         return

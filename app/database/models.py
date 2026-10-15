@@ -204,6 +204,21 @@ class WallpaperOrder(TimestampMixin, Base):
     stars_amount: Mapped[int | None] = mapped_column(Integer)
 
 
+class PortmoneSandboxPayment(TimestampMixin, Base):
+    """A diagnostic Portmone payment that never grants a digital entitlement."""
+
+    __tablename__ = "portmone_sandbox_payments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger, index=True, nullable=False)
+    product: Mapped[str] = mapped_column(String(20), nullable=False)
+    reference_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    payment_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class ShareLink(TimestampMixin, Base):
     __tablename__ = "share_links"
 

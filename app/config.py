@@ -10,6 +10,7 @@ Layer: Application Core
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
@@ -69,6 +70,9 @@ class Settings(BaseSettings):
     portmone_payee_id: str = Field(default="replace_me")
     portmone_login: str = Field(default="replace_me")
     portmone_password: SecretStr = SecretStr("replace_me")
+    # Diagnostic card checkout. It must remain disabled outside Portmone sandbox.
+    portmone_test_mode: bool = False
+    portmone_test_amount_uah: Decimal = Field(default=Decimal("1.00"), gt=0, le=100)
 
     # --- Настройки типографии ---
     printshop_email: str = ""

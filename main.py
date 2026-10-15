@@ -28,6 +28,7 @@ from app.admin_app import app
 from app.admin_app import engine as admin_engine
 from app.bot.handlers import menu, payment, registration, stars, start
 from app.bot.handlers.admin import router as admin_router
+from app.bot.handlers.portmone_sandbox import router as portmone_sandbox_router
 from app.bot.handlers.wallpaper import router as wallpaper_router
 from app.config import Settings, get_settings
 from app.database.session import Database
@@ -118,6 +119,7 @@ def create_dispatcher(settings: Settings, database: Database, pipeline: MenuPipe
         registration.router,
         menu.router,
         wallpaper_router,
+        portmone_sandbox_router,
         payment.router,
         stars.router,
     )

@@ -32,6 +32,7 @@ from app.services.evening_plan import build_evening_plan, save_evening_plan
 from app.services.free_access import has_free_generation_access
 from app.services.image_generation import ImageGenerationService
 from app.services.menu_quality import validate_menu_artwork, validate_menu_files
+from app.services.portmone_sandbox import send_portmone_sandbox_offer
 from app.services.prompt_builder import PromptBuilder
 from app.services.recipe_generator import RecipeGeneratorService
 from app.services.settings_service import get_setting
@@ -209,6 +210,17 @@ class MenuPipeline:
                         await self.bot.send_document(chat_id=chat_id, document=FSInputFile(str(recipe_path)))
 
                         await self.bot.send_message(chat_id=chat_id, text=shopping_text, parse_mode="HTML")
+
+                        if is_vip and self.settings.portmone_test_mode:
+                            await send_portmone_sandbox_offer(
+                                bot=self.bot,
+                                settings=self.settings,
+                                session_factory=self.session_factory,
+                                telegram_user_id=chat_id,
+                                product="menu",
+                                reference_id=str(menu.id),
+                                language=str(language),
+                            )
 
                     await repo.set_status(menu_id, MenuStatus.COMPLETED)
                     logger.info(f"VIP Pipeline successfully finished for Menu ID:{menu_id}")

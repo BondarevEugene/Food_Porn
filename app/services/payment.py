@@ -18,6 +18,7 @@ from app.config import Settings
 logger = logging.getLogger(__name__)
 LINK_API = "https://www.portmone.com.ua/r3/api/gateway/"
 STATUS_API = "https://www.portmone.com.ua/gateway/"
+PAYMENT_PRODUCTS = frozenset({"menu", "wallpaper", "sandbox_menu", "sandbox_wallpaper"})
 
 
 class PaymentError(RuntimeError):
@@ -57,7 +58,7 @@ class PaymentService:
 
     @staticmethod
     def _order_number(order_id: int, product: str = "menu") -> str:
-        if order_id <= 0 or product not in {"menu", "wallpaper"}:
+        if order_id <= 0 or product not in PAYMENT_PRODUCTS:
             raise ValueError("Invalid payment order")
         return f"{product}_{order_id}"
 

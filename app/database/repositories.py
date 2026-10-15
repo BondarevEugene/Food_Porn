@@ -32,6 +32,7 @@ from app.database.models import (
     Menu,
     MenuItem,
     MenuStatus,
+    PortmoneSandboxPayment,
     WallpaperOrder,
 )
 
@@ -315,4 +316,54 @@ class WallpaperOrderRepository:
         order.paid = True
         order.payment_id = payment_id
         order.payment_system = payment_system
+        await self.session.commit()
+
+
+class PortmoneSandboxPaymentRepository:
+    """Persist isolated test payments without changing product payment status."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def create(
+        self,
+        *,
+        telegram_user_id: int,
+        product: str,
+        reference_id: str,
+        amount: Decimal,
+    ) -> PortmoneSandboxPayment:
+        if product not in {"menu", "wallpaper"}:
+            raise ValueError("Unsupported sandbox product")
+        payment = PortmoneSandboxPayment(
+            telegram_user_id=telegram_user_id,
+            product=product,
+            reference_id=reference_id,
+            amount=amount,
+        )
+        self.session.add(payment)
+        await self.session.commit()
+        await self.session.refresh(payment)
+        return payment
+
+    async def get_for_user(
+        self, payment_id: int, telegram_user_id: int
+    ) -> PortmoneSandboxPayment | None:
+        result = await self.session.execute(
+            select(PortmoneSandboxPayment).where(
+                PortmoneSandboxPayment.id == payment_id,
+                PortmoneSandboxPayment.telegram_user_id == telegram_user_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def mark_paid(self, payment: PortmoneSandboxPayment, provider_payment_id: str) -> None:
+        payment.status = "paid"
+        payment.payment_id = provider_payment_id
+        payment.error_message = None
+        await self.session.commit()
+
+    async def mark_failed(self, payment: PortmoneSandboxPayment, reason: str) -> None:
+        payment.status = "failed"
+        payment.error_message = reason[:1000]
         await self.session.commit()
