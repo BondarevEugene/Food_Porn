@@ -88,13 +88,17 @@ async def summary_text() -> str:
         stats = await service.dashboard(session, 30)
     return (
         f"✦ <b>Food_Porn · Mini CRM</b>\nЗа последние 30 дней\n\n"
-        f"👥 Клиентов в базе: <b>{stats['customers']}</b>\n"
-        f"📦 Заказов: <b>{stats['orders']}</b> · коммерческих оплат: <b>{stats['paid_orders']}</b>\n"
+        f"👥 Активных клиентов: <b>{stats['customers']}</b> · всего в базе: <b>{stats['customers_total']}</b>\n"
+        f"📦 Реальных заказов: <b>{stats['qualified_orders']}</b> · всех попыток: <b>{stats['orders']}</b>\n"
+        f"💼 Коммерческих возможностей: <b>{stats['commercial_opportunities']}</b> · оплат: <b>{stats['paid_orders']}</b>\n"
         f"👑 Бесплатных VIP-заказов: <b>{stats['vip_orders']}</b>\n"
         f"💳 Выручка: <b>{stats['revenue_uah']} UAH</b> и <b>{stats['revenue_stars']} ⭐</b>\n"
-        f"📉 Учтённые расходы: <b>{stats['expenses'].get('UAH', '0.00')} UAH</b>\n"
-        f"📊 Конверсия заказов в коммерческую оплату: <b>{stats['conversion']}%</b>\n\n"
-        "Период считается по дате создания заказа. UAH и Stars учитываются отдельно."
+        f"🤖 OpenAI: <b>{stats['ai_costs']['effective_uah']} UAH</b> "
+        f"({stats['ai_costs']['operations']} операций; {stats['ai_costs']['source']})\n"
+        f"📉 Все расходы: <b>{stats['expenses_total_uah']} UAH</b>\n"
+        f"📊 Коммерческая конверсия: <b>{stats['conversion']}%</b>\n\n"
+        "Заказы считаются по дате создания, выручка — по дате оплаты. "
+        "VIP и черновики исключены из коммерческой конверсии."
     )
 
 

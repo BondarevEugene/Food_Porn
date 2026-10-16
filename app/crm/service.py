@@ -11,7 +11,15 @@ from sqlalchemy import String, case, cast, func, literal, or_, select, union, un
 
 from app.config import get_settings
 from app.crm.models import Audit, CustomerNote, Expense
-from app.database.models import AppSetting, Customer, Menu, WallpaperOrder
+from app.database.models import (
+    AIGenerationLog,
+    AppSetting,
+    CurrencyRate,
+    Customer,
+    Menu,
+    ProviderCost,
+    WallpaperOrder,
+)
 from app.services.settings_service import get_setting, get_vip_users
 
 CASH_PROVIDERS = ("portmone", "redsys", "liqpay", "wayforpay", "paypal")
@@ -62,6 +70,12 @@ def order_queries():
         Menu.payment_id.label("payment_id"),
         Menu.error_message.label("error"),
         Menu.created_at.label("created_at"),
+        func.coalesce(Menu.paid_at, case((Menu.is_paid, Menu.created_at))).label("paid_at"),
+        Menu.source_channel.label("source_channel"),
+        func.lower(cast(Menu.status, String)).in_((
+            "queued", "images_ready", "waiting_for_payment", "paid",
+            "sent_to_printshop", "completed", "failed",
+        )).label("qualified"),
         payment_kind(Menu.is_paid, Menu.payment_system).label("payment_kind"),
     ).join(Customer, Menu.customer_id == Customer.id)
     gifts = select(
@@ -77,6 +91,12 @@ def order_queries():
         WallpaperOrder.payment_id,
         literal(None),
         WallpaperOrder.created_at,
+        func.coalesce(
+            WallpaperOrder.paid_at,
+            case((WallpaperOrder.paid, WallpaperOrder.created_at)),
+        ),
+        WallpaperOrder.source_channel,
+        literal(True),
         payment_kind(WallpaperOrder.paid, WallpaperOrder.payment_system),
     ).outerjoin(Customer, WallpaperOrder.telegram_user_id == Customer.telegram_user_id)
     return union_all(menus, gifts).cte("crm_orders")
@@ -161,26 +181,41 @@ async def dashboard(session, days: int = 30) -> dict:
                     func.sum(case((fields.payment_kind == "unclassified", 1), else_=0)).label(
                         "unclassified_orders"
                     ),
-                    func.sum(case((fields.payment_kind == "cash", fields.amount), else_=0)).label(
-                        "revenue_uah"
-                    ),
-                    func.sum(case((fields.payment_kind == "stars", fields.stars), else_=0)).label(
-                        "revenue_stars"
-                    ),
+                    func.sum(case((fields.qualified.is_(True), 1), else_=0)).label("qualified_orders"),
+                    func.sum(case((fields.qualified.is_(False), 1), else_=0)).label("draft_orders"),
+                    func.sum(case((
+                        fields.qualified.is_(True) & (fields.payment_kind != "vip"), 1
+                    ), else_=0)).label("commercial_opportunities"),
                 ).where(*conditions)
             )
         )
         .mappings()
         .one()
     )
-    result = {key: int(value or 0) for key, value in aggregate.items() if key != "revenue_uah"}
-    result["revenue_uah"] = money(aggregate["revenue_uah"])
+    result = {key: int(value or 0) for key, value in aggregate.items()}
+    begin, end = date_range(days)
+    revenue = (
+        await session.execute(
+            select(
+                func.sum(case((fields.payment_kind == "cash", fields.amount), else_=0)),
+                func.sum(case((fields.payment_kind == "stars", fields.stars), else_=0)),
+            ).where(fields.paid_at >= begin, fields.paid_at <= end)
+        )
+    ).one()
+    result["revenue_uah"] = money(revenue[0])
+    result["revenue_stars"] = int(revenue[1] or 0)
     identities = union(
         select(Customer.telegram_user_id), select(WallpaperOrder.telegram_user_id)
     ).subquery()
-    result["customers"] = await session.scalar(select(func.count()).select_from(identities)) or 0
-    result["conversion"] = round(result["paid_orders"] / max(result["orders"], 1) * 100, 1)
-    begin, end = date_range(days)
+    result["customers_total"] = await session.scalar(
+        select(func.count()).select_from(identities)
+    ) or 0
+    result["customers"] = await session.scalar(
+        select(func.count(func.distinct(fields.telegram_id))).where(*conditions)
+    ) or 0
+    result["conversion"] = round(
+        result["paid_orders"] / max(result["commercial_opportunities"], 1) * 100, 1
+    )
     expenses = (
         await session.execute(
             select(Expense.currency, func.sum(Expense.amount))
@@ -193,8 +228,42 @@ async def dashboard(session, days: int = 30) -> dict:
         )
     ).all()
     result["expenses"] = {currency: money(amount) for currency, amount in expenses}
+    ai_row = (
+        await session.execute(
+            select(
+                func.count(AIGenerationLog.id),
+                func.sum(AIGenerationLog.cost_usd),
+                func.sum(AIGenerationLog.cost_uah),
+            ).where(AIGenerationLog.created_at >= begin, AIGenerationLog.created_at <= end)
+        )
+    ).one()
+    actual_usd = await session.scalar(
+        select(func.sum(ProviderCost.amount)).where(
+            ProviderCost.provider == "openai",
+            ProviderCost.currency == "usd",
+            ProviderCost.bucket_start >= begin,
+            ProviderCost.bucket_start <= end,
+        )
+    ) or Decimal(0)
+    latest_rate = await session.scalar(select(CurrencyRate.rate).order_by(CurrencyRate.date.desc()))
+    exchange_rate = Decimal(latest_rate or str(get_settings().usd_exchange_rate))
+    local_ai_usd = Decimal(ai_row[1] or 0)
+    local_ai_uah = Decimal(ai_row[2] or 0)
+    actual_ai_uah = Decimal(actual_usd) * exchange_rate
+    selected_ai_uah = actual_ai_uah if actual_usd else local_ai_uah
+    result["ai_costs"] = {
+        "operations": int(ai_row[0] or 0),
+        "estimated_usd": money(local_ai_usd),
+        "estimated_uah": money(local_ai_uah),
+        "actual_usd": money(actual_usd),
+        "actual_uah": money(actual_ai_uah),
+        "effective_uah": money(selected_ai_uah),
+        "source": "openai_actual" if actual_usd else "local_estimate",
+    }
+    manual_uah = Decimal(result["expenses"].get("UAH", "0"))
+    result["expenses_total_uah"] = money(manual_uah + selected_ai_uah)
     result["balance_uah"] = money(
-        Decimal(result["revenue_uah"]) - Decimal(result["expenses"].get("UAH", "0"))
+        Decimal(result["revenue_uah"]) - manual_uah - selected_ai_uah
     )
     daily = (
         (
@@ -223,7 +292,12 @@ async def dashboard(session, days: int = 30) -> dict:
     ]
     result["recent"] = (await orders_page(session, days=days, limit=8))["items"]
     result["days"] = days
-    result["period_basis"] = "created_at"
+    result["period_basis"] = {
+        "orders": "created_at",
+        "revenue": "paid_at",
+        "expenses": "occurred_on",
+        "ai": "provider bucket or generation time",
+    }
     return result
 
 

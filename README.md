@@ -190,9 +190,9 @@ Before commercial printing, ask the chosen print shop for its required ICC profi
 
 ## Operational notes
 
-- One order calls the image API 16 times. `IMAGE_CONCURRENCY=2` limits parallel requests.
+- One menu makes one image call per non-skipped dish and one batched recipe call.
 - Successful images are cached by model, quality, size, and prompt, so repeated dishes can avoid duplicate spend.
-- Failed image requests retry three times; an unavailable item is rendered with a branded placeholder instead of breaking the whole booklet.
+- Temporary image failures retry according to `IMAGE_RETRIES`; an incomplete order is never sold as finished.
 - The included queue runs inside one Python process. Its job state is persisted in Neon and queued/generating menus resume after restart. For several bot replicas, replace it with Redis + ARQ/Celery and a distributed lock.
 - Customer photos and generated files are stored locally. A single-server MVP is fine; production replicas should use S3-compatible object storage and store object keys in Neon.
 - Telegram FSM state is in memory. For horizontal scaling, switch aiogram storage to Redis.
@@ -203,3 +203,95 @@ Before commercial printing, ask the chosen print shop for its required ICC profi
 - Uploaded files are size-limited and decoded/normalized by Pillow before storage.
 - `.env`, customer uploads, generated images, and keys are excluded from Git.
 - Add a privacy notice, consent checkbox/message, data-retention period, and delete-my-data command before public launch.
+
+## Учёт OpenAI и корректная аналитика
+
+В CRM используются два независимых источника:
+
+1. локальный журнал связывает каждый AI-вызов с пользователем, продуктом и заказом;
+2. OpenAI Organization Costs API импортирует фактически выставленную сумму.
+
+До первой сверки CRM показывает локальную оценку. После импорта в финансовый
+итог входит фактическая сумма OpenAI, чтобы один расход не посчитался дважды.
+Обычный `OPENAI_API_KEY` не даёт доступ к расходам организации. Владелец
+организации должен отдельно создать Admin API key и записать его только в
+Railway Variables как `OPENAI_ADMIN_API_KEY`.
+
+```env
+OPENAI_ADMIN_API_KEY=
+OPENAI_PROJECT_ID=
+OPENAI_COST_SYNC_ENABLED=true
+OPENAI_COST_SYNC_INTERVAL_MINUTES=60
+```
+
+`OPENAI_PROJECT_ID` настоятельно рекомендуется заполнить: без него Costs API
+вернёт расходы всей API-организации, а не только Food_Porn.
+
+После настройки владелец CRM может открыть раздел **Финансы** и нажать
+**«Сверить OpenAI»**. Повторная сверка безопасна: одинаковые строки счёта
+не дублируются. Для Railway также нужны публичный адрес и секрет ссылок:
+
+```env
+MINIAPP_URL=https://YOUR-SERVICE.up.railway.app/miniapp
+CHANNEL_LINK_SECRET=СЛУЧАЙНАЯ_СТРОКА_НЕ_КОРОЧЕ_32_БАЙТ
+```
+
+Заказы считаются по `created_at`, выручка — по `paid_at`. Черновики и бесплатные
+VIP-заказы исключены из знаменателя коммерческой конверсии. В карточке расходов
+отдельно видны локальная оценка, фактический счёт OpenAI и источник итоговой цифры.
+
+## Дополнительные мессенджеры
+
+Один HTTP-контур поддерживает официальные webhook API:
+
+| Канал | Webhook Railway | Обязательные переменные |
+|---|---|---|
+| WhatsApp Cloud API | `/channels/meta/webhook` | `META_*`, `WHATSAPP_*` |
+| Facebook Messenger | `/channels/meta/webhook` | `META_*`, `MESSENGER_*` |
+| Instagram Messaging | `/channels/meta/webhook` | `META_*`, `INSTAGRAM_*` |
+| Viber | `/channels/viber/webhook` | `VIBER_AUTH_TOKEN` |
+| Slack | `/channels/slack/events` | `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN` |
+| Discord | `/channels/discord/interactions` | `DISCORD_PUBLIC_KEY` |
+
+Каждый входящий callback проверяется подписью, дедублируется в Neon и получает
+ссылку в общую Mini App. Ссылка подписана `CHANNEL_LINK_SECRET`, имеет ограниченный
+срок действия и не содержит секретов провайдера. Доступность адаптеров можно
+проверить по `/channels/health`.
+
+Meta, Viber, Slack и Discord не выдают токены автоматически: сначала необходимо
+создать и проверить бизнес-приложения в кабинетах соответствующих платформ.
+Signal и обычный iMessage намеренно не подключены через неофициальные шлюзы.
+
+## Пакет для романтического вечера
+
+Для каждого блюда одним пакетным текстовым запросом формируются точные продукты
+на две порции, пошаговый рецепт, время, сложность, оборудование, аллергены,
+замены и структурированный список покупок по отделам магазина. Данные сохраняются
+не только в PDF, но и в Neon. В Mini App доступны выбор блюд на конкретный вечер,
+график приготовления, чек-лист покупок и пошаговый режим готовки.
+
+Готовый оплаченный подарок можно отправить сразу или запланировать email на
+выбранную дату. Фоновый worker доставляет вложения, делает до трёх попыток и
+сохраняет результат доставки в базе.
+
+После обновления кода обязательно примените миграцию:
+
+```powershell
+python -m alembic upgrade head
+python -m pytest -q
+```
+
+На Railway миграция должна выполняться один раз перед запуском новой версии.
+Если отдельной release-команды нет, откройте Railway Shell и выполните:
+
+```bash
+python -m alembic upgrade head
+python -m alembic current
+```
+
+Ожидаемая вершина после этого обновления: `20261016_0006`. Затем выполните
+Redeploy и проверьте `/channels/health`, Mini App и раздел CRM «Финансы».
+
+Для файлов меню, изображений и отложенных писем подключите Railway Volume к
+`/app/storage` и задайте `STORAGE_ROOT=/app/storage`. Без постоянного тома файлы
+могут исчезнуть при redeploy, хотя записи о заказах останутся в Neon.

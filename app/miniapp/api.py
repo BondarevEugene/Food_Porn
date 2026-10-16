@@ -29,6 +29,7 @@ from app.database.models import (
     Language,
     Menu,
     MenuStatus,
+    ScheduledDelivery,
     ShareLink,
     WallpaperOrder,
 )
@@ -36,6 +37,7 @@ from app.database.repositories import CustomerRepository, MenuRepository, Wallpa
 from app.database.session import async_session_maker
 from app.miniapp.auth import current_user
 from app.services.admin_access import has_admin_access
+from app.services.dish_input import normalize_dish_payload
 from app.services.email_service import normalize_recipient, send_ready_order_email
 from app.services.free_access import has_free_generation_access
 from app.services.gift_pricing import checkout_price_uah
@@ -268,7 +270,9 @@ async def create_gift(
     if uid in _user_jobs:
         raise HTTPException(409, "Another gift is being created")
     free = await has_free_generation_access(uid, user.get("username"), settings, async_session_maker)
-    if not free and settings.gift_price_stars < 1:
+    source_channel = user.get("source_channel", "telegram")
+    stars_ready = source_channel == "telegram" and settings.gift_price_stars > 0
+    if not free and not (stars_ready or PaymentService(settings).portmone_ready):
         raise HTTPException(503, "Payment is temporarily unavailable; generation has not started")
     # Reserve the user slot before awaiting uploads.
     if uid in _user_jobs:
@@ -294,6 +298,7 @@ async def create_gift(
         raise
     job = {"id": job_id, "user_id": uid, "goals": parsed, "style": style,
            "language": language, "status": "generating",
+           "source_channel": source_channel,
            "free": free, "price": None, "stars": None, "invoice": None, "order_id": None,
            "progress": "plan"}
     _write_job(uid, job_id, job)
@@ -307,13 +312,17 @@ async def _generate_gift(uid: int, job_id: str, photos: list[Path], username: st
     settings = get_settings()
     job = _read_job(uid, job_id)
     try:
-        plan = await GoalScenePlanner(settings).plan(
-            photos=photos, goals=job["goals"], lang=job["language"])
+        planner = GoalScenePlanner(settings)
+        if hasattr(planner, "set_tracking_context"):
+            planner.set_tracking_context(user_id=uid, order_id=job_id)
+        plan = await planner.plan(photos=photos, goals=job["goals"], lang=job["language"])
         job["progress"] = "render"
         _write_job(uid, job_id, job)
         renderer = ReplicateVisionBoardRenderer(
             output_dir=settings.generated_dir / "wallpapers" / str(uid) / job_id,
             model=settings.wallpaper_image_model, quality=settings.wallpaper_image_quality)
+        if hasattr(renderer, "set_tracking_context"):
+            renderer.set_tracking_context(user_id=uid, order_id=job_id)
         formats = await renderer.generate_goal_story(
             user_id=uid, photo_paths=photos, goals=job["goals"],
             assignments=plan.assignments, scenes=plan.scenes, style=job["style"])
@@ -328,6 +337,8 @@ async def _generate_gift(uid: int, job_id: str, photos: list[Path], username: st
                     telegram_user_id=uid, amount=Decimal("0"), stars_amount=0,
                     mobile_path=str(mobile), desktop_path=str(desktop), paid=True,
                     payment_id=f"VIP_JOB_{job_id}", payment_system="vip_bypass",
+                    paid_at=datetime.now(UTC),
+                    source_channel=job.get("source_channel", "telegram"),
                 )
                 session.add(order)
                 await session.commit()
@@ -340,7 +351,12 @@ async def _generate_gift(uid: int, job_id: str, photos: list[Path], username: st
             async with async_session_maker() as session:
                 order = await WallpaperOrderRepository(session).create(
                     telegram_user_id=uid, amount=price, mobile_path=str(mobile), desktop_path=str(desktop),
-                    stars_amount=settings.gift_price_stars)
+                    stars_amount=(
+                        settings.gift_price_stars
+                        if job.get("source_channel", "telegram") == "telegram"
+                        else None
+                    ),
+                    source_channel=job.get("source_channel", "telegram"))
             job["order_id"] = order.id
             job["price"] = str(price)
             job["stars"] = order.stars_amount
@@ -364,7 +380,7 @@ async def _generate_gift(uid: int, job_id: str, photos: list[Path], username: st
         _user_jobs.discard(uid)
         # Telegram is the notification channel; the complete files remain behind authenticated API.
         bot = getattr(__import__("app.main", fromlist=["app"]).app.state, "bot", None)
-        if bot:
+        if bot and job.get("source_channel", "telegram") == "telegram":
             try:
                 await bot.send_message(uid, "💛 Подарунок готовий. Відкрийте майстерню в боті." if job["status"] in {"payment", "ready"}
                                        else "💛 Не вдалося завершити подарунок. Відкрийте майстерню, щоб спробувати знову.")
@@ -435,17 +451,36 @@ async def gift_checkout(job_id: str, request: Request,
         order = await WallpaperOrderRepository(session).get_for_user(job["order_id"], user["id"])
     if order is None or order.paid:
         raise HTTPException(409, "No outstanding payment")
-    if not order.stars_amount:
-        raise HTTPException(409, "This historic order has no Star price")
-    bot = getattr(request.app.state, "bot", None)
-    if bot is None:
-        raise HTTPException(503, "Bot is not running")
-    url = await create_invoice(bot, OrderRef("wallpaper", order.id, user["id"], order.stars_amount))
+    if order.source_channel == "telegram" and order.stars_amount:
+        bot = getattr(request.app.state, "bot", None)
+        if bot is None:
+            raise HTTPException(503, "Bot is not running")
+        url = await create_invoice(
+            bot, OrderRef("wallpaper", order.id, user["id"], order.stars_amount)
+        )
+        provider = "stars"
+    else:
+        payment = PaymentService(get_settings())
+        if not payment.portmone_ready:
+            raise HTTPException(503, "Card payment is temporarily unavailable")
+        url = await payment.create_portmone_invoice(
+            order.id,
+            order.amount,
+            f"Food Porn digital gift #{order.id}",
+            product="wallpaper",
+        )
+        provider = "portmone"
     job["invoice"] = url
     job["status"] = "payment"
     job.pop("error", None)
     _write_job(user["id"], job_id, job)
-    return {"url": url, "stars": order.stars_amount, "provider": "stars"}
+    return {
+        "url": url,
+        "stars": order.stars_amount,
+        "amount": str(order.amount),
+        "currency": "UAH" if provider == "portmone" else None,
+        "provider": provider,
+    }
 
 
 @router.get("/api/gifts/{job_id}/files/{kind}")
@@ -515,6 +550,66 @@ async def _deliver_email(uid: int, kind: str, ref: str, email: str, paths: list[
                                   reference_id=ref, recipient_email=address))
         await session.commit()
     return {"sent": True, "email": address}
+
+
+@router.post("/api/deliveries/schedule")
+async def schedule_delivery(
+    payload: dict, user: Annotated[dict, Depends(current_user)]
+) -> dict:
+    """Schedule a paid digital gift without revealing its price to the recipient."""
+    kind = str(payload.get("kind") or "")
+    reference = str(payload.get("reference_id") or "")
+    email = normalize_recipient(str(payload.get("email") or ""))
+    try:
+        send_at = datetime.fromisoformat(str(payload.get("send_at") or "").replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(422, "send_at must be an ISO date with timezone") from exc
+    if send_at.tzinfo is None:
+        raise HTTPException(422, "send_at must include a timezone")
+    send_at = send_at.astimezone(UTC)
+    now = datetime.now(UTC)
+    if not now + timedelta(minutes=5) <= send_at <= now + timedelta(days=365):
+        raise HTTPException(422, "Delivery must be 5 minutes to 365 days in the future")
+
+    if kind == "menu":
+        menu = await _own_menu(int(reference), user["id"])
+        if not menu.is_paid:
+            raise HTTPException(403, "Complete the order before scheduling")
+        files = {item.kind: Path(item.path) for item in menu.files}
+        paths = [files.get(FileKind.PRINT_PDF), files.get(FileKind.RECIPE_SHEET)]
+    elif kind == "wallpaper":
+        order = await _own_wallpaper(int(reference), user["id"])
+        if not order.paid:
+            raise HTTPException(403, "Complete the order before scheduling")
+        paths = [Path(order.mobile_path), Path(order.desktop_path)]
+    elif kind == "gift":
+        job = _read_job(user["id"], reference)
+        if job.get("status") != "ready":
+            raise HTTPException(403, "Gift is not ready")
+        order = await _own_wallpaper(int(job["order_id"]), user["id"])
+        if not order.paid:
+            raise HTTPException(403, "Complete the order before scheduling")
+        paths = [Path(order.mobile_path), Path(order.desktop_path)]
+    else:
+        raise HTTPException(422, "Unknown delivery kind")
+    attachments = [path for path in paths if path is not None]
+    if len(attachments) != len(paths) or not all(path.is_file() for path in attachments):
+        raise HTTPException(409, "Complete files are not ready")
+    async with async_session_maker() as session:
+        delivery = ScheduledDelivery(
+            owner_user_id=user["id"],
+            kind=kind,
+            reference_id=reference,
+            recipient_email=email,
+            subject="Food Porn · для вас подготовлен особенный подарок",
+            attachments=[str(path) for path in attachments],
+            send_at=send_at,
+            status="pending",
+        )
+        session.add(delivery)
+        await session.commit()
+        await session.refresh(delivery)
+    return {"id": delivery.id, "status": delivery.status, "send_at": send_at.isoformat()}
 
 
 async def _create_share(uid: int, kind: str, ref: str, request: Request) -> dict:
@@ -648,13 +743,24 @@ async def wallpaper_checkout(order_id: int, request: Request,
     order = await _own_wallpaper(order_id, user["id"])
     if order.paid:
         raise HTTPException(409, "Already paid")
-    if not order.stars_amount:
-        raise HTTPException(409, "This historic order has no Star price")
-    bot = getattr(request.app.state, "bot", None)
-    if bot is None:
-        raise HTTPException(503, "Bot is not running")
-    url = await create_invoice(bot, OrderRef("wallpaper", order.id, user["id"], order.stars_amount))
-    return {"url": url, "stars": order.stars_amount, "provider": "stars"}
+    if order.source_channel == "telegram" and order.stars_amount:
+        bot = getattr(request.app.state, "bot", None)
+        if bot is None:
+            raise HTTPException(503, "Bot is not running")
+        url = await create_invoice(
+            bot, OrderRef("wallpaper", order.id, user["id"], order.stars_amount)
+        )
+        return {"url": url, "stars": order.stars_amount, "provider": "stars"}
+    payment = PaymentService(get_settings())
+    if not payment.portmone_ready:
+        raise HTTPException(503, "Card payment is temporarily unavailable")
+    url = await payment.create_portmone_invoice(
+        order.id,
+        order.amount,
+        f"Food Porn digital gift #{order.id}",
+        product="wallpaper",
+    )
+    return {"url": url, "amount": str(order.amount), "currency": "UAH", "provider": "portmone"}
 
 
 @router.post("/api/wallpapers/{order_id}/verify")
@@ -713,18 +819,17 @@ async def create_menu(
     pipeline = getattr(request.app.state, "pipeline", None)
     if pipeline is None:
         raise HTTPException(503, "Run the Mini App together with the bot via launcher.py start")
-    if not await has_free_generation_access(user["id"], user.get("username"), settings, async_session_maker) and settings.menu_price_stars < 1:
+    is_free = await has_free_generation_access(
+        user["id"], user.get("username"), settings, async_session_maker
+    )
+    card_ready = PaymentService(settings).portmone_ready
+    stars_ready = user.get("source_channel", "telegram") == "telegram" and settings.menu_price_stars > 0
+    if not is_free and not (stars_ready or card_ready):
         raise HTTPException(503, "Payment is temporarily unavailable; generation has not started")
     if language not in {"uk", "ru", "en"}:
         raise HTTPException(422, "Unknown language")
     try:
-        items = json.loads(dishes)
-        if not isinstance(items, list) or not 1 <= len(items) <= 18:
-            raise ValueError()
-        for item in items:
-            if (not isinstance(item, dict) or item.get("category") not in ItemCategory._value2member_map_
-                    or not isinstance(item.get("title"), str) or not 2 <= len(item["title"].strip()) <= 180):
-                raise ValueError()
+        items = normalize_dish_payload(json.loads(dishes))
     except (ValueError, TypeError) as exc:
         raise HTTPException(422, "Add 1–18 dishes with a category and name") from exc
     async with async_session_maker() as session:
@@ -740,9 +845,12 @@ async def create_menu(
             customer = await customer_repo.register(
                 telegram_user_id=user["id"], phone=phone, name=name.strip()[:100],
                 language=Language(language),
-                country="Not provided", city="Not provided")
+                country="Not provided", city="Not provided",
+                source_channel=user.get("source_channel", "telegram"),
+                external_user_id=user.get("external_user_id"),
+            )
         repo = MenuRepository(session)
-        menu = await repo.create(customer)
+        menu = await repo.create(customer, source_channel=user.get("source_channel", "telegram"))
         try:
             storage = StorageService(settings)
             paths = {}
@@ -804,13 +912,22 @@ async def menu_checkout(menu_id: int, request: Request,
     menu = await _own_menu(menu_id, user["id"])
     if menu.is_paid or menu.status != MenuStatus.WAITING_FOR_PAYMENT or menu.price_amount is None:
         raise HTTPException(409, "No outstanding payment for this menu")
-    if not menu.stars_amount:
-        raise HTTPException(409, "This historic order has no Star price")
-    bot = getattr(request.app.state, "bot", None)
-    if bot is None:
-        raise HTTPException(503, "Bot is not running")
-    url = await create_invoice(bot, OrderRef("menu", menu.id, user["id"], menu.stars_amount))
-    return {"url": url, "stars": menu.stars_amount, "provider": "stars"}
+    if menu.source_channel == "telegram" and menu.stars_amount:
+        bot = getattr(request.app.state, "bot", None)
+        if bot is None:
+            raise HTTPException(503, "Bot is not running")
+        url = await create_invoice(bot, OrderRef("menu", menu.id, user["id"], menu.stars_amount))
+        return {"url": url, "stars": menu.stars_amount, "provider": "stars"}
+    payment = PaymentService(get_settings())
+    if not payment.portmone_ready:
+        raise HTTPException(503, "Card payment is temporarily unavailable")
+    url = await payment.create_portmone_invoice(
+        menu.id,
+        menu.price_amount,
+        f"Food Porn digital menu #{menu.id}",
+        product="menu",
+    )
+    return {"url": url, "amount": str(menu.price_amount), "currency": "UAH", "provider": "portmone"}
 
 
 @router.post("/api/menus/{menu_id}/verify")
@@ -871,7 +988,7 @@ async def menu_evening(menu_id: int, user: Annotated[dict, Depends(current_user)
     path = get_settings().generated_dir / str(menu_id) / "evening_plan.json"
     try:
         plan = json.loads(path.read_text(encoding="utf-8"))
-        if plan.get("version") != 1 or not isinstance(plan.get("shopping"), list):
+        if plan.get("version") not in {1, 2} or not isinstance(plan.get("shopping"), list):
             raise ValueError("Invalid plan")
         return plan
     except (OSError, ValueError, TypeError, AttributeError):

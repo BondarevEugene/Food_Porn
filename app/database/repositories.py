@@ -68,6 +68,8 @@ class CustomerRepository:
             language: Language,
             country: str,
             city: str,
+            source_channel: str = "telegram",
+            external_user_id: str | None = None,
     ) -> Customer:
         customer = await self.by_phone(phone)
         if customer is None:
@@ -78,6 +80,8 @@ class CustomerRepository:
                 language=language,
                 country=country,
                 city=city,
+                source_channel=source_channel,
+                external_user_id=external_user_id,
             )
             self.session.add(customer)
         else:
@@ -87,6 +91,8 @@ class CustomerRepository:
             customer.country = country
             customer.city = city
             customer.last_seen_at = datetime.now(UTC)
+            customer.source_channel = source_channel
+            customer.external_user_id = external_user_id
         await self.session.commit()
         await self.session.refresh(customer)
         return customer
@@ -100,10 +106,11 @@ class MenuRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, customer: Customer) -> Menu:
+    async def create(self, customer: Customer, *, source_channel: str | None = None) -> Menu:
         menu = Menu(
             customer_id=customer.id,
             status=MenuStatus.DRAFT,
+            source_channel=source_channel or customer.source_channel or "telegram",
         )
         self.session.add(menu)
         await self.session.commit()
@@ -193,6 +200,22 @@ class MenuRepository:
         item.generation_error = error[:2000]
         await self.session.commit()
 
+    async def save_recipe_details(self, item: MenuItem, details: dict) -> None:
+        """Persist the cooking pack so it survives file cleanup and restarts."""
+        item.ingredients = [str(value) for value in details.get("ingredients") or []]
+        item.recipe = str(details.get("recipe") or "")
+        item.prep_minutes = int(details.get("prep_minutes") or 0)
+        item.cook_minutes = int(details.get("cook_minutes") or 0)
+        item.servings = int(details.get("servings") or 2)
+        item.difficulty = str(details.get("difficulty") or "medium")[:30]
+        item.equipment = [str(value) for value in details.get("equipment") or []]
+        item.allergens = [str(value) for value in details.get("allergens") or []]
+        item.substitutions = [str(value) for value in details.get("substitutions") or []]
+        item.shopping_items = [
+            value for value in details.get("shopping_items") or [] if isinstance(value, dict)
+        ]
+        await self.session.commit()
+
     async def save_file(self, menu_id: int, kind: FileKind | str, path: str) -> GeneratedFile:
         """Безопасное сохранение файла с автоконвертацией типов."""
         if isinstance(kind, str):
@@ -250,6 +273,7 @@ class MenuRepository:
         menu.is_paid = True
         menu.payment_id = payment_id
         menu.payment_system = payment_system
+        menu.paid_at = menu.paid_at or datetime.now(UTC)
         menu.status = MenuStatus.PAID
         await self.session.commit()
 
@@ -291,11 +315,13 @@ class WallpaperOrderRepository:
 
     async def create(self, *, telegram_user_id: int, amount: Decimal,
                      mobile_path: str, desktop_path: str,
-                     stars_amount: int | None = None) -> WallpaperOrder:
+                     stars_amount: int | None = None,
+                     source_channel: str = "telegram") -> WallpaperOrder:
         order = WallpaperOrder(
             telegram_user_id=telegram_user_id, amount=amount,
             mobile_path=mobile_path, desktop_path=desktop_path,
             stars_amount=stars_amount,
+            source_channel=source_channel,
         )
         self.session.add(order)
         await self.session.commit()
@@ -316,6 +342,7 @@ class WallpaperOrderRepository:
         order.paid = True
         order.payment_id = payment_id
         order.payment_system = payment_system
+        order.paid_at = order.paid_at or datetime.now(UTC)
         await self.session.commit()
 
 

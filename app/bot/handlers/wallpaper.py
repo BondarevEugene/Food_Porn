@@ -548,9 +548,13 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
             style = "dark"
         if not isinstance(job, dict) or job.get("goals") != goals or job.get("style") != style or not re.fullmatch(
                 r"[0-9a-f]{32}", str(job.get("id", ""))):
-            plan = await GoalScenePlanner(settings).plan(photos=photos, goals=goals, lang=lang)
+            job_id = uuid.uuid4().hex
+            planner = GoalScenePlanner(settings)
+            if hasattr(planner, "set_tracking_context"):
+                planner.set_tracking_context(user_id=message.from_user.id, order_id=job_id)
+            plan = await planner.plan(photos=photos, goals=goals, lang=lang)
             job = {
-                "id": uuid.uuid4().hex, "goals": list(goals), "style": style,
+                "id": job_id, "goals": list(goals), "style": style,
                 "assignments": list(plan.assignments), "scenes": list(plan.scenes),
                 "plan_cost_usd": str(plan.ai_cost_usd),
             }
@@ -560,6 +564,8 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
         renderer = ReplicateVisionBoardRenderer(
             output_dir=render_dir, model=settings.wallpaper_image_model,
             quality=settings.wallpaper_image_quality)
+        if hasattr(renderer, "set_tracking_context"):
+            renderer.set_tracking_context(user_id=message.from_user.id, order_id=job["id"])
         formats = await renderer.generate_goal_story(
             user_id=message.from_user.id, photo_paths=photos, goals=goals,
             assignments=job["assignments"], scenes=job["scenes"], style=style,

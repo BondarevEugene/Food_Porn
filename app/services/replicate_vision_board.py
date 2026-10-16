@@ -18,6 +18,8 @@ from pathlib import Path
 from openai import AsyncOpenAI, BadRequestError
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps, ImageStat
 
+from app.database.session import async_session_maker
+from app.services.cost_tracker import log_openai_response
 from app.services.gift_pricing import image_cost_usd
 from app.services.goal_story import valid_photo_pairing
 
@@ -73,10 +75,13 @@ class ReplicateVisionBoardRenderer:
         model: str | None = None,
         quality: str | None = None,
         client: AsyncOpenAI | None = None,
+        user_id: int = 0,
+        order_id: str | None = None,
     ) -> None:
         from app.config import get_settings
 
         settings = get_settings()
+        self.settings = settings
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.font_regular = Path(font_regular) if font_regular else None
@@ -85,7 +90,13 @@ class ReplicateVisionBoardRenderer:
         self.model = model or settings.openai_image_model
         self.quality = quality or settings.openai_image_quality
         self.client = client
+        self.user_id = user_id
+        self.order_id = order_id
         self.total_cost_usd = Decimal(0)
+
+    def set_tracking_context(self, *, user_id: int, order_id: str) -> None:
+        self.user_id = user_id
+        self.order_id = order_id
 
     async def build_board(
         self,
@@ -630,7 +641,27 @@ class ReplicateVisionBoardRenderer:
                     result = await client.images.edit(**options)
             if not result.data or not result.data[0].b64_json:
                 raise RuntimeError("Image API returned no image")
-            self.total_cost_usd += image_cost_usd(result.usage, self.model)
+            try:
+                cost = image_cost_usd(result.usage, self.model)
+            except (AttributeError, ValueError):
+                cost = self.settings.openai_image_fallback_cost_usd
+            self.total_cost_usd += cost
+            try:
+                async with async_session_maker() as session:
+                    await log_openai_response(
+                        session,
+                        settings=self.settings,
+                        response=result,
+                        user_id=self.user_id,
+                        model_name=self.model,
+                        operation="wallpaper_image_edit",
+                        product_type="wallpaper",
+                        order_id=self.order_id,
+                        cost_usd=cost,
+                        details={"aspect_ratio": aspect_ratio, "reference_count": len(photos)},
+                    )
+            except Exception:
+                logger.exception("Failed to persist wallpaper image cost")
             data = base64.b64decode(result.data[0].b64_json)
             with Image.open(BytesIO(data)) as generated:
                 generated.load()

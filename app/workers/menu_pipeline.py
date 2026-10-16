@@ -32,11 +32,12 @@ from app.services.evening_plan import build_evening_plan, save_evening_plan
 from app.services.free_access import has_free_generation_access
 from app.services.image_generation import ImageGenerationService
 from app.services.menu_quality import validate_menu_artwork, validate_menu_files
+from app.services.payment import PaymentService
 from app.services.portmone_sandbox import send_portmone_sandbox_offer
 from app.services.prompt_builder import PromptBuilder
 from app.services.recipe_generator import RecipeGeneratorService
 from app.services.settings_service import get_setting
-from app.services.shopping import aggregate_shopping_list
+from app.services.shopping import aggregate_shopping_list, aggregate_shopping_sections
 from app.services.stars import OrderRef, create_invoice
 
 logger = logging.getLogger(__name__)
@@ -104,8 +105,9 @@ class MenuPipeline:
                 if self.settings.use_mock_images:
                     raise RuntimeError("USE_MOCK_IMAGES=true: настоящие фотографии отключены. Установите false в .env")
                 customer_telegram_id = menu.customer.telegram_user_id
+                is_telegram = menu.source_channel == "telegram"
                 username = None
-                if customer_telegram_id not in (
+                if is_telegram and customer_telegram_id not in (
                     *self.settings.admin_telegram_ids, *self.settings.free_generation_telegram_ids,
                 ):
                     try:
@@ -132,7 +134,13 @@ class MenuPipeline:
 
                     destination = self.settings.uploads_dir / str(menu.id) / f"item_{item.id}.jpg"
                     try:
-                        path = await self.image_service.generate(prompt, destination)
+                        path = await self.image_service.generate(
+                            prompt,
+                            destination,
+                            customer_id=customer_telegram_id,
+                            product_type="menu",
+                            order_id=menu.id,
+                        )
                         await repo.set_item_done(item, str(path))
                     except Exception as img_exc:
                         logger.error(f"Image generation failed for item {item.id}: {img_exc}")
@@ -148,10 +156,19 @@ class MenuPipeline:
                 # Шаг 2: Генерация рецептов через LLM или локальный фоллбэк
                 language = getattr(menu.customer, "language", "uk") or "uk"
                 dish_titles = [item.title for item in menu.items if item.title != "—"]
-                menu_details = await self.recipe_service.generate_menu_details(dish_titles, language)
+                menu_details = await self.recipe_service.generate_menu_details(
+                    dish_titles,
+                    language,
+                    user_id=customer_telegram_id,
+                    order_id=menu.id,
+                )
+                for item in menu.items:
+                    if item.title in menu_details:
+                        await repo.save_recipe_details(item, menu_details[item.title])
 
                 # Шаг 3: Агрегация списка покупок
                 shopping_list = aggregate_shopping_list(menu_details)
+                shopping_sections = aggregate_shopping_sections(menu_details)
                 shopping_text = self._format_shopping_list(shopping_list, language)
 
                 # Рецепты и список продуктов выдаются вместе с оплаченным PDF.
@@ -164,11 +181,18 @@ class MenuPipeline:
                     menu_details,
                     shopping_list,
                     str(language),
+                    shopping_sections=shopping_sections,
                 )
                 validate_menu_files(menu, (production_pdf_path, recipe_path,
                                            rendered_artifacts.inside_preview,
                                            rendered_artifacts.outside_preview), menu_details)
-                plan = build_evening_plan(menu.items, menu_details, shopping_list, str(language))
+                plan = build_evening_plan(
+                    menu.items,
+                    menu_details,
+                    shopping_list,
+                    str(language),
+                    shopping_sections=shopping_sections,
+                )
                 save_evening_plan(self.settings.generated_dir / str(menu.id) / "evening_plan.json", plan)
                 for kind, path in rendered_artifacts.as_mapping().items():
                     await repo.save_file(menu.id, kind, str(path))
@@ -177,7 +201,7 @@ class MenuPipeline:
                 logger.info(f"Render artifacts created successfully -> Outside preview: {preview_image_path}")
 
                 # Получение chat_id и идентификации пользователя
-                chat_id = menu.customer.telegram_user_id
+                chat_id = menu.customer.telegram_user_id if is_telegram else None
 
                 is_uk = str(language).lower() in ("uk", "ukrainian")
 
@@ -232,7 +256,7 @@ class MenuPipeline:
                 if price <= 0:
                     raise ValueError("Menu price must be positive")
                 pay_keyboard = None
-                if self.settings.menu_price_stars > 0:
+                if is_telegram and self.settings.menu_price_stars > 0:
                     try:
                         stars = self.settings.menu_price_stars
                         await repo.set_waiting_for_payment(menu.id, price, stars)
@@ -241,8 +265,13 @@ class MenuPipeline:
                         pay_keyboard = get_payment_keyboard(menu.id, invoice, language)
                     except Exception as exc:
                         logger.error("Stars checkout unavailable for menu %s: %s", menu.id, exc)
-                if pay_keyboard is None and self.settings.menu_price_stars <= 0:
-                    await repo.set_status(menu.id, MenuStatus.IMAGES_READY)
+                if not is_telegram and PaymentService(self.settings).portmone_ready:
+                    await repo.set_waiting_for_payment(menu.id, price)
+                elif pay_keyboard is None and self.settings.menu_price_stars <= 0:
+                    if PaymentService(self.settings).portmone_ready:
+                        await repo.set_waiting_for_payment(menu.id, price)
+                    else:
+                        await repo.set_status(menu.id, MenuStatus.IMAGES_READY)
 
                 if preview_image_path and Path(preview_image_path).exists() and chat_id:
                     caption = (
@@ -277,13 +306,14 @@ class MenuPipeline:
             except Exception as proc_exc:
                 logger.error(f"Pipeline processing failed for Menu ID:{menu_id}: {proc_exc}", exc_info=True)
                 await repo.set_status(menu_id, MenuStatus.FAILED, error_message=str(proc_exc))
-                try:
-                    await self.bot.send_message(
-                        menu.customer.telegram_user_id,
-                        "Не удалось подготовить полный комплект. Оплата не выставлена; повторите создание позже.",
-                    )
-                except Exception:
-                    logger.exception("Could not notify customer about failed menu %s", menu_id)
+                if menu.source_channel == "telegram":
+                    try:
+                        await self.bot.send_message(
+                            menu.customer.telegram_user_id,
+                            "Не удалось подготовить полный комплект. Оплата не выставлена; повторите создание позже.",
+                        )
+                    except Exception:
+                        logger.exception("Could not notify customer about failed menu %s", menu_id)
 
     @staticmethod
     def _format_shopping_list(shopping_list: dict | list, language: str) -> str:

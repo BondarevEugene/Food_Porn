@@ -30,9 +30,12 @@ from app.bot.handlers import menu, payment, registration, stars, start
 from app.bot.handlers.admin import router as admin_router
 from app.bot.handlers.portmone_sandbox import router as portmone_sandbox_router
 from app.bot.handlers.wallpaper import router as wallpaper_router
+from app.channels.router import router as channels_router
 from app.config import Settings, get_settings
 from app.database.session import Database
 from app.miniapp.api import router as miniapp_router
+from app.services.openai_costs import OpenAICostSynchronizer
+from app.services.scheduled_delivery import ScheduledDeliveryWorker
 from app.workers.menu_pipeline import MenuPipeline
 from src.payment.portmone.router import router as portmone_router
 
@@ -45,6 +48,7 @@ SHUTDOWN_TIMEOUT = 15.0
 # Сохраняем объект приложения, его авторизацию и startup-обработчики.
 app.include_router(portmone_router)
 app.include_router(miniapp_router)
+app.include_router(channels_router)
 
 
 @app.get("/health", include_in_schema=False)
@@ -272,6 +276,8 @@ async def run_services(
 def clear_runtime_state() -> None:
     app.state.pipeline = None
     app.state.bot = None
+    app.state.openai_cost_sync = None
+    app.state.scheduled_delivery = None
 
 
 async def main() -> None:
@@ -299,6 +305,15 @@ async def main() -> None:
         )
         resources.push_async_callback(close_resource, "Telegram session", bot.session.close)
 
+        cost_sync = OpenAICostSynchronizer(settings, database.session_factory)
+        resources.push_async_callback(close_resource, "OpenAI cost synchronizer", cost_sync.stop)
+        await cost_sync.start()
+        scheduled_delivery = ScheduledDeliveryWorker(database.session_factory)
+        resources.push_async_callback(
+            close_resource, "scheduled gift delivery", scheduled_delivery.stop
+        )
+        await scheduled_delivery.start()
+
         pipeline = MenuPipeline(
             bot=bot, settings=settings, session_factory=database.session_factory
         )
@@ -308,6 +323,8 @@ async def main() -> None:
 
         app.state.pipeline = pipeline
         app.state.bot = bot
+        app.state.openai_cost_sync = cost_sync
+        app.state.scheduled_delivery = scheduled_delivery
         resources.callback(clear_runtime_state)
 
         await configure_telegram(bot, settings)

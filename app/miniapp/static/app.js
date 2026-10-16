@@ -5,6 +5,8 @@
   tg?.expand();
   const app = document.querySelector('#app');
   const launchData = tg?.initData || '';
+  const channelToken = new URLSearchParams(window.location.search).get('channel_token') || '';
+  const authorization = launchData ? 'tma ' + launchData : channelToken ? 'channel ' + channelToken : '';
   let giftPhotoUrls = [];
   let giftPhotoSelection = 0;
   let giftPhotoCheck = Promise.resolve();
@@ -14,7 +16,8 @@
   const state = {
     page: 'home', home: null, admin: null, job: null, menu: null, wallpaper: null, evening: null,
     style: 'dark', lang: savedLanguage || tg?.initDataUnsafe?.user?.language_code?.slice(0, 2) || 'uk',
-    error: '', previewUrl: '', previewError: '', viewKey: ''
+    error: '', previewUrl: '', previewError: '', viewKey: '', cookingIndex: 0, cookingStep: 0,
+    menuInputMode: 'list'
   };
   const copy = {
     ru: {
@@ -26,6 +29,7 @@
       wishes: 'От 5 до 9 желаний', wishesHint: 'Напишите по одному желанию в каждом поле.', addWish: 'Добавить желание', theme: 'Атмосфера', dark: 'Тёплая тёмная', light: 'Светлая', color: 'Яркая',
       create: 'Создать подарок', foodLead: 'Расскажите, какие блюда войдут в ваше меню.', name: 'Ваше имя', phone: 'Телефон с кодом страны',
       cover: 'Фото для обложки', spread: 'Фото для разворота', dishes: 'Блюда', add: 'Добавить блюдо', send: 'Создать меню',
+      menuSimple: 'Просто список', menuDetailed: 'По категориям', dishListHint: 'Одно блюдо с новой строки. Можно написать «Десерт: тирамису» или «пас».',
       status: 'Состояние заказа', preview: 'Предпросмотр', mobile: 'Изображение для телефона', desktop: 'Изображение для экрана',
       print: 'Архив для типографии', recipes: 'Рецепты и продукты', check: 'Проверить оплату', pay: 'Перейти к оплате',
       working: 'Мы создаём ваш подарок. Это займёт несколько минут.', payment: 'К оплате', setting: 'Настройки', language: 'Язык',
@@ -65,6 +69,7 @@
       wishes: 'Від 5 до 9 бажань', wishesHint: 'Напишіть по одному бажанню в кожному полі.', addWish: 'Додати бажання', theme: 'Атмосфера', dark: 'Тепла темна', light: 'Світла', color: 'Яскрава',
       create: 'Створити подарунок', foodLead: 'Розкажіть, які страви увійдуть до вашого меню.', name: 'Ваше ім’я', phone: 'Телефон із кодом країни',
       cover: 'Фото для обкладинки', spread: 'Фото для розвороту', dishes: 'Страви', add: 'Додати страву', send: 'Створити меню',
+      menuSimple: 'Просто список', menuDetailed: 'За категоріями', dishListHint: 'Одна страва з нового рядка. Можна написати «Десерт: тірамісу» або «пас».',
       status: 'Стан замовлення', preview: 'Попередній перегляд', mobile: 'Зображення для телефона', desktop: 'Зображення для екрана',
       print: 'Архів для друкарні', recipes: 'Рецепти та продукти', check: 'Перевірити оплату', pay: 'Перейти до оплати',
       working: 'Ми створюємо ваш подарунок. Це триватиме кілька хвилин.', payment: 'До сплати', setting: 'Налаштування', language: 'Мова',
@@ -104,6 +109,7 @@
       wishes: '5 to 9 wishes', wishesHint: 'Write one wish in each field.', addWish: 'Add a wish', theme: 'Atmosphere', dark: 'Warm dark', light: 'Light', color: 'Colorful',
       create: 'Create gift', foodLead: 'Tell us which dishes belong in your menu.', name: 'Your name', phone: 'Phone with country code',
       cover: 'Cover photo', spread: 'Spread photo', dishes: 'Dishes', add: 'Add dish', send: 'Create menu',
+      menuSimple: 'Simple list', menuDetailed: 'By category', dishListHint: 'One dish per line. You may write “Dessert: tiramisu” or “pass”.',
       status: 'Order status', preview: 'Preview', mobile: 'Phone image', desktop: 'Desktop image', print: 'Print archive',
       recipes: 'Recipes and shopping list', check: 'Check payment', pay: 'Pay now', working: 'We are creating your gift. This may take a few minutes.',
       payment: 'Amount due', setting: 'Settings', language: 'Language', vip: 'Free access: Telegram usernames', save: 'Save',
@@ -140,9 +146,9 @@
   const button = (label, action, style = 'secondary') => `<button type="button" class="${style}" data-action="${action}">${label}</button>`;
 
   async function api(path, options = {}) {
-    if (!launchData) throw Error(t('openFromBot'));
+    if (!authorization) throw Error(t('openFromBot'));
     const response = await fetch('/miniapp/api' + path, {
-      ...options, headers: {Authorization: 'tma ' + launchData, ...(options.headers || {})}
+      ...options, headers: {Authorization: authorization, ...(options.headers || {})}
     });
     if (!response.ok) {
       let detail;
@@ -216,7 +222,8 @@
     return `<div class="eyebrow">${t('number')} #${esc(id)}</div><h1>${title}</h1><div class="status-pill"><span class="status-dot"></span>${esc(status(currentStatus))}</div>`;
   }
   function deliveryTools(prefix) {
-    return `<section class="panel delivery-panel"><div class="panel-title">${t('delivery')}</div><button type="button" class="primary" data-action="${prefix}-share">${t('share')}</button><label class="field" for="recipient-email">${t('email')}</label><input id="recipient-email" class="input" type="email" autocomplete="email" placeholder="name@example.com"><button type="button" class="secondary" data-action="${prefix}-email">${t('sendEmail')}</button></section>`;
+    const schedule = state.lang === 'uk' ? 'Надіслати у вибраний час' : state.lang === 'ru' ? 'Отправить в выбранное время' : 'Send at a chosen time';
+    return `<section class="panel delivery-panel"><div class="panel-title">${t('delivery')}</div><button type="button" class="primary" data-action="${prefix}-share">${t('share')}</button><label class="field" for="recipient-email">${t('email')}</label><input id="recipient-email" class="input" type="email" autocomplete="email" placeholder="name@example.com"><button type="button" class="secondary" data-action="${prefix}-email">${t('sendEmail')}</button><label class="field" for="delivery-time">${schedule}</label><input id="delivery-time" class="input" type="datetime-local"><button type="button" class="secondary" data-action="${prefix}-schedule">${schedule}</button></section>`;
   }
   function giftDetail(job) {
     const current = job?.status;
@@ -260,6 +267,25 @@
     const normalized = ((minutes % 1440) + 1440) % 1440;
     return `${String(Math.floor(normalized / 60)).padStart(2,'0')}:${String(normalized % 60).padStart(2,'0')}`;
   }
+  function recipeSteps(item) {
+    const raw = String(item?.recipe || '').trim();
+    if (!raw) return [];
+    const lines = raw.split(/\n+|(?=\d+[.)]\s+)/).map(value => value.replace(/^\d+[.)]\s*/, '').trim()).filter(Boolean);
+    return lines.length > 1 ? lines : raw.split(/(?<=[.!?])\s+/).filter(Boolean);
+  }
+  function cookingPanel(courses) {
+    if (!courses.length) return '';
+    state.cookingIndex = Math.min(state.cookingIndex || 0, courses.length - 1);
+    const item = courses[state.cookingIndex];
+    const steps = recipeSteps(item);
+    state.cookingStep = Math.min(state.cookingStep || 0, Math.max(steps.length - 1, 0));
+    const labels = state.lang === 'uk'
+      ? {title:'Готуємо разом',prev:'Назад',next:'Далі',done:'Готово',allergens:'Алергени',equipment:'Обладнання',replace:'Заміни'}
+      : state.lang === 'ru'
+      ? {title:'Готовим вместе',prev:'Назад',next:'Далее',done:'Готово',allergens:'Аллергены',equipment:'Оборудование',replace:'Замены'}
+      : {title:'Cook together',prev:'Back',next:'Next',done:'Done',allergens:'Allergens',equipment:'Equipment',replace:'Substitutions'};
+    return `<section class="panel cooking-mode"><div class="panel-title">${labels.title} <span>${state.cookingStep + 1}/${Math.max(steps.length,1)}</span></div><div class="styles">${courses.map((dish,index)=>`<button type="button" class="chip ${index===state.cookingIndex?'active':''}" data-action="cook-dish" data-index="${index}">${esc(dish.title)}</button>`).join('')}</div><h3>${esc(item.title)}</h3>${item.equipment?.length?`<p class="muted"><b>${labels.equipment}:</b> ${esc(item.equipment.join(', '))}</p>`:''}${item.allergens?.length?`<p class="muted"><b>${labels.allergens}:</b> ${esc(item.allergens.join(', '))}</p>`:''}<div class="note" style="margin-top:14px">${esc(steps[state.cookingStep] || item.recipe)}</div>${item.substitutions?.length?`<p class="muted"><b>${labels.replace}:</b> ${esc(item.substitutions.join(' · '))}</p>`:''}<div class="actions" style="margin-top:14px"><button type="button" class="secondary" data-action="cook-prev" ${state.cookingStep<1?'disabled':''}>← ${labels.prev}</button><button type="button" class="primary" data-action="cook-next">${state.cookingStep>=steps.length-1?labels.done:labels.next+' →'}</button></div></section>`;
+  }
   function eveningPage() {
     if (!state.evening) return `<div class="page">${goHomeButton('menu')}<h1>${t('evening')}</h1><section class="panel soft"><p>${t('eveningOld')}</p></section></div>`;
     const menuId = state.eveningMenuId;
@@ -281,7 +307,7 @@
       <section class="panel"><label class="field" for="dinner-time">${t('firstServe')}</label><input class="input time-input" id="dinner-time" type="time" value="${esc(time)}"><p class="muted">${t('approx')}: ${t('prepare').toLowerCase()} та ${t('serve').toLowerCase()}.</p></section>
       <section class="panel"><div class="panel-title">${t('shopping')} <span>${buying.size}</span></div><div class="shopping-list">${[...buying].map(([ingredient,count]) => `<label class="shop-row"><input type="checkbox" data-ingredient="${esc(ingredient)}" ${state.eveningChecked?.[ingredient] ? 'checked' : ''}><span>${esc(ingredient)}${count > 1 ? ` ×${count}` : ''}</span></label>`).join('')}</div></section>
       <section class="panel"><div class="panel-title">${t('prepare')}</div><ol class="plan-list">${cooking.map(({item,when}) => `<li><time>${clock(when)}</time><span><strong>${esc(item.title)}</strong><small>${esc(item.prep_minutes)} + ${esc(item.cook_minutes)} ${t('minutes')}</small></span></li>`).join('')}</ol></section>
-      <section class="panel"><div class="panel-title">${t('serve')}</div><ol class="plan-list">${serving.map(({item,when}) => `<li><time>${clock(when)}</time><span>${esc(item.title)}</span></li>`).join('')}</ol></section></div>`;
+      <section class="panel"><div class="panel-title">${t('serve')}</div><ol class="plan-list">${serving.map(({item,when}) => `<li><time>${clock(when)}</time><span>${esc(item.title)}</span></li>`).join('')}</ol></section>${cookingPanel(courses)}</div>`;
   }
   async function openEvening() {
     const id = state.menu?.id;
@@ -439,7 +465,7 @@
         break;
       }
       case 'food':
-        body = `<div class="form">${goHomeButton()}<div class="eyebrow">02 / CULINARY STORY</div><h1>${t('food')}</h1><p class="sub">${t('foodLead')}</p><form id="menu-form" class="panel">${!state.home?.customer ? `<label class="field">${t('name')}</label><input class="input" name="name" required maxlength="100"><label class="field">${t('phone')}</label><input class="input" type="tel" name="phone" required placeholder="+380…">` : ''}<label class="field">${t('cover')}</label><input class="input" name="cover" type="file" accept="image/jpeg,image/png,image/webp" required><label class="field">${t('spread')}</label><input class="input" name="spread" type="file" accept="image/jpeg,image/png,image/webp" required><label class="field">${t('dishes')}</label><div id="dishes">${dishRow()}</div>${button('+ ' + t('add'), 'add-dish')}${button(t('send'), 'submit-menu', 'primary')}</form></div>`;
+        body = `<div class="form">${goHomeButton()}<div class="eyebrow">02 / CULINARY STORY</div><h1>${t('food')}</h1><p class="sub">${t('foodLead')}</p><form id="menu-form" class="panel">${!state.home?.customer ? `<label class="field">${t('name')}</label><input class="input" name="name" required maxlength="100"><label class="field">${t('phone')}</label><input class="input" type="tel" name="phone" required placeholder="+380…">` : ''}<label class="field">${t('cover')}</label><input class="input" name="cover" type="file" accept="image/jpeg,image/png,image/webp" required><label class="field">${t('spread')}</label><input class="input" name="spread" type="file" accept="image/jpeg,image/png,image/webp" required><label class="field">${t('dishes')}</label><div class="styles"><button type="button" class="chip ${state.menuInputMode==='list'?'active':''}" data-action="menu-input-mode" data-mode="list">${t('menuSimple')}</button><button type="button" class="chip ${state.menuInputMode==='structured'?'active':''}" data-action="menu-input-mode" data-mode="structured">${t('menuDetailed')}</button></div>${state.menuInputMode==='list'?`<div id="dish-list-mode"><textarea class="input" name="dish_list" required maxlength="2500" placeholder="${t('dishListHint')}"></textarea><p class="muted">${t('dishListHint')}</p></div>`:`<div id="dish-structured-mode"><div id="dishes">${dishRow()}</div>${button('+ ' + t('add'), 'add-dish')}</div>`}${button(t('send'), 'submit-menu', 'primary')}</form></div>`;
         break;
       case 'orders':
         body = `<div class="page">${goHomeButton()}<div class="eyebrow">YOUR STORIES</div><h1>${t('orders')}</h1><p class="sub">${t('ordersSub')}</p><div class="orders-list">${orderRows()}</div></div>`;
@@ -490,10 +516,11 @@
       }
     } catch (error) { notice(error.message); }
   }
-  function openPayment(url, kind, id) {
-    if (tg?.openInvoice) tg.openInvoice(url, status => {
+  function openPayment(url, kind, id, provider='stars') {
+    if (provider === 'stars' && tg?.openInvoice) tg.openInvoice(url, status => {
       if (status === 'paid') setTimeout(() => openOrder(kind, id), 1200);
     });
+    else if (tg?.openLink) tg.openLink(url);
     else if (tg?.openTelegramLink) tg.openTelegramLink(url);
     else window.open(url, '_blank');
   }
@@ -525,6 +552,10 @@
       }
       const action = element.dataset.action;
       if (!action) return;
+      if (action === 'menu-input-mode') {
+        state.menuInputMode = element.dataset.mode === 'structured' ? 'structured' : 'list';
+        render(); return;
+      }
       if (action === 'add-dish') {
         if (document.querySelectorAll('.dish').length < 18) document.querySelector('#dishes').insertAdjacentHTML('beforeend', dishRow());
         return;
@@ -581,7 +612,10 @@
         const form = document.querySelector('#menu-form');
         if (!form.reportValidity()) return;
         const payload = new FormData(form);
-        payload.set('dishes', JSON.stringify([...form.querySelectorAll('.dish')].map(row => ({category:row.querySelector('select').value, title:row.querySelector('input').value.trim()}))));
+        const dishPayload = state.menuInputMode === 'list'
+          ? {mode:'list', text:String(new FormData(form).get('dish_list') || '').trim()}
+          : [...form.querySelectorAll('.dish')].map(row => ({category:row.querySelector('select').value, title:row.querySelector('input').value.trim()}));
+        payload.set('dishes', JSON.stringify(dishPayload));
         payload.set('language', state.lang);
         element.disabled = true;
         const menu = await api('/menus', {method:'POST', body:payload});
@@ -589,6 +623,16 @@
         render(); return;
       }
       if (action === 'menu-evening') { await openEvening(); return; }
+      if (action === 'cook-dish') { state.cookingIndex = Number(element.dataset.index)||0; state.cookingStep = 0; render(); return; }
+      if (action === 'cook-prev') { state.cookingStep = Math.max(0,(state.cookingStep||0)-1); render(); return; }
+      if (action === 'cook-next') {
+        const selected = new Set(state.eveningSelected || []);
+        const courses = state.evening.serve.filter(item => selected.has(dishKey(item)));
+        const steps = recipeSteps(courses[state.cookingIndex]);
+        if (state.cookingStep < steps.length - 1) state.cookingStep += 1;
+        else if (state.cookingIndex < courses.length - 1) { state.cookingIndex += 1; state.cookingStep = 0; }
+        render(); return;
+      }
       if (action === 'gift-open' || action === 'menu-open') {
         const target = action === 'gift-open' ? `gifts/${state.job.id}` : `menus/${state.menu.id}`;
         const result = await api(`/${target}/share`, {method:'POST'});
@@ -601,7 +645,8 @@
         const path = action === 'gift-pay' ? `/gifts/${state.job.id}` : action === 'menu-pay' ? `/menus/${state.menu.id}` : `/wallpapers/${state.wallpaper.id}`;
         const result = await api(path + '/checkout', {method:'POST'});
         openPayment(result.url, action === 'gift-pay' ? 'job' : action === 'menu-pay' ? 'menu' : 'wallpaper',
-          action === 'gift-pay' ? state.job.id : action === 'menu-pay' ? state.menu.id : state.wallpaper.id);
+          action === 'gift-pay' ? state.job.id : action === 'menu-pay' ? state.menu.id : state.wallpaper.id,
+          result.provider);
         return;
       }
       if (['gift-check','menu-check','wallpaper-check'].includes(action)) {
@@ -644,6 +689,17 @@
         notice(t('emailSent'), true);
         return;
       }
+      if (action === 'gift-schedule' || action === 'menu-schedule' || action === 'wallpaper-schedule') {
+        const email = document.querySelector('#recipient-email');
+        const when = document.querySelector('#delivery-time');
+        if (!email?.checkValidity() || !email.value) { email?.reportValidity(); return; }
+        if (!when?.value) { when?.focus(); return; }
+        const kind = action.split('-')[0];
+        const reference = kind === 'gift' ? state.job.id : kind === 'menu' ? state.menu.id : state.wallpaper.id;
+        await api('/deliveries/schedule', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({kind,reference_id:String(reference),email:email.value.trim(),send_at:new Date(when.value).toISOString()})});
+        notice(state.lang==='uk'?'Доставку заплановано':state.lang==='ru'?'Доставка запланирована':'Delivery scheduled', true);
+        return;
+      }
       for (const [prefix, kind, id] of [['gift-', 'gifts', state.job?.id], ['menu-', 'menus', state.menu?.id], ['wallpaper-', 'wallpapers', state.wallpaper?.id]]) {
         if (action.startsWith(prefix)) { await download(`/${kind}/${id}/files/${action.slice(prefix.length)}`, `${kind}-${id}-${action.slice(prefix.length)}`); return; }
       }
@@ -672,7 +728,7 @@
   app.addEventListener('input', event => {
     if (event.target.closest('#gift-goals')) { saveGiftDraft(); giftSummary(); }
   });
-  if (!launchData) {
+  if (!authorization) {
     app.innerHTML = `<main class="loading">${t('openFromBot')}</main>`;
     return;
   }

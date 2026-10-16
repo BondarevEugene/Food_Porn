@@ -27,7 +27,8 @@ def _minutes(raw: Any, default: int) -> int:
 
 
 def build_evening_plan(items: list[Any], details: dict[str, Any],
-                       shopping_list: list[str], language: str) -> dict[str, Any]:
+                       shopping_list: list[str], language: str, *,
+                       shopping_sections: dict[str, list[dict]] | None = None) -> dict[str, Any]:
     """Keep the customer names and real recipe text; omit empty placeholders."""
     dishes = []
     for item in items:
@@ -47,13 +48,19 @@ def build_evening_plan(items: list[Any], details: dict[str, Any],
             "prep_minutes": _minutes(info.get("prep_minutes"), prep),
             "cook_minutes": _minutes(info.get("cook_minutes"), cook),
             "position": int(item.position or 0),
+            "servings": _minutes(info.get("servings"), 2),
+            "difficulty": str(info.get("difficulty") or "medium"),
+            "equipment": [str(value) for value in info.get("equipment") or []],
+            "allergens": [str(value) for value in info.get("allergens") or []],
+            "substitutions": [str(value) for value in info.get("substitutions") or []],
         })
     if not dishes:
         raise ValueError("No finished dishes for the evening plan")
     return {
-        "version": 1,
+        "version": 2,
         "language": language,
         "shopping": [str(value) for value in shopping_list],
+        "shopping_sections": shopping_sections or {},
         "serve": sorted(dishes, key=lambda d: (SERVE_ORDER.get(d["category"], 9), d["position"])),
         "prepare": sorted(dishes, key=lambda d: (-(d["prep_minutes"] + d["cook_minutes"]),
                                                     SERVE_ORDER.get(d["category"], 9), d["position"])),
