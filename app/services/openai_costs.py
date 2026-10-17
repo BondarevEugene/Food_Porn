@@ -129,7 +129,7 @@ class OpenAICostSynchronizer:
         output: list[dict[str, Any]] = []
         page: str | None = None
         client = AsyncOpenAI(
-            api_key=self.settings.openai_admin_api_key.get_secret_value(),
+            admin_api_key=self.settings.openai_admin_api_key.get_secret_value(),
             timeout=30,
             max_retries=2,
         )
