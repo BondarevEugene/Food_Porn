@@ -167,6 +167,7 @@ async def settings(identity: Identity):
     config = get_settings()
     result["services"] = {
         "portmone": PaymentService(config).portmone_ready,
+        "mono": PaymentService(config).mono_ready,
         "smtp": bool(config.smtp_host and config.smtp_user),
         "openai": config.openai_api_key.get_secret_value() not in {"", "replace_me"},
         "openai_costs": config.openai_admin_api_key.get_secret_value() not in {"", "replace_me"},

@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 
-from app.database.models import FileKind, ItemCategory, Menu
+from app.database.models import FileKind, ItemCategory, Language, Menu
 from app.locales.messages import t
 
 
@@ -99,6 +99,18 @@ class BookletRenderer:
                 draw.point((x, y), fill=(27, 23, 22))
         return page
 
+    @staticmethod
+    def _menu_title(menu: Menu) -> str:
+        language = getattr(getattr(menu, "customer", None), "language", Language.RU)
+        language = getattr(language, "value", language)
+        if getattr(menu, "meal_period", None) == "breakfast":
+            return {
+                "uk": "МЕНЮ СНІДАНКІВ",
+                "ru": "МЕНЮ ЗАВТРАКОВ",
+                "en": "BREAKFAST MENU",
+            }.get(str(language), "МЕНЮ ЗАВТРАКОВ")
+        return t("cover_title", menu.customer.language)
+
     def _draw_outside(self, page: Image.Image, menu: Menu) -> None:
         x0, y0 = self.bleed, self.bleed
         left = (x0, y0, x0 + self.panel_w, y0 + self.trim_h)
@@ -170,7 +182,7 @@ class BookletRenderer:
         sub_font = self._font(18, serif=True)
         self._fit_text(
             draw,
-            t("cover_title", menu.customer.language),
+            self._menu_title(menu),
             (text_x, box[1] + self._px(38), text_right, box[1] + self._px(83)),
             title_font,
             self.GOLD,
@@ -217,7 +229,7 @@ class BookletRenderer:
         pad = self._px(8)
         draw.text(
             (x1 + pad, y1 + self._px(7)),
-            t("cover_title", menu.customer.language),
+            self._menu_title(menu),
             font=self._font(23, serif=True, bold=True),
             fill=self.GOLD,
         )

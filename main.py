@@ -22,7 +22,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand, MenuButtonCommands, MenuButtonWebApp, WebAppInfo
+from aiogram.types import BotCommand, MenuButtonCommands
 
 from app.admin_app import app
 from app.admin_app import engine as admin_engine
@@ -131,23 +131,14 @@ def create_dispatcher(settings: Settings, database: Database, pipeline: MenuPipe
 
 
 async def configure_telegram(bot: Bot, settings: Settings) -> None:
-    commands = [BotCommand(command="start", description="Відкрити майстерню")]
-    if settings.miniapp_url:
-        menu_button = MenuButtonWebApp(
-            text="Відкрити подарунки",
-            web_app=WebAppInfo(url=settings.miniapp_url),
-        )
-    else:
-        commands.extend(
-            [
-                BotCommand(command="new", description="Створити новий сет / маніфестацію"),
-                BotCommand(command="admin", description="Панель керування"),
-            ]
-        )
-        # После отключения Mini App убираем сохраненную Telegram web-кнопку.
-        menu_button = MenuButtonCommands()
+    commands = [
+        BotCommand(command="start", description="Відкрити головне меню"),
+        BotCommand(command="history", description="Мої гастрономічні замовлення"),
+        BotCommand(command="admin", description="Панель керування"),
+    ]
     await bot.set_my_commands(commands)
-    await bot.set_chat_menu_button(menu_button=menu_button)
+    # The native command button remains visible even when the Mini App is configured.
+    await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
 
 
 @contextmanager

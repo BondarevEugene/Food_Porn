@@ -106,11 +106,20 @@ class MenuRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def create(self, customer: Customer, *, source_channel: str | None = None) -> Menu:
+    async def create(
+        self,
+        customer: Customer,
+        *,
+        source_channel: str | None = None,
+        meal_period: str | None = None,
+        visual_style: str | None = None,
+    ) -> Menu:
         menu = Menu(
             customer_id=customer.id,
             status=MenuStatus.DRAFT,
             source_channel=source_channel or customer.source_channel or "telegram",
+            meal_period=meal_period,
+            visual_style=visual_style,
         )
         self.session.add(menu)
         await self.session.commit()
@@ -161,6 +170,28 @@ class MenuRepository:
 
     async def reset_items(self, menu_id: int) -> None:
         await self.session.execute(delete(MenuItem).where(MenuItem.menu_id == menu_id))
+        await self.session.commit()
+
+    async def replace_category_items(
+        self,
+        *,
+        menu_id: int,
+        category: ItemCategory,
+        titles: list[str],
+    ) -> None:
+        await self.session.execute(
+            delete(MenuItem).where(MenuItem.menu_id == menu_id, MenuItem.category == category)
+        )
+        self.session.add_all(
+            MenuItem(
+                menu_id=menu_id,
+                category=category,
+                position=position,
+                title=title,
+                generation_status=GenerationStatus.PENDING,
+            )
+            for position, title in enumerate(titles, start=1)
+        )
         await self.session.commit()
 
     async def set_photos(self, menu_id: int, *, cover: str | None = None, spread: str | None = None) -> None:
@@ -256,14 +287,25 @@ class MenuRepository:
         )
         return list(result.scalars())
 
-    async def set_waiting_for_payment(self, menu_id: int, amount: Decimal,
-                                      stars_amount: int | None = None) -> None:
+    async def set_waiting_for_payment(
+        self,
+        menu_id: int,
+        amount: Decimal,
+        stars_amount: int | None = None,
+        *,
+        payment_id: str | None = None,
+        payment_system: str | None = None,
+    ) -> None:
         menu = await self.get(menu_id)
         if menu is None:
             raise LookupError(f"Menu {menu_id} not found")
         menu.status = MenuStatus.WAITING_FOR_PAYMENT
         menu.price_amount = amount
         menu.stars_amount = stars_amount
+        if payment_id is not None:
+            menu.payment_id = payment_id
+        if payment_system is not None:
+            menu.payment_system = payment_system
         await self.session.commit()
 
     async def mark_as_paid(self, menu_id: int, payment_id: str, payment_system: str) -> None:

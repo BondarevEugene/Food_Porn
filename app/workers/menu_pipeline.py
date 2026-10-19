@@ -256,42 +256,93 @@ class MenuPipeline:
                 if price <= 0:
                     raise ValueError("Menu price must be positive")
                 pay_keyboard = None
-                if is_telegram and self.settings.menu_price_stars > 0:
+                payment = PaymentService(self.settings)
+                if is_telegram and payment.mono_ready:
+                    try:
+                        invoice = await payment.create_mono_invoice(
+                            menu.id,
+                            price,
+                            f"Food Porn digital menu #{menu.id}",
+                        )
+                        await repo.set_waiting_for_payment(
+                            menu.id,
+                            price,
+                            payment_id=invoice.invoice_id,
+                            payment_system="mono",
+                        )
+                        pay_keyboard = get_payment_keyboard(
+                            menu.id,
+                            invoice.page_url,
+                            language,
+                            provider="mono",
+                            amount=str(price),
+                        )
+                    except Exception as exc:
+                        logger.error("Monobank checkout unavailable for menu %s: %s", menu.id, exc)
+                if is_telegram and pay_keyboard is None and self.settings.menu_price_stars > 0:
                     try:
                         stars = self.settings.menu_price_stars
-                        await repo.set_waiting_for_payment(menu.id, price, stars)
-                        invoice = await create_invoice(self.bot, OrderRef(
-                            "menu", menu.id, customer_telegram_id, stars))
-                        pay_keyboard = get_payment_keyboard(menu.id, invoice, language)
+                        await repo.set_waiting_for_payment(
+                            menu.id,
+                            price,
+                            stars,
+                            payment_system="telegram_stars",
+                        )
+                        invoice_url = await create_invoice(
+                            self.bot,
+                            OrderRef("menu", menu.id, customer_telegram_id, stars),
+                        )
+                        pay_keyboard = get_payment_keyboard(menu.id, invoice_url, language)
                     except Exception as exc:
                         logger.error("Stars checkout unavailable for menu %s: %s", menu.id, exc)
-                if not is_telegram and PaymentService(self.settings).portmone_ready:
-                    await repo.set_waiting_for_payment(menu.id, price)
-                elif pay_keyboard is None and self.settings.menu_price_stars <= 0:
-                    if PaymentService(self.settings).portmone_ready:
-                        await repo.set_waiting_for_payment(menu.id, price)
-                    else:
-                        await repo.set_status(menu.id, MenuStatus.IMAGES_READY)
+                if is_telegram and pay_keyboard is None and payment.portmone_ready:
+                    try:
+                        invoice_url = await payment.create_portmone_invoice(
+                            menu.id,
+                            price,
+                            f"Food Porn digital menu #{menu.id}",
+                        )
+                        await repo.set_waiting_for_payment(
+                            menu.id,
+                            price,
+                            payment_system="portmone",
+                        )
+                        pay_keyboard = get_payment_keyboard(
+                            menu.id,
+                            invoice_url,
+                            language,
+                            provider="portmone",
+                            amount=str(price),
+                        )
+                    except Exception as exc:
+                        logger.error("Portmone checkout unavailable for menu %s: %s", menu.id, exc)
+                if not is_telegram and (payment.mono_ready or payment.portmone_ready):
+                    await repo.set_waiting_for_payment(
+                        menu.id,
+                        price,
+                        payment_system="mono" if payment.mono_ready else "portmone",
+                    )
+                elif pay_keyboard is None:
+                    await repo.set_status(menu.id, MenuStatus.IMAGES_READY)
 
                 if preview_image_path and Path(preview_image_path).exists() and chat_id:
                     caption = (
                         f"✨ <b>Ваш превью-гастрономічний сет #{menu.id} готовий!</b>\n\n"
                         f"🔒 <i>На превью нанесені захисні водяні знаки.</i>\n"
-                        f"⭐ <b>Повний комплект:</b> {self.settings.menu_price_stars} Stars\n\n"
+                        f"💳 <b>Повний комплект:</b> {price} UAH\n\n"
                         f"Після підтвердження оплати ви отримаєте чистий буклет та рецепти."
                         if is_uk else
                         f"✨ <b>Ваш превью-гастрономический сет #{menu.id} готов!</b>\n\n"
                         f"🔒 <i>На превью нанесены защитные водяные знаки.</i>\n"
-                        f"⭐ <b>Полный комплект:</b> {self.settings.menu_price_stars} Stars\n\n"
+                        f"💳 <b>Полный комплект:</b> {price} UAH\n\n"
                         f"После подтверждения оплаты вы получите чистый буклет и рецепты."
                     )
                     if pay_keyboard is None:
-                        caption += ("\n\nРахунок можна повторно відкрити у Майстерні."
-                                    if is_uk and self.settings.menu_price_stars > 0 else
-                                    "\n\nСчёт можно повторно открыть в Мастерской."
-                                    if self.settings.menu_price_stars > 0 else
-                                    "\n\nОплата тимчасово недоступна." if is_uk else
-                                    "\n\nОплата временно недоступна.")
+                        caption += (
+                            "\n\nОплата тимчасово недоступна. Ми вже зберегли ваше замовлення."
+                            if is_uk
+                            else "\n\nОплата временно недоступна. Мы уже сохранили ваш заказ."
+                        )
 
                     await self.bot.send_photo(
                         chat_id=chat_id,

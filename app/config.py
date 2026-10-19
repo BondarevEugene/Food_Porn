@@ -104,6 +104,11 @@ class Settings(BaseSettings):
     portmone_test_mode: bool = False
     portmone_test_amount_uah: Decimal = Field(default=Decimal("1.00"), gt=0, le=100)
 
+    # Monobank Acquiring. MONO_TOKEN is issued in the merchant cabinet.
+    mono_token: SecretStr = SecretStr("")
+    mono_redirect_url: str = ""
+    mono_webhook_url: str = ""
+
     # --- Настройки типографии ---
     printshop_email: str = ""
     printshop_name: str = Field(default="Студия Печати 'ArtPress'")

@@ -22,7 +22,7 @@ from app.database.models import (
 )
 from app.services.settings_service import get_setting, get_vip_users
 
-CASH_PROVIDERS = ("portmone", "redsys", "liqpay", "wayforpay", "paypal")
+CASH_PROVIDERS = ("mono", "portmone", "redsys", "liqpay", "wayforpay", "paypal")
 FREE_PROVIDERS = ("vip_bypass", "vip", "free")
 SETTING_RULES = {
     "menu_price_uah": (Decimal("1"), Decimal("100000"), False, None),

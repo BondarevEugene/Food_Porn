@@ -109,6 +109,8 @@ class Menu(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
     status: Mapped[str] = mapped_column(String(50), default="draft", nullable=False)
+    meal_period: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    visual_style: Mapped[str | None] = mapped_column(String(60), nullable=True)
     cover_photo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     spread_photo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

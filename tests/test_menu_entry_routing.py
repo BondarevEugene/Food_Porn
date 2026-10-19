@@ -30,7 +30,7 @@ async def test_begin_menu_entry_activates_first_dish_state() -> None:
 
     await begin_menu_entry(state, menu_id=42)
 
-    state.set_state.assert_awaited_once_with(PremiumMenuStates.waiting_for_dish_name)
+    state.set_state.assert_awaited_once_with(PremiumMenuStates.waiting_for_dish_list)
     state.update_data.assert_awaited_once_with(
         menu_id=42,
         category=ItemCategory.MAIN.value,

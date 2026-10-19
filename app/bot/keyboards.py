@@ -67,11 +67,24 @@ def phone_keyboard(language: str = "uk") -> ReplyKeyboardMarkup:
     )
 
 
-def get_payment_keyboard(menu_id: int, invoice_url: str, language: str = "uk") -> InlineKeyboardMarkup:
-    """Telegram Stars invoice for the complete digital order."""
+def get_payment_keyboard(
+    menu_id: int,
+    invoice_url: str,
+    language: str = "uk",
+    *,
+    provider: str = "telegram_stars",
+    amount: str | None = None,
+) -> InlineKeyboardMarkup:
+    """Checkout and server-verification controls for the digital order."""
     is_uk = language.lower() in ("uk", "ukrainian")
-
-    payment_text = "⭐ Оплатити Stars" if is_uk else "⭐ Оплатить Stars"
+    if provider == "mono":
+        payment_text = "💳 Оплатити карткою" if is_uk else "💳 Оплатить картой"
+    elif provider == "portmone":
+        payment_text = "💳 Оплатити Portmone" if is_uk else "💳 Оплатить Portmone"
+    else:
+        payment_text = "⭐ Оплатити Stars" if is_uk else "⭐ Оплатить Stars"
+    if amount:
+        payment_text = f"{payment_text} · {amount} UAH"
     check_text = "🔄 Перевірити оплату" if is_uk else "🔄 Проверить оплату"
 
     return InlineKeyboardMarkup(
@@ -82,5 +95,6 @@ def get_payment_keyboard(menu_id: int, invoice_url: str, language: str = "uk") -
             [
                 InlineKeyboardButton(text=check_text, callback_data=f"check_payment_{menu_id}"),
             ],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_products")],
         ]
     )
