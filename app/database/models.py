@@ -136,6 +136,7 @@ class MenuItem(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     menu_id: Mapped[int] = mapped_column(ForeignKey("menus.id", ondelete="CASCADE"), nullable=False)
     category: Mapped[ItemCategory] = mapped_column(SQLEnum(ItemCategory, native_enum=False, length=30), nullable=False)
+    meal_slot: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     image_path: Mapped[str | None] = mapped_column(Text, nullable=True)

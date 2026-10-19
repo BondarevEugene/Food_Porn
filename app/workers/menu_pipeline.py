@@ -182,6 +182,11 @@ class MenuPipeline:
                     shopping_list,
                     str(language),
                     shopping_sections=shopping_sections,
+                    meal_plan=[
+                        (item.meal_slot or "other", item.title)
+                        for item in menu.items
+                        if item.title != "—"
+                    ],
                 )
                 validate_menu_files(menu, (production_pdf_path, recipe_path,
                                            rendered_artifacts.inside_preview,

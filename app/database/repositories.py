@@ -193,6 +193,29 @@ class MenuRepository:
             for position, title in enumerate(titles, start=1)
         )
         await self.session.commit()
+        self.session.expire_all()
+
+    async def replace_menu_plan(
+        self,
+        *,
+        menu_id: int,
+        entries: list[tuple[str, str, ItemCategory]],
+    ) -> None:
+        """Replace the complete breakfast/lunch/dinner plan atomically."""
+        await self.session.execute(delete(MenuItem).where(MenuItem.menu_id == menu_id))
+        self.session.add_all(
+            MenuItem(
+                menu_id=menu_id,
+                meal_slot=meal_slot,
+                category=category,
+                position=position,
+                title=title,
+                generation_status=GenerationStatus.PENDING,
+            )
+            for position, (meal_slot, title, category) in enumerate(entries, start=1)
+        )
+        await self.session.commit()
+        self.session.expire_all()
 
     async def set_photos(self, menu_id: int, *, cover: str | None = None, spread: str | None = None) -> None:
         menu = await self.get(menu_id)

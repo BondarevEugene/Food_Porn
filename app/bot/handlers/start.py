@@ -518,4 +518,4 @@ async def _send_food_start(message: Message, state: FSMContext, customer=None) -
     if customer is None:
         await message.answer("Не вдалося знайти ваш профіль. Спробуйте /start ще раз.")
         return
-    await begin_menu_setup(message, state, customer.language.value)
+    await begin_menu_setup(message, state, customer, customer.language.value)

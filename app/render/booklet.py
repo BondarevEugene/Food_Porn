@@ -24,6 +24,7 @@ from reportlab.pdfgen import canvas
 
 from app.database.models import FileKind, ItemCategory, Language, Menu
 from app.locales.messages import t
+from app.services.menu_wizard import MEAL_FULL_DAY, meal_slot_label
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,12 @@ class BookletRenderer:
     def _menu_title(menu: Menu) -> str:
         language = getattr(getattr(menu, "customer", None), "language", Language.RU)
         language = getattr(language, "value", language)
+        if getattr(menu, "meal_period", None) == MEAL_FULL_DAY:
+            return {
+                "uk": "МЕНЮ НА ДЕНЬ",
+                "ru": "МЕНЮ НА ДЕНЬ",
+                "en": "DAILY MENU",
+            }.get(str(language), "МЕНЮ НА ДЕНЬ")
         if getattr(menu, "meal_period", None) == "breakfast":
             return {
                 "uk": "МЕНЮ СНІДАНКІВ",
@@ -238,11 +245,20 @@ class BookletRenderer:
             fill=(113, 86, 53), width=max(2, self._px(0.35)),
         )
 
+        meal_order = {"breakfast": 0, "lunch": 1, "dinner": 2, "other": 3}
         order = {category: index for index, category in enumerate((
             ItemCategory.MAIN, ItemCategory.SOUP, ItemCategory.APPETIZER,
             ItemCategory.SALAD, ItemCategory.DESSERT,
         ))}
-        items = sorted(items, key=lambda item: (order.get(item.category, 99), item.position, item.id or 0))
+        items = sorted(
+            items,
+            key=lambda item: (
+                meal_order.get(getattr(item, "meal_slot", None), 4),
+                order.get(item.category, 99),
+                item.position,
+                item.id or 0,
+            ),
+        )
         columns = min(3, max(1, len(items)))
         rows = (len(items) + columns - 1) // columns
         if not rows:
@@ -307,9 +323,14 @@ class BookletRenderer:
             outline=(132, 98, 57),
             width=max(2, self._px(0.35)),
         )
+        language = getattr(getattr(menu, "customer", None), "language", Language.RU)
+        language = getattr(language, "value", language)
+        item_title = item.title
+        if getattr(item, "meal_slot", None):
+            item_title = f"{meal_slot_label(item.meal_slot, str(language))} · {item.title}"
         self._fit_text(
             draw,
-            item.title,
+            item_title,
             (x1 + self._px(4), y2 - caption_h, x2 - self._px(4), y2 - self._px(3)),
             self._font(9.2 if compact else 9.8, serif=True, bold=True),
             self.CREAM,
@@ -332,6 +353,15 @@ class BookletRenderer:
             width=max(2, self._px(0.35)),
         )
 
+        meal_order = {"breakfast": 0, "lunch": 1, "dinner": 2, "other": 3}
+        drinks = sorted(
+            drinks,
+            key=lambda item: (
+                meal_order.get(getattr(item, "meal_slot", None), 4),
+                item.position,
+                item.id or 0,
+            ),
+        )
         grid_y = y1 + self._px(28)
         gap = self._px(4)
         columns = 3

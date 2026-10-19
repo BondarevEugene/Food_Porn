@@ -20,6 +20,7 @@ def render_recipe_sheet(
     language: str = "uk",
     *,
     shopping_sections: dict[str, list[dict]] | None = None,
+    meal_plan: list[tuple[str, str]] | None = None,
 ) -> Path:
     """Render exact user dish names, ingredients and instructions to A4 PDF."""
     font_name = "FoodPornDejaVu"
@@ -62,9 +63,28 @@ def render_recipe_sheet(
     else:
         for ingredient in shopping_list:
             story.append(Paragraph("• " + escape(str(ingredient).removeprefix("• ")), body))
+    ordered_details: list[tuple[str | None, str, dict]] = []
+    included: set[str] = set()
+    if meal_plan:
+        for meal_slot, dish in meal_plan:
+            info = details.get(dish)
+            if isinstance(info, dict) and dish not in included:
+                ordered_details.append((meal_slot, dish, info))
+                included.add(dish)
     for dish, info in details.items():
-        if not isinstance(info, dict):
-            continue
+        if isinstance(info, dict) and dish not in included:
+            ordered_details.append((None, dish, info))
+    meal_names = {
+        "breakfast": "Сніданок" if is_uk else "Завтрак",
+        "lunch": "Обід" if is_uk else "Обед",
+        "dinner": "Вечеря" if is_uk else "Ужин",
+        "other": "Інше" if is_uk else "Без раздела",
+    }
+    previous_slot: str | None = None
+    for meal_slot, dish, info in ordered_details:
+        if meal_slot and meal_slot != previous_slot:
+            story.append(Paragraph(escape(meal_names.get(meal_slot, meal_slot)), title))
+            previous_slot = meal_slot
         lines = [Paragraph(escape(str(dish)), heading)]
         for ingredient in info.get("ingredients", []):
             lines.append(Paragraph("• " + escape(str(ingredient)), body))

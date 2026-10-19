@@ -17,6 +17,7 @@ Responsibilities:
 from __future__ import annotations
 
 import logging
+from html import escape
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
@@ -41,13 +42,10 @@ from app.database.models import Customer, ItemCategory, Menu, MenuStatus
 from app.database.repositories import MenuRepository
 from app.services.menu_wizard import (
     DEFAULT_VISUAL_STYLE,
-    MEAL_BREAKFAST,
-    MEAL_DINNER,
-    category_rule,
+    MEAL_FULL_DAY,
     meal_label,
-    meal_rules,
-    normalize_dish_lines,
-    style_label,
+    meal_slot_label,
+    parse_menu_plan,
 )
 from app.services.storage import InvalidImageError, StorageService
 from app.workers.menu_pipeline import MenuPipeline
@@ -57,7 +55,6 @@ router = Router(name="menu")
 
 
 class PremiumMenuStates(StatesGroup):
-    choosing_meal = State()
     waiting_for_dish_list = State()
     waiting_for_cover = State()
     waiting_for_spread = State()
@@ -73,32 +70,57 @@ async def begin_menu_entry(
     await state.update_data(menu_id=menu_id, category=category.value)
 
 
-class MenuSetupAction(CallbackData, prefix="menu_setup"):
-    action: str
-    value: str | None = None
-
-
 class MenuAction(CallbackData, prefix="menu"):
     action: str
     menu_id: int
     category: str | None = None
 
 
-def build_meal_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=text_for(language, "☀️ Сніданок", "☀️ Завтрак", "☀️ Breakfast"), callback_data=MenuSetupAction(action="meal", value=MEAL_BREAKFAST).pack())],
-        [InlineKeyboardButton(text=text_for(language, "🌙 Вечеря", "🌙 Ужин", "🌙 Dinner"), callback_data=MenuSetupAction(action="meal", value=MEAL_DINNER).pack())],
-        [InlineKeyboardButton(text=text_for(language, "⬅️ Назад", "⬅️ Назад", "⬅️ Back"), callback_data="back_to_products")],
-    ])
+class LegacyMenuSetupAction(CallbackData, prefix="menu_setup"):
+    """Decode buttons left in chats by the previous step-by-step wizard."""
+
+    action: str
+    value: str | None = None
 
 
-async def begin_menu_setup(message: Message, state: FSMContext, language: str = "ru") -> None:
-    await state.set_state(PremiumMenuStates.choosing_meal)
-    await state.update_data(ui_lang=language)
+async def begin_menu_setup(
+    message: Message,
+    state: FSMContext,
+    customer: Customer,
+    language: str = "ru",
+) -> None:
+    async with async_session_maker() as session:
+        repo = MenuRepository(session)
+        created = await repo.create(
+            customer,
+            meal_period=MEAL_FULL_DAY,
+            visual_style=DEFAULT_VISUAL_STYLE,
+        )
+        menu = await repo.get(created.id, full=True)
+    await state.set_state(None)
+    await state.update_data(ui_lang=language, menu_id=menu.id)
     await message.answer(
-        text_for(language, "🍽 <b>Створення меню</b>\n\nОберіть, яке меню створюємо:", "🍽 <b>Создание меню</b>\n\nВыберите, какое меню создаём:", "🍽 <b>Create a menu</b>\n\nChoose the menu type:"),
-        reply_markup=build_meal_keyboard(language), parse_mode="HTML",
+        format_premium_dashboard(menu),
+        reply_markup=build_dashboard_kb(menu),
+        parse_mode="HTML",
     )
+
+
+@router.callback_query(LegacyMenuSetupAction.filter(F.action.in_(["meal", "style"])))
+async def upgrade_legacy_menu_setup(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Turn a click on an old wizard button into the new full-day draft."""
+    async with session_factory() as session:
+        customer = await current_customer(session, callback.from_user.id)
+    if customer is None:
+        await callback.answer("Сначала выполните /start", show_alert=True)
+        return
+    language = getattr(customer.language, "value", customer.language) or "ru"
+    await begin_menu_setup(callback.message, state, customer, str(language))
+    await callback.answer("Мастер обновлён: меню теперь вводится одним списком")
 
 
 def format_premium_dashboard(menu: Menu) -> str:
@@ -111,7 +133,6 @@ def format_premium_dashboard(menu: Menu) -> str:
     lines = [
         f"⚜️ <b>{meal_label(menu.meal_period, language)} · #{menu.id}</b>",
         f"Статус: {status_icon} <i>{status_text}</i>",
-        f"Образ: <i>{style_label(menu.visual_style, language)}</i>",
         ""
     ]
 
@@ -121,13 +142,20 @@ def format_premium_dashboard(menu: Menu) -> str:
     lines.append(f"📔 Разворот: {spread_status}")
     lines.append("")
 
-    counts = {rule.category: 0 for rule in meal_rules(menu.meal_period)}
+    grouped: dict[str, list[str]] = {}
     for item in menu.items:
-        if item.title != "—" and item.category in counts:
-            counts[item.category] += 1
-    lines.append("<b>Состав:</b>")
-    for rule in meal_rules(menu.meal_period):
-        lines.append(f"  • {rule.label(language)}: {counts[rule.category]} / {rule.limit}")
+        if item.title != "—":
+            slot = item.meal_slot or "other"
+            grouped.setdefault(slot, []).append(item.title)
+    lines.append("<b>Состав меню:</b>")
+    for slot in ("breakfast", "lunch", "dinner", "other"):
+        titles = grouped.get(slot, [])
+        if titles or slot != "other":
+            lines.append(f"  • <b>{meal_slot_label(slot, language)}</b>: {len(titles)}")
+            lines.extend(
+                f"      {index}. {escape(title)}"
+                for index, title in enumerate(titles, start=1)
+            )
 
     lines.extend([
         "",
@@ -151,18 +179,11 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
         callback_data=MenuAction(action="req_spread", menu_id=menu.id)
     )
 
-    counts = {rule.category: 0 for rule in meal_rules(menu.meal_period)}
-    for item in menu.items:
-        if item.title != "—" and item.category in counts:
-            counts[item.category] += 1
-    language = getattr(getattr(menu, "customer", None), "language", "ru")
-    language = getattr(language, "value", language) or "ru"
-    for rule in meal_rules(menu.meal_period):
-        count = counts[rule.category]
-        builder.button(
-            text=f"{'✅' if count else '▫️'} {rule.label(language)} · {count} / {rule.limit}",
-            callback_data=MenuAction(action="edit_category", menu_id=menu.id, category=rule.category.value),
-        )
+    item_count = sum(item.title != "—" for item in menu.items)
+    builder.button(
+        text=f"{'✅' if item_count else '📝'} Ввести меню · {item_count} блюд",
+        callback_data=MenuAction(action="edit_plan", menu_id=menu.id),
+    )
 
     can_generate = bool(menu.items and menu.cover_photo_path and menu.spread_photo_path)
 
@@ -266,40 +287,6 @@ def _owned_by(menu: Menu | None, telegram_user_id: int) -> bool:
     )
 
 
-@router.callback_query(MenuSetupAction.filter(F.action == "meal"))
-async def choose_meal_period(
-    callback: CallbackQuery,
-    callback_data: MenuSetupAction,
-    state: FSMContext,
-    session_factory: async_sessionmaker[AsyncSession],
-) -> None:
-    if callback_data.value not in {MEAL_BREAKFAST, MEAL_DINNER}:
-        await callback.answer("Неверный вариант", show_alert=True)
-        return
-    data = await state.get_data()
-    language = data.get("ui_lang", "ru")
-    async with session_factory() as session:
-        customer = await current_customer(session, callback.from_user.id)
-        if customer is None:
-            await callback.answer("Сначала выполните /start", show_alert=True)
-            return
-        repo = MenuRepository(session)
-        created = await repo.create(
-            customer,
-            meal_period=callback_data.value,
-            visual_style=DEFAULT_VISUAL_STYLE,
-        )
-        menu = await repo.get(created.id, full=True)
-    await state.set_state(None)
-    await state.update_data(menu_id=menu.id, ui_lang=language)
-    await callback.message.edit_text(
-        format_premium_dashboard(menu),
-        reply_markup=build_dashboard_kb(menu),
-        parse_mode="HTML",
-    )
-    await callback.answer("Черновик создан")
-
-
 @router.callback_query(MenuAction.filter(F.action == "view"))
 async def view_dashboard(
     callback: CallbackQuery,
@@ -323,8 +310,8 @@ async def view_dashboard(
     await callback.answer()
 
 
-@router.callback_query(MenuAction.filter(F.action == "edit_category"))
-async def prompt_category_list(
+@router.callback_query(MenuAction.filter(F.action.in_(["edit_plan", "edit_category"])))
+async def prompt_menu_plan(
     callback: CallbackQuery,
     callback_data: MenuAction,
     state: FSMContext,
@@ -335,25 +322,30 @@ async def prompt_category_list(
     if not _owned_by(menu, callback.from_user.id):
         await callback.answer("Сет не найден.", show_alert=True)
         return
-    try:
-        rule = category_rule(menu.meal_period, ItemCategory(callback_data.category))
-    except (ValueError, LookupError):
-        await callback.answer("Категория не найдена", show_alert=True)
-        return
     language = getattr(menu.customer.language, "value", menu.customer.language)
     await state.set_state(PremiumMenuStates.waiting_for_dish_list)
     await state.update_data(
         menu_id=callback_data.menu_id,
-        category=callback_data.category,
-        category_limit=rule.limit,
         ui_lang=language,
     )
     await callback.message.edit_text(
         text_for(
             language,
-            f"🖋 <b>{rule.label(language)}</b>\n\nНапишіть до {rule.limit} позицій — кожну з нового рядка.\nЯкщо категорія не потрібна, напишіть <code>пас</code>.",
-            f"🖋 <b>{rule.label(language)}</b>\n\nНапишите до {rule.limit} позиций — каждую с новой строки.\nЕсли категория не нужна, напишите <code>пас</code>.",
-            f"🖋 <b>{rule.label(language)}</b>\n\nSend up to {rule.limit} items, one per line.\nSend <code>pass</code> to clear this category.",
+            "🖋 <b>Введіть усе меню одним повідомленням</b>\n\n"
+            "Заголовки <b>Сніданок, Обід, Вечеря</b> не вважаються стравами. "
+            "Кожен інший рядок — окрема страва. Маркери, тире та нумерація дозволені.\n\n"
+            "Можна змішувати мови, використовувати трансліт і допускати невеликі помилки.\n\n"
+            "<pre>Сніданок\n- Омлет\nКава\n\nОбід:\n1. Борщ\nСалат Цезар\n\nВечеря\nСтейк\nЧервоне вино</pre>",
+            "🖋 <b>Введите всё меню одним сообщением</b>\n\n"
+            "Заголовки <b>Завтрак, Обед, Ужин</b> не считаются блюдами. "
+            "Каждая другая строка — отдельное блюдо. Маркеры, тире и нумерация допустимы.\n\n"
+            "Можно смешивать языки, использовать транслит и допускать небольшие опечатки.\n\n"
+            "<pre>Завтрак\n- Омлет\nКофе\n\nОбед:\n1. Борщ\nСалат Цезарь\n\nУжин\nСтейк\nКрасное вино</pre>",
+            "🖋 <b>Send the entire menu in one message</b>\n\n"
+            "The headings <b>Breakfast, Lunch, Dinner</b> are separators, not dishes. "
+            "Every other line is one dish. Bullets, dashes, and numbering are allowed.\n\n"
+            "Languages may be mixed; transliteration and minor typos are accepted.\n\n"
+            "<pre>Breakfast\n- Omelet\nCoffee\n\nLunch:\n1. Soup\nCaesar salad\n\nDinner\nSteak\nRed wine</pre>",
         ),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⬅️ Назад", callback_data=MenuAction(action="view", menu_id=menu.id).pack())],
@@ -372,17 +364,18 @@ async def receive_dish_list(
 ) -> None:
     data = await state.get_data()
     menu_id = data.get("menu_id")
-    category_val = data.get("category")
     language = data.get("ui_lang", "ru")
     try:
-        category = ItemCategory(category_val)
-        titles = normalize_dish_lines(
-            message.text,
-            limit=int(data.get("category_limit", 1)),
-            language=language,
+        entries = parse_menu_plan(message.text, language=language)
+    except (ValueError, TypeError) as exc:
+        await message.answer(
+            text_for(
+                language,
+                f"⚠️ Не вдалося розпізнати меню: {exc}.\nДодайте від 1 до 18 страв — кожну з нового рядка.",
+                f"⚠️ Не удалось распознать меню: {exc}.\nДобавьте от 1 до 18 блюд — каждое с новой строки.",
+                f"⚠️ Could not parse the menu: {exc}.\nAdd 1 to 18 dishes, one per line.",
+            )
         )
-    except (ValueError, TypeError):
-        await message.answer("⚠️ Не удалось распознать список. Попробуйте ещё раз.")
         return
     async with session_factory() as session:
         repo = MenuRepository(session)
@@ -391,10 +384,9 @@ async def receive_dish_list(
             await state.clear()
             await message.answer("Сет не найден. Вернитесь в /start.")
             return
-        await repo.replace_category_items(
+        await repo.replace_menu_plan(
             menu_id=menu_id,
-            category=category,
-            titles=titles,
+            entries=[(entry.meal_slot, entry.title, entry.category) for entry in entries],
         )
         menu = await repo.get(menu_id, full=True)
     await state.set_state(None)
