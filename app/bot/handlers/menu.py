@@ -40,9 +40,9 @@ from app.database import async_session_maker
 from app.database.models import Customer, ItemCategory, Menu, MenuStatus
 from app.database.repositories import MenuRepository
 from app.services.menu_wizard import (
+    DEFAULT_VISUAL_STYLE,
     MEAL_BREAKFAST,
     MEAL_DINNER,
-    STYLE_LABELS,
     category_rule,
     meal_label,
     meal_rules,
@@ -58,7 +58,6 @@ router = Router(name="menu")
 
 class PremiumMenuStates(StatesGroup):
     choosing_meal = State()
-    choosing_style = State()
     waiting_for_dish_list = State()
     waiting_for_cover = State()
     waiting_for_spread = State()
@@ -91,16 +90,6 @@ def build_meal_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=text_for(language, "🌙 Вечеря", "🌙 Ужин", "🌙 Dinner"), callback_data=MenuSetupAction(action="meal", value=MEAL_DINNER).pack())],
         [InlineKeyboardButton(text=text_for(language, "⬅️ Назад", "⬅️ Назад", "⬅️ Back"), callback_data="back_to_products")],
     ])
-
-
-def build_style_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton(
-        text=f"{index}. {labels.get(language, labels['ru'])}",
-        callback_data=MenuSetupAction(action="style", value=style).pack(),
-    )] for index, (style, labels) in enumerate(STYLE_LABELS.items(), start=1)]
-    rows.append([InlineKeyboardButton(text=text_for(language, "⬅️ Назад", "⬅️ Назад", "⬅️ Back"), callback_data=MenuSetupAction(action="back_meal").pack())])
-    rows.append([InlineKeyboardButton(text=text_for(language, "🏠 На головну", "🏠 В начало", "🏠 Home"), callback_data="back_to_products")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 async def begin_menu_setup(message: Message, state: FSMContext, language: str = "ru") -> None:
@@ -282,61 +271,13 @@ async def choose_meal_period(
     callback: CallbackQuery,
     callback_data: MenuSetupAction,
     state: FSMContext,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     if callback_data.value not in {MEAL_BREAKFAST, MEAL_DINNER}:
         await callback.answer("Неверный вариант", show_alert=True)
         return
     data = await state.get_data()
     language = data.get("ui_lang", "ru")
-    await state.set_state(PremiumMenuStates.choosing_style)
-    await state.update_data(meal_period=callback_data.value)
-    await callback.message.edit_text(
-        text_for(
-            language,
-            f"{meal_label(callback_data.value, language)}\n\nОберіть образ для оформлення:",
-            f"{meal_label(callback_data.value, language)}\n\nВыберите образ для оформления:",
-            f"{meal_label(callback_data.value, language)}\n\nChoose the visual style:",
-        ),
-        reply_markup=build_style_keyboard(language),
-        parse_mode="HTML",
-    )
-    await callback.answer()
-
-
-@router.callback_query(MenuSetupAction.filter(F.action == "back_meal"))
-async def back_to_meal_choice(callback: CallbackQuery, state: FSMContext) -> None:
-    language = (await state.get_data()).get("ui_lang", "ru")
-    await state.set_state(PremiumMenuStates.choosing_meal)
-    await callback.message.edit_text(
-        text_for(
-            language,
-            "🍽 <b>Створення меню</b>\n\nОберіть, яке меню створюємо:",
-            "🍽 <b>Создание меню</b>\n\nВыберите, какое меню создаём:",
-            "🍽 <b>Create a menu</b>\n\nChoose the menu type:",
-        ),
-        reply_markup=build_meal_keyboard(language),
-        parse_mode="HTML",
-    )
-    await callback.answer()
-
-
-@router.callback_query(MenuSetupAction.filter(F.action == "style"))
-async def choose_visual_style(
-    callback: CallbackQuery,
-    callback_data: MenuSetupAction,
-    state: FSMContext,
-    session_factory: async_sessionmaker[AsyncSession],
-) -> None:
-    if callback_data.value not in STYLE_LABELS:
-        await callback.answer("Неверный образ", show_alert=True)
-        return
-    data = await state.get_data()
-    language = data.get("ui_lang", "ru")
-    meal_period = data.get("meal_period")
-    if meal_period not in {MEAL_BREAKFAST, MEAL_DINNER}:
-        await begin_menu_setup(callback.message, state, language)
-        await callback.answer()
-        return
     async with session_factory() as session:
         customer = await current_customer(session, callback.from_user.id)
         if customer is None:
@@ -345,8 +286,8 @@ async def choose_visual_style(
         repo = MenuRepository(session)
         created = await repo.create(
             customer,
-            meal_period=meal_period,
-            visual_style=callback_data.value,
+            meal_period=callback_data.value,
+            visual_style=DEFAULT_VISUAL_STYLE,
         )
         menu = await repo.get(created.id, full=True)
     await state.set_state(None)

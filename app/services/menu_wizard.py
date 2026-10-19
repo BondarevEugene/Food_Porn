@@ -21,6 +21,7 @@ from app.database.models import ItemCategory
 
 MEAL_BREAKFAST = "breakfast"
 MEAL_DINNER = "dinner"
+DEFAULT_VISUAL_STYLE = "premium_dark"
 
 SKIP_WORDS = frozenset({"пас", "pass", "skip", "пропустить", "пропустити", "-", "—"})
 SURPRISE_TITLES = {"uk": "Сюрприз від шефа", "ru": "Сюрприз от повара", "en": "Chef's surprise"}
@@ -47,6 +48,7 @@ MEAL_RULES = {
 }
 
 STYLE_LABELS = {
+    DEFAULT_VISUAL_STYLE: {"uk": "Преміальний темний стиль", "ru": "Премиальный тёмный стиль", "en": "Premium dark style"},
     "black_silk_robe": {"uk": "Чорний шовковий халат із мереживом", "ru": "Чёрный шёлковый халат с кружевом", "en": "Black silk lace robe"},
     "beige_silk_robe": {"uk": "Бежевий шовковий халат із мереживом", "ru": "Бежевый шёлковый халат с кружевом", "en": "Beige silk lace robe"},
     "mens_white_shirt": {"uk": "Чоловіча біла сорочка", "ru": "Мужская белая рубашка", "en": "Men's white shirt"},

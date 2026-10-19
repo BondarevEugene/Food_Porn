@@ -7,11 +7,11 @@ Layer: Regression Tests
 
 Responsibilities:
     - Verify two-product home navigation
-    - Verify meal and visual-style button screens
+    - Verify the direct meal selection screen
 ==========================================================
 """
 
-from app.bot.handlers.menu import build_meal_keyboard, build_style_keyboard
+from app.bot.handlers.menu import build_meal_keyboard
 from app.bot.handlers.start import get_products_menu_keyboard, language_menu
 
 
@@ -29,9 +29,8 @@ def test_start_language_and_two_products_are_button_driven() -> None:
     assert "home_support" in callbacks
 
 
-def test_menu_setup_exposes_meal_and_five_styles() -> None:
+def test_menu_setup_exposes_meals_without_an_extra_style_screen() -> None:
     meal_callbacks = _callbacks(build_meal_keyboard("ru"))
     assert any(value and "breakfast" in value for value in meal_callbacks)
     assert any(value and "dinner" in value for value in meal_callbacks)
-    style_callbacks = _callbacks(build_style_keyboard("ru"))
-    assert sum(bool(value and value.startswith("menu_setup:style")) for value in style_callbacks) == 5
+    assert not any(value and "style" in value for value in meal_callbacks)
