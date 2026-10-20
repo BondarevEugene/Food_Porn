@@ -237,7 +237,7 @@
       <section class="panel"><div class="panel-title">${t('goals')} <span>${String(job?.goals?.length || 0).padStart(2,'0')}</span></div><ol class="wishes-list">${(job?.goals || []).map(goal => `<li>${esc(goal)}</li>`).join('')}</ol></section>
       ${job?.error ? `<p class="error">${esc(job.error)}</p>` : ''}
       ${current === 'interrupted' ? button(t('retry'), 'gift-retry', 'primary') : ''}
-      ${['payment','payment_unavailable'].includes(current) ? `<section class="panel action-panel"><p>${t('unpaid')}</p><strong>${t('payment')}: ${esc(job.stars || '—')} ⭐</strong>${button(t('pay'), 'gift-pay', 'primary')}${button(t('check'), 'gift-check')}</section>` : ''}
+      ${['payment','payment_unavailable'].includes(current) ? `<section class="panel action-panel"><p>${t('unpaid')}</p><strong>${t('payment')}: ${esc(job.stars || '—')} ⭐</strong>${button(t('pay'), 'gift-pay', 'primary')}${state.home?.wayforpay_ready ? button('💳 WayForPay', 'gift-pay-wayforpay', 'secondary') : ''}${button(t('check'), 'gift-check')}</section>` : ''}
       ${filesReady ? `<section class="panel action-panel"><div class="panel-title">${t('ready')}</div>${button(t('openGift'), 'gift-open', 'primary')}${button(t('mobile'), 'gift-mobile', 'file-button')}${button(t('desktop'), 'gift-desktop', 'file-button')}${button(t('print'), 'gift-print', 'file-button')}</section>${deliveryTools('gift')}` : ''}</div>`;
   }
   function menuDetail(menu) {
@@ -250,13 +250,13 @@
     return `<div class="page detail">${goHomeButton('orders')}${detailHead(t('food'), menu?.id, current)}${canPreview ? preview() : `<section class="panel soft"><p>${esc(progressText)}</p></section>`}
       <section class="panel"><div class="panel-title">${t('dishes')} <span>${String(menu?.items?.length || 0).padStart(2,'0')}</span></div>${menu?.items?.length ? `<ol class="wishes-list">${menu.items.map(item => `<li>${esc(item.title)}</li>`).join('')}</ol>` : `<p class="muted">${t('noDishes')}</p>`}</section>
       ${menu?.error ? `<p class="error">${esc(menu.error)}</p>` : ''}
-      ${current === 'waiting_for_payment' && !menu.paid ? `<section class="panel action-panel"><p>${t('unpaid')}</p><strong>${t('payment')}: ${esc(menu.stars || '—')} ⭐</strong>${button(t('pay'), 'menu-pay', 'primary')}${button(t('check'), 'menu-check')}</section>` : ''}
+      ${current === 'waiting_for_payment' && !menu.paid ? `<section class="panel action-panel"><p>${t('unpaid')}</p><strong>${t('payment')}: ${esc(menu.stars || '—')} ⭐</strong>${button(t('pay'), 'menu-pay', 'primary')}${state.home?.wayforpay_ready ? button('💳 WayForPay', 'menu-pay-wayforpay', 'secondary') : ''}${button(t('check'), 'menu-check')}</section>` : ''}
       ${ready ? `<section class="panel action-panel"><div class="panel-title">${t('ready')}</div>${button(t('evening'), 'menu-evening', 'primary')}${button(t('openGift'), 'menu-open', 'secondary')}${button('PDF · ' + t('print'), 'menu-pdf', 'file-button')}${button(t('recipes'), 'menu-recipes', 'file-button')}</section>${deliveryTools('menu')}` : ''}</div>`;
   }
   function wallpaperDetail(order) {
     const files = `${button(t('mobile'), 'wallpaper-mobile', 'file-button')}${button(t('desktop'), 'wallpaper-desktop', 'file-button')}${button(t('print'), 'wallpaper-print', 'file-button')}`;
     const price = order?.stars ? `${esc(order.stars)} ⭐` : `${esc(order?.amount || '—')} UAH`;
-    const checkout = `<p>${t('unpaid')}</p><strong>${t('payment')}: ${price}</strong>${order?.stars ? button(t('pay'), 'wallpaper-pay', 'primary') : ''}${button(t('check'), 'wallpaper-check')}`;
+    const checkout = `<p>${t('unpaid')}</p><strong>${t('payment')}: ${price}</strong>${order?.stars ? button(t('pay'), 'wallpaper-pay', 'primary') : ''}${state.home?.wayforpay_ready ? button('💳 WayForPay', 'wallpaper-pay-wayforpay', 'secondary') : ''}${button(t('check'), 'wallpaper-check')}`;
     return `<div class="page detail">${goHomeButton('orders')}${detailHead(t('gift'), order?.id, order?.paid ? 'ready' : 'payment')}${preview()}<section class="panel action-panel"><div class="panel-title">${t('details')}</div>${order?.paid ? files : checkout}</section>${order?.paid ? deliveryTools('wallpaper') : ''}</div>`;
   }
   function dishRow() {
@@ -641,11 +641,13 @@
         return;
       }
       if (action === 'gift-retry') { state.job = await api(`/gifts/${state.job.id}/retry`, {method:'POST'}); render(); return; }
-      if (['gift-pay','menu-pay','wallpaper-pay'].includes(action)) {
-        const path = action === 'gift-pay' ? `/gifts/${state.job.id}` : action === 'menu-pay' ? `/menus/${state.menu.id}` : `/wallpapers/${state.wallpaper.id}`;
-        const result = await api(path + '/checkout', {method:'POST'});
-        openPayment(result.url, action === 'gift-pay' ? 'job' : action === 'menu-pay' ? 'menu' : 'wallpaper',
-          action === 'gift-pay' ? state.job.id : action === 'menu-pay' ? state.menu.id : state.wallpaper.id,
+      if (['gift-pay','menu-pay','wallpaper-pay','gift-pay-wayforpay','menu-pay-wayforpay','wallpaper-pay-wayforpay'].includes(action)) {
+        const baseAction = action.replace('-wayforpay', '');
+        const path = baseAction === 'gift-pay' ? `/gifts/${state.job.id}` : baseAction === 'menu-pay' ? `/menus/${state.menu.id}` : `/wallpapers/${state.wallpaper.id}`;
+        const query = action.endsWith('-wayforpay') ? '?provider=wayforpay' : '';
+        const result = await api(path + '/checkout' + query, {method:'POST'});
+        openPayment(result.url, baseAction === 'gift-pay' ? 'job' : baseAction === 'menu-pay' ? 'menu' : 'wallpaper',
+          baseAction === 'gift-pay' ? state.job.id : baseAction === 'menu-pay' ? state.menu.id : state.wallpaper.id,
           result.provider);
         return;
       }

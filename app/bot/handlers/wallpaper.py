@@ -24,6 +24,7 @@ from aiogram.types import (
 from PIL import Image, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.bot.keyboards import add_wayforpay_option
 from app.bot.states.wallpaper import WallpaperStates
 from app.config import Settings, get_settings
 from app.database.repositories import WallpaperOrderRepository
@@ -35,6 +36,7 @@ from app.services.portmone_sandbox import send_portmone_sandbox_offer
 from app.services.print_bundle import create_print_bundle
 from app.services.replicate_vision_board import ImageSafetyError, ReplicateVisionBoardRenderer
 from app.services.stars import OrderRef, create_invoice
+from app.services.wayforpay import WayForPayService
 
 router = Router(name="wallpaper")
 logger = logging.getLogger(__name__)
@@ -627,6 +629,38 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
                 reference_id=str(job["id"]),
                 language=lang,
             )
+        wayforpay = WayForPayService(settings)
+        if wayforpay.ready:
+            try:
+                async with session_factory() as session:
+                    attempt, checkout_url = await wayforpay.create_checkout(
+                        session,
+                        telegram_user_id=message.from_user.id,
+                        product="wallpaper",
+                        reference_id=str(job["id"]),
+                        description=f"Food Porn digital gift #{job['id']}",
+                        grants_entitlement=False,
+                    )
+                await message.answer(
+                    text_for(
+                        lang,
+                        "🧪 Тестова оплата WayForPay для VIP. Подарунок вже відкритий.",
+                        "🧪 Тестовая оплата WayForPay для VIP. Подарок уже открыт.",
+                        "🧪 VIP WayForPay test. Your gift is already unlocked.",
+                    ),
+                    reply_markup=add_wayforpay_option(
+                        None,
+                        product="wallpaper",
+                        reference_id=int(attempt.reference_id) if attempt.reference_id.isdigit() else attempt.id,
+                        payment_id=attempt.id,
+                        checkout_url=checkout_url,
+                        amount=f"{attempt.amount:.2f}",
+                        language=lang,
+                        test_mode=attempt.test_mode,
+                    ),
+                )
+            except Exception:
+                logger.exception("Could not create VIP WayForPay gift checkout")
         await state.clear()
         await state.update_data(ui_lang=lang, lang_selected=selected)
         return
@@ -646,25 +680,53 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
             mobile_path=str(mobile), desktop_path=str(desktop),
             stars_amount=settings.gift_price_stars,
         )
-    try:
-        url = await create_invoice(message.bot, OrderRef(
-            "wallpaper", order.id, message.from_user.id, order.stars_amount))
-    except Exception:
-        logger.exception("Could not create wallpaper invoice %s", order.id)
+    buttons = None
+    if order.stars_amount:
+        try:
+            url = await create_invoice(message.bot, OrderRef(
+                "wallpaper", order.id, message.from_user.id, order.stars_amount))
+            buttons = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=text_for(lang, f"⭐ Отримати подарунок · {order.stars_amount} Stars",
+                                                    f"⭐ Получить подарок · {order.stars_amount} Stars",
+                                                    f"⭐ Get the gift · {order.stars_amount} Stars"), url=url)],
+                [InlineKeyboardButton(text=text_for(lang, "🔄 Перевірити оплату", "🔄 Проверить оплату", "🔄 Check payment"),
+                                      callback_data=f"check_pay_{order.id}")],
+            ])
+        except Exception:
+            logger.exception("Could not create wallpaper Stars invoice %s", order.id)
+    wayforpay = WayForPayService(settings)
+    wayforpay_amount = None
+    if wayforpay.ready:
+        try:
+            async with session_factory() as session:
+                attempt, checkout_url = await wayforpay.create_checkout(
+                    session,
+                    telegram_user_id=message.from_user.id,
+                    product="wallpaper",
+                    reference_id=order.id,
+                    description=f"Food Porn digital gift #{order.id}",
+                )
+            wayforpay_amount = attempt.amount
+            buttons = add_wayforpay_option(
+                buttons,
+                product="wallpaper",
+                reference_id=order.id,
+                payment_id=attempt.id,
+                checkout_url=checkout_url,
+                amount=f"{attempt.amount:.2f}",
+                language=lang,
+                test_mode=attempt.test_mode,
+            )
+        except Exception:
+            logger.exception("Could not create WayForPay gift checkout %s", order.id)
+    if buttons is None:
         await message.answer("Оплата тимчасово недоступна. Колаж збережено; спробуйте пізніше.")
         return
-    buttons = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=text_for(lang, f"⭐ Отримати подарунок · {order.stars_amount} Stars",
-                                            f"⭐ Получить подарок · {order.stars_amount} Stars",
-                                            f"⭐ Get the gift · {order.stars_amount} Stars"), url=url)],
-        [InlineKeyboardButton(text=text_for(lang, "🔄 Перевірити оплату", "🔄 Проверить оплату", "🔄 Check payment"),
-                              callback_data=f"check_pay_{order.id}")],
-    ])
     await message.answer(text_for(
         lang,
-        f"Повний цифровий подарунок: {order.stars_amount} Stars. 💛",
-        f"Полный цифровой подарок: {order.stars_amount} Stars. 💛",
-        f"Complete digital gift: {order.stars_amount} Stars. 💛",
+        f"Повний цифровий подарунок: {f'{wayforpay_amount:.2f} UAH' if wayforpay_amount is not None else f'{order.stars_amount} Stars'}. 💛",
+        f"Полный цифровой подарок: {f'{wayforpay_amount:.2f} UAH' if wayforpay_amount is not None else f'{order.stars_amount} Stars'}. 💛",
+        f"Complete digital gift: {f'{wayforpay_amount:.2f} UAH' if wayforpay_amount is not None else f'{order.stars_amount} Stars'}. 💛",
     ), reply_markup=buttons, parse_mode="HTML")
     await state.clear()
     await state.update_data(ui_lang=lang, lang_selected=selected)

@@ -4,7 +4,7 @@
 
 Бот собирает ровно пять фотографий (портрет и четыре сцены) и ровно пять целей. Коллаж компонуется из всех пяти исходных снимков в мобильный 1080 × 1920 и настольный 1920 × 1080 PNG. Надписи рисуются из текста пользователя; встроенных фраз нет. Текущий `ReplicateVisionBoardRenderer` работает локально через Pillow и **не обращается к Replicate**. Результат может отличаться от фотореалистичной генерации с переносом лица.
 
-Для цифрового меню основной карточный checkout — Monobank Acquiring. Бот создаёт отдельный инвойс, сохраняет его ID и выдаёт два файла только после серверной проверки статуса, суммы, валюты и номера заказа. Telegram Stars остаются резервным вариантом, а Portmone — резервным/диагностическим контуром.
+Для цифрового меню поддерживаются Monobank Acquiring и дополнительная защищённая оплата картой WayForPay. Бот создаёт отдельный инвойс и выдаёт файлы только после серверной проверки статуса, подписи, суммы, валюты и номера заказа. Telegram Stars остаются резервным вариантом, а Portmone — диагностическим контуром.
 
 Перед запуском обновлённой версии сделайте резервную копию PostgreSQL и выполните `alembic upgrade head`. Оставлены ваши миграции `226c0d2b7f58`, `42fd32b02ed1`, `ffb74d9cb65b`, и добавлена следующая миграция `20260928_0003`. Файлы `.env`, пользовательские фото и каталоги `storage` не входят в пакет исправлений.
 
@@ -50,6 +50,39 @@ PORTMONE_TEST_AMOUNT_UAH=1.00
 | Отказ | `4111 1111 1111 1111` | любая будущая дата | любой |
 
 После успешной оплаты вернитесь в Telegram и нажмите `🔄 Проверить тест`. Не вводите настоящую карту, пока у магазина включён тестовый режим. Перед коммерческим запуском обязательно установите `PORTMONE_TEST_MODE=false`.
+
+## WayForPay: тест двух цифровых продуктов
+
+WayForPay открывается на защищённой странице провайдера: приложение не получает
+номер карты, срок действия или CVV. Webhook считается действительным только после
+HMAC-проверки и точного совпадения магазина, заказа, суммы и валюты.
+
+Для теста на Railway добавьте:
+
+```env
+PUBLIC_BASE_URL=https://foodporn-production.up.railway.app
+WAYFORPAY_MERCHANT_DOMAIN=foodporn-production.up.railway.app
+WAYFORPAY_TEST_MODE=true
+WAYFORPAY_MENU_PRICE_UAH=5.00
+WAYFORPAY_WALLPAPER_PRICE_UAH=1.00
+```
+
+В тестовом режиме приложение использует публичный sandbox-магазин из официальной
+документации WayForPay, если `WAYFORPAY_MERCHANT_ACCOUNT` и
+`WAYFORPAY_MERCHANT_SECRET_KEY` пустые. Для реальных платежей получите собственные
+реквизиты, внесите их только в Railway Variables и установите
+`WAYFORPAY_TEST_MODE=false`.
+
+После обновления обязательно выполните:
+
+```powershell
+python -m alembic upgrade head
+python -m alembic current
+```
+
+Ожидаемый head: `20261020_0009`. Кнопка WayForPay показывается рядом с уже
+настроенными способами оплаты. VIP-пользователь получает отдельную тестовую кнопку;
+такой платёж записывается для диагностики, но не меняет бесплатный VIP-доступ.
 
 `Food_Porn` is a Python Telegram bot for `@MenuBreakfastForLove_bot`. It registers a customer, recognizes repeat visits, collects a 9 + 3 + 4 menu, accepts two customer photos, creates 16 matching food images through the OpenAI Images API, and produces two previews plus a two-sided A3 print PDF.
 

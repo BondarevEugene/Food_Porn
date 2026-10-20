@@ -228,6 +228,35 @@ class PortmoneSandboxPayment(TimestampMixin, Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class WayForPayPayment(TimestampMixin, Base):
+    """One independently verifiable WayForPay checkout attempt."""
+
+    __tablename__ = "wayforpay_payments"
+    __table_args__ = (
+        UniqueConstraint("order_reference", name="uq_wayforpay_order_reference"),
+        UniqueConstraint("checkout_token", name="uq_wayforpay_checkout_token"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger, index=True, nullable=False)
+    product: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    reference_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    order_reference: Mapped[str] = mapped_column(String(100), nullable=False)
+    checkout_token: Mapped[str] = mapped_column(String(80), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), default="UAH", nullable=False)
+    description: Mapped[str] = mapped_column(String(250), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False, index=True)
+    transaction_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    provider_payment_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    reason_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    test_mode: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    grants_entitlement: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    provider_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+
 class ShareLink(TimestampMixin, Base):
     __tablename__ = "share_links"
 

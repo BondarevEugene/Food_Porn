@@ -98,3 +98,55 @@ def get_payment_keyboard(
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_products")],
         ]
     )
+
+
+def add_wayforpay_option(
+    keyboard: InlineKeyboardMarkup | None,
+    *,
+    product: str,
+    reference_id: int,
+    payment_id: int,
+    checkout_url: str,
+    amount: str,
+    language: str = "uk",
+    test_mode: bool = False,
+) -> InlineKeyboardMarkup:
+    """Add an independent WayForPay choice without replacing another provider."""
+    lang = str(language).lower()
+    if lang in {"uk", "ukrainian"}:
+        pay = "💳 Оплатити карткою · WayForPay"
+        check = "✅ Я оплатив · перевірити WayForPay"
+        test = "🧪 ТЕСТ · "
+        back = "⬅️ Назад"
+    elif lang in {"en", "english"}:
+        pay = "💳 Pay by card · WayForPay"
+        check = "✅ I paid · check WayForPay"
+        test = "🧪 TEST · "
+        back = "⬅️ Back"
+    else:
+        pay = "💳 Оплатить картой · WayForPay"
+        check = "✅ Я оплатил · проверить WayForPay"
+        test = "🧪 ТЕСТ · "
+        back = "⬅️ Назад"
+    rows = [list(row) for row in (keyboard.inline_keyboard if keyboard else [])]
+    back_row = None
+    if rows and any(button.callback_data == "back_to_products" for button in rows[-1]):
+        back_row = rows.pop()
+    rows.extend(
+        [
+            [
+                InlineKeyboardButton(
+                    text=f"{test if test_mode else ''}{pay} · {amount} UAH",
+                    url=checkout_url,
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=check,
+                    callback_data=f"check_wayforpay:{payment_id}",
+                )
+            ],
+        ]
+    )
+    rows.append(back_row or [InlineKeyboardButton(text=back, callback_data="back_to_products")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

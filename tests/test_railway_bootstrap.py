@@ -32,6 +32,9 @@ def test_canonical_application_contains_public_routes() -> None:
     assert "/miniapp" in paths
     assert "/miniapp/api/home" in paths
     assert "/portmone/callback" in paths
+    assert "/payments/wayforpay/checkout/{checkout_token}" in paths
+    assert "/payments/wayforpay/webhook" in paths
+    assert "/payments/wayforpay/return" in paths
     assert "/admin" in paths
 
 

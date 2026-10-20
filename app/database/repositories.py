@@ -34,6 +34,7 @@ from app.database.models import (
     MenuStatus,
     PortmoneSandboxPayment,
     WallpaperOrder,
+    WayForPayPayment,
 )
 
 logger = logging.getLogger(__name__)
@@ -459,3 +460,84 @@ class PortmoneSandboxPaymentRepository:
         payment.status = "failed"
         payment.error_message = reason[:1000]
         await self.session.commit()
+
+
+class WayForPayPaymentRepository:
+    """Store checkout attempts separately from product entitlement records."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def create(
+        self,
+        *,
+        telegram_user_id: int,
+        product: str,
+        reference_id: str,
+        order_reference: str,
+        checkout_token: str,
+        amount: Decimal,
+        description: str,
+        test_mode: bool,
+        grants_entitlement: bool,
+    ) -> WayForPayPayment:
+        if product not in {"menu", "wallpaper"}:
+            raise ValueError("Unsupported WayForPay product")
+        payment = WayForPayPayment(
+            telegram_user_id=telegram_user_id,
+            product=product,
+            reference_id=str(reference_id),
+            order_reference=order_reference,
+            checkout_token=checkout_token,
+            amount=amount,
+            currency="UAH",
+            description=description[:250],
+            test_mode=test_mode,
+            grants_entitlement=grants_entitlement,
+        )
+        self.session.add(payment)
+        await self.session.commit()
+        await self.session.refresh(payment)
+        return payment
+
+    async def by_checkout_token(self, token: str) -> WayForPayPayment | None:
+        result = await self.session.execute(
+            select(WayForPayPayment).where(WayForPayPayment.checkout_token == token)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_for_user(
+        self, payment_id: int, telegram_user_id: int
+    ) -> WayForPayPayment | None:
+        result = await self.session.execute(
+            select(WayForPayPayment).where(
+                WayForPayPayment.id == payment_id,
+                WayForPayPayment.telegram_user_id == telegram_user_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def by_order_reference(
+        self, order_reference: str, *, lock: bool = False
+    ) -> WayForPayPayment | None:
+        query = select(WayForPayPayment).where(
+            WayForPayPayment.order_reference == order_reference
+        )
+        if lock:
+            query = query.with_for_update()
+        return (await self.session.execute(query)).scalar_one_or_none()
+
+    async def latest_for_product(
+        self, product: str, reference_id: str, telegram_user_id: int
+    ) -> WayForPayPayment | None:
+        result = await self.session.execute(
+            select(WayForPayPayment)
+            .where(
+                WayForPayPayment.product == product,
+                WayForPayPayment.reference_id == str(reference_id),
+                WayForPayPayment.telegram_user_id == telegram_user_id,
+            )
+            .order_by(WayForPayPayment.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()

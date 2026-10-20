@@ -109,6 +109,16 @@ class Settings(BaseSettings):
     mono_redirect_url: str = ""
     mono_webhook_url: str = ""
 
+    # WayForPay hosted card checkout. In sandbox mode the application may use
+    # the public test merchant from the official WayForPay documentation.
+    public_base_url: str = ""
+    wayforpay_merchant_account: str = ""
+    wayforpay_merchant_secret_key: SecretStr = SecretStr("")
+    wayforpay_merchant_domain: str = ""
+    wayforpay_test_mode: bool = False
+    wayforpay_menu_price_uah: Decimal = Field(default=Decimal("5.00"), gt=0, le=100000)
+    wayforpay_wallpaper_price_uah: Decimal = Field(default=Decimal("1.00"), gt=0, le=100000)
+
     # --- Настройки типографии ---
     printshop_email: str = ""
     printshop_name: str = Field(default="Студия Печати 'ArtPress'")

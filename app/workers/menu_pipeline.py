@@ -22,7 +22,7 @@ from pathlib import Path
 from aiogram.types import FSInputFile
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.bot.keyboards import get_payment_keyboard
+from app.bot.keyboards import add_wayforpay_option, get_payment_keyboard
 from app.config import Settings
 from app.database.models import FileKind, GenerationStatus, MenuStatus
 from app.database.repositories import MenuRepository
@@ -39,6 +39,7 @@ from app.services.recipe_generator import RecipeGeneratorService
 from app.services.settings_service import get_setting
 from app.services.shopping import aggregate_shopping_list, aggregate_shopping_sections
 from app.services.stars import OrderRef, create_invoice
+from app.services.wayforpay import WayForPayService
 
 logger = logging.getLogger(__name__)
 
@@ -250,6 +251,37 @@ class MenuPipeline:
                                 reference_id=str(menu.id),
                                 language=str(language),
                             )
+                        wayforpay = WayForPayService(self.settings)
+                        if is_vip and wayforpay.ready:
+                            try:
+                                attempt, checkout_url = await wayforpay.create_checkout(
+                                    session,
+                                    telegram_user_id=chat_id,
+                                    product="menu",
+                                    reference_id=menu.id,
+                                    description=f"Food Porn digital menu #{menu.id}",
+                                    grants_entitlement=False,
+                                )
+                                await self.bot.send_message(
+                                    chat_id=chat_id,
+                                    text=(
+                                        "🧪 Тестова оплата WayForPay для VIP. Файли вже відкриті."
+                                        if is_uk
+                                        else "🧪 Тестовая оплата WayForPay для VIP. Файлы уже открыты."
+                                    ),
+                                    reply_markup=add_wayforpay_option(
+                                        None,
+                                        product="menu",
+                                        reference_id=menu.id,
+                                        payment_id=attempt.id,
+                                        checkout_url=checkout_url,
+                                        amount=f"{attempt.amount:.2f}",
+                                        language=str(language),
+                                        test_mode=attempt.test_mode,
+                                    ),
+                                )
+                            except Exception:
+                                logger.exception("Could not create VIP WayForPay menu checkout %s", menu.id)
 
                     await repo.set_status(menu_id, MenuStatus.COMPLETED)
                     logger.info(f"VIP Pipeline successfully finished for Menu ID:{menu_id}")
@@ -262,6 +294,7 @@ class MenuPipeline:
                     raise ValueError("Menu price must be positive")
                 pay_keyboard = None
                 payment = PaymentService(self.settings)
+                wayforpay = WayForPayService(self.settings)
                 if is_telegram and payment.mono_ready:
                     try:
                         invoice = await payment.create_mono_invoice(
@@ -321,11 +354,44 @@ class MenuPipeline:
                         )
                     except Exception as exc:
                         logger.error("Portmone checkout unavailable for menu %s: %s", menu.id, exc)
-                if not is_telegram and (payment.mono_ready or payment.portmone_ready):
+                if is_telegram and wayforpay.ready:
+                    try:
+                        attempt, checkout_url = await wayforpay.create_checkout(
+                            session,
+                            telegram_user_id=customer_telegram_id,
+                            product="menu",
+                            reference_id=menu.id,
+                            payment_id=attempt.id,
+                            description=f"Food Porn digital menu #{menu.id}",
+                        )
+                        if pay_keyboard is None:
+                            price = attempt.amount
+                            await repo.set_waiting_for_payment(
+                                menu.id,
+                                attempt.amount,
+                                payment_system="wayforpay",
+                            )
+                        pay_keyboard = add_wayforpay_option(
+                            pay_keyboard,
+                            product="menu",
+                            reference_id=menu.id,
+                            payment_id=attempt.id,
+                            checkout_url=checkout_url,
+                            amount=f"{attempt.amount:.2f}",
+                            language=str(language),
+                            test_mode=attempt.test_mode,
+                        )
+                    except Exception as exc:
+                        logger.error("WayForPay checkout unavailable for menu %s: %s", menu.id, exc)
+                if not is_telegram and (payment.mono_ready or payment.portmone_ready or wayforpay.ready):
                     await repo.set_waiting_for_payment(
                         menu.id,
-                        price,
-                        payment_system="mono" if payment.mono_ready else "portmone",
+                        wayforpay.price_for("menu") if wayforpay.ready else price,
+                        payment_system=(
+                            "mono" if payment.mono_ready
+                            else "portmone" if payment.portmone_ready
+                            else "wayforpay"
+                        ),
                     )
                 elif pay_keyboard is None:
                     await repo.set_status(menu.id, MenuStatus.IMAGES_READY)
