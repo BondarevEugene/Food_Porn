@@ -37,6 +37,19 @@ async def get_vip_users(session: AsyncSession, default_users: list[str] | None =
     val = await get_setting(session, "vip_usernames", ",".join(defaults))
     return [u.strip() for u in val.split(",") if u.strip()]
 
+
+async def get_paid_test_user_ids(session: AsyncSession) -> set[int]:
+    """Return owner IDs that temporarily follow the commercial checkout path."""
+    value = await get_setting(session, "paid_test_telegram_ids", "")
+    result: set[int] = set()
+    for item in value.split(","):
+        try:
+            if item.strip():
+                result.add(int(item.strip()))
+        except ValueError:
+            continue
+    return result
+
 async def get_collage_price(session: AsyncSession) -> int:
     val = await get_setting(session, "collage_price_uah", "500")
     try:
