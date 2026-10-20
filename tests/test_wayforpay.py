@@ -14,10 +14,13 @@ Responsibilities:
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import hmac
+import inspect
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -174,3 +177,23 @@ def test_wayforpay_button_is_added_without_removing_existing_checkout() -> None:
     assert "https://pay.mbnk.biz/test" in urls
     assert any("/payments/wayforpay/checkout/" in url for url in urls)
     assert "check_wayforpay:7" in callbacks
+
+
+def test_menu_pipeline_passes_only_supported_wayforpay_arguments() -> None:
+    """Prevent silent button loss caused by an invalid checkout keyword."""
+    source_path = Path(__file__).parents[1] / "app" / "workers" / "menu_pipeline.py"
+    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    supported = set(inspect.signature(WayForPayService.create_checkout).parameters)
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "wayforpay"
+        and node.func.attr == "create_checkout"
+    ]
+    assert calls
+    for call in calls:
+        keywords = {keyword.arg for keyword in call.keywords if keyword.arg}
+        assert keywords <= supported

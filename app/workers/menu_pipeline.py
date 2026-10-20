@@ -361,7 +361,6 @@ class MenuPipeline:
                             telegram_user_id=customer_telegram_id,
                             product="menu",
                             reference_id=menu.id,
-                            payment_id=attempt.id,
                             description=f"Food Porn digital menu #{menu.id}",
                         )
                         if pay_keyboard is None:
