@@ -17,7 +17,7 @@ import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -33,7 +33,9 @@ from app.database.models import (
     MenuItem,
     MenuStatus,
     PortmoneSandboxPayment,
+    WallpaperExport,
     WallpaperOrder,
+    WallpaperSceneVersion,
     WayForPayPayment,
 )
 
@@ -382,12 +384,28 @@ class WallpaperOrderRepository:
     async def create(self, *, telegram_user_id: int, amount: Decimal,
                      mobile_path: str, desktop_path: str,
                      stars_amount: int | None = None,
-                     source_channel: str = "telegram") -> WallpaperOrder:
+                     source_channel: str = "telegram",
+                     goals: list[str] | None = None,
+                     scene_prompts: list[str] | None = None,
+                     scene_assignments: list[int] | None = None,
+                     source_photo_paths: list[str] | None = None,
+                     visual_style: str = "dark",
+                     raw_mobile_path: str | None = None,
+                     raw_desktop_path: str | None = None) -> WallpaperOrder:
         order = WallpaperOrder(
             telegram_user_id=telegram_user_id, amount=amount,
             mobile_path=mobile_path, desktop_path=desktop_path,
             stars_amount=stars_amount,
             source_channel=source_channel,
+            goals=goals,
+            scene_prompts=scene_prompts,
+            scene_assignments=scene_assignments,
+            source_photo_paths=source_photo_paths,
+            visual_style=visual_style,
+            original_mobile_path=mobile_path,
+            original_desktop_path=desktop_path,
+            raw_mobile_path=raw_mobile_path,
+            raw_desktop_path=raw_desktop_path,
         )
         self.session.add(order)
         await self.session.commit()
@@ -410,6 +428,96 @@ class WallpaperOrderRepository:
         order.payment_system = payment_system
         order.paid_at = order.paid_at or datetime.now(UTC)
         await self.session.commit()
+
+
+class WallpaperStudioRepository:
+    """Version and export persistence for the non-destructive scene studio."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def versions(
+        self, order_id: int, scene_index: int | None = None
+    ) -> list[WallpaperSceneVersion]:
+        query = select(WallpaperSceneVersion).where(WallpaperSceneVersion.order_id == order_id)
+        if scene_index is not None:
+            query = query.where(WallpaperSceneVersion.scene_index == scene_index)
+        result = await self.session.execute(
+            query.order_by(WallpaperSceneVersion.scene_index, WallpaperSceneVersion.version_number)
+        )
+        return list(result.scalars().all())
+
+    async def add_version(
+        self, *, order_id: int, scene_index: int, scene_asset_path: str,
+        edit_mode: str, instruction: str, ai_cost_usd: Decimal,
+    ) -> WallpaperSceneVersion:
+        latest = await self.session.scalar(
+            select(func.max(WallpaperSceneVersion.version_number)).where(
+                WallpaperSceneVersion.order_id == order_id,
+                WallpaperSceneVersion.scene_index == scene_index,
+            )
+        )
+        version = WallpaperSceneVersion(
+            order_id=order_id,
+            scene_index=scene_index,
+            version_number=int(latest or 0) + 1,
+            scene_asset_path=scene_asset_path,
+            edit_mode=edit_mode,
+            instruction=instruction,
+            ai_cost_usd=ai_cost_usd,
+        )
+        self.session.add(version)
+        await self.session.commit()
+        await self.session.refresh(version)
+        return version
+
+    async def get_version(self, version_id: int, order_id: int) -> WallpaperSceneVersion | None:
+        return await self.session.scalar(
+            select(WallpaperSceneVersion).where(
+                WallpaperSceneVersion.id == version_id,
+                WallpaperSceneVersion.order_id == order_id,
+            )
+        )
+
+    async def select_version(self, order: WallpaperOrder, version: WallpaperSceneVersion) -> None:
+        selected = await self.versions(order.id, version.scene_index)
+        for item in selected:
+            item.is_selected = item.id == version.id
+        await self.session.commit()
+
+    async def save_export(
+        self, *, order_id: int, kind: str, path: str, mime_type: str,
+        source_revision: str, width: int | None = None, height: int | None = None,
+        duration_seconds: Decimal | None = None,
+    ) -> WallpaperExport:
+        record = await self.session.scalar(
+            select(WallpaperExport).where(
+                WallpaperExport.order_id == order_id, WallpaperExport.kind == kind
+            )
+        )
+        if record is None:
+            record = WallpaperExport(
+                order_id=order_id, kind=kind, path=path,
+                mime_type=mime_type, source_revision=source_revision,
+            )
+            self.session.add(record)
+        record.path = path
+        record.mime_type = mime_type
+        record.source_revision = source_revision
+        record.width = width
+        record.height = height
+        record.duration_seconds = duration_seconds
+        await self.session.commit()
+        await self.session.refresh(record)
+        return record
+
+    async def exports(self, order_id: int) -> list[WallpaperExport]:
+        result = await self.session.execute(
+            select(WallpaperExport).where(WallpaperExport.order_id == order_id).order_by(
+                WallpaperExport.kind
+            )
+        )
+        return list(result.scalars().all())
 
 
 class PortmoneSandboxPaymentRepository:

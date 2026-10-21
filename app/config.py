@@ -42,11 +42,15 @@ class Settings(BaseSettings):
     openai_image_quality: str = "medium"
     wallpaper_image_model: str = "gpt-image-2.5-sunburst"
     wallpaper_image_quality: str = "xhigh"
+    openai_tts_model: str = "gpt-4o-mini-tts"
+    openai_tts_voice: str = "alloy"
+    gift_video_seconds: int = Field(default=15, ge=10, le=20)
     recipe_model: str = "gpt-4o-mini"
     openai_text_input_usd_per_million: Decimal = Field(default=Decimal("0.15"), ge=0)
     openai_text_output_usd_per_million: Decimal = Field(default=Decimal("0.60"), ge=0)
     openai_cached_input_usd_per_million: Decimal = Field(default=Decimal("0.075"), ge=0)
     openai_image_fallback_cost_usd: Decimal = Field(default=Decimal("0.040"), ge=0)
+    openai_tts_fallback_cost_usd: Decimal = Field(default=Decimal("0.020"), ge=0)
     openai_cost_sync_enabled: bool = False
     openai_cost_sync_interval_minutes: int = Field(default=60, ge=15, le=1440)
     openai_cost_sync_days: int = Field(default=35, ge=1, le=180)

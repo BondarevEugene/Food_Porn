@@ -211,6 +211,62 @@ class WallpaperOrder(TimestampMixin, Base):
     stars_amount: Mapped[int | None] = mapped_column(Integer)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     source_channel: Mapped[str] = mapped_column(String(30), default="telegram", nullable=False, index=True)
+    goals: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    scene_prompts: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    scene_assignments: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    source_photo_paths: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    locked_scene_indexes: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    visual_style: Mapped[str] = mapped_column(String(20), default="dark", nullable=False)
+    final_phrase: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    original_mobile_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    original_desktop_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_mobile_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_desktop_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class WallpaperSceneVersion(TimestampMixin, Base):
+    """One inexpensive alternative for one scene of a vision board."""
+
+    __tablename__ = "wallpaper_scene_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "order_id", "scene_index", "version_number",
+            name="uq_wallpaper_scene_version_number",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    order_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("wallpaper_orders.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    scene_index: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    scene_asset_path: Mapped[str] = mapped_column(Text, nullable=False)
+    edit_mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    instruction: Mapped[str] = mapped_column(String(500), nullable=False)
+    is_selected: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    ai_cost_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=Decimal(0), nullable=False)
+
+
+class WallpaperExport(TimestampMixin, Base):
+    """A reusable delivery format rendered from the selected scene revision."""
+
+    __tablename__ = "wallpaper_exports"
+    __table_args__ = (
+        UniqueConstraint("order_id", "kind", name="uq_wallpaper_export_kind"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    order_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("wallpaper_orders.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration_seconds: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    source_revision: Mapped[str] = mapped_column(String(100), nullable=False)
 
 
 class PortmoneSandboxPayment(TimestampMixin, Base):

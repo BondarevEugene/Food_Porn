@@ -36,6 +36,7 @@ from app.services.portmone_sandbox import send_portmone_sandbox_offer
 from app.services.print_bundle import create_print_bundle
 from app.services.replicate_vision_board import ImageSafetyError, ReplicateVisionBoardRenderer
 from app.services.stars import OrderRef, create_invoice
+from app.services.wallpaper_studio import archive_source_photos
 from app.services.wayforpay import WayForPayService
 
 router = Router(name="wallpaper")
@@ -563,6 +564,7 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
             await state.update_data(render_job=job)
         ai_concept_cost = Decimal(job["plan_cost_usd"])
         render_dir = settings.generated_dir / "wallpapers" / str(message.from_user.id) / job["id"]
+        archived_sources = await asyncio.to_thread(archive_source_photos, photos, render_dir)
         renderer = ReplicateVisionBoardRenderer(
             output_dir=render_dir, model=settings.wallpaper_image_model,
             quality=settings.wallpaper_image_quality)
@@ -573,6 +575,8 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
             assignments=job["assignments"], scenes=job["scenes"], style=style,
         )
         mobile, desktop = formats["mobile"], formats["desktop"]
+        raw_mobile = formats.get("raw_mobile", mobile)
+        raw_desktop = formats.get("raw_desktop", desktop)
         preview = await asyncio.to_thread(make_preview, mobile)
         for photo in photos:
             try:
@@ -618,7 +622,41 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
         "Your gift is ready 💛 You can save the artwork without the PREVIEW mark.",
     ))
     if free_access:
+        order = None
+        if session_factory is not None:
+            async with session_factory() as session:
+                repository = WallpaperOrderRepository(session)
+                order = await repository.create(
+                    telegram_user_id=message.from_user.id,
+                    amount=Decimal("0"),
+                    mobile_path=str(mobile),
+                    desktop_path=str(desktop),
+                    stars_amount=0,
+                    goals=list(goals),
+                    scene_prompts=list(job["scenes"]),
+                    scene_assignments=list(job["assignments"]),
+                    source_photo_paths=archived_sources,
+                    visual_style=style,
+                    raw_mobile_path=str(raw_mobile),
+                    raw_desktop_path=str(raw_desktop),
+                )
+                await repository.mark_paid(order, f"VIP_JOB_{job['id']}", "vip_bypass")
         await _send_full(message, mobile, desktop, lang)
+        if settings.miniapp_url:
+            await message.answer(
+                text_for(
+                    lang,
+                    "🎬 Редактор сцен і всі формати вже доступні у вашій майстерні.",
+                    "🎬 Редактор сцен и все форматы уже доступны в вашей мастерской.",
+                    "🎬 Scene Studio and every format are ready in your atelier.",
+                ),
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(
+                        text=text_for(lang, "Відкрити Scene Studio", "Открыть Scene Studio", "Open Scene Studio"),
+                        url=settings.miniapp_url,
+                    )
+                ]]),
+            )
         if settings.portmone_test_mode:
             await send_portmone_sandbox_offer(
                 bot=message.bot,
@@ -626,7 +664,7 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
                 session_factory=session_factory,
                 telegram_user_id=message.from_user.id,
                 product="wallpaper",
-                reference_id=str(job["id"]),
+                reference_id=str(order.id if order else job["id"]),
                 language=lang,
             )
         wayforpay = WayForPayService(settings)
@@ -637,7 +675,7 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
                         session,
                         telegram_user_id=message.from_user.id,
                         product="wallpaper",
-                        reference_id=str(job["id"]),
+                        reference_id=str(order.id if order else job["id"]),
                         description=f"Food Porn digital gift #{job['id']}",
                         grants_entitlement=False,
                     )
@@ -679,6 +717,13 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
             telegram_user_id=message.from_user.id, amount=price,
             mobile_path=str(mobile), desktop_path=str(desktop),
             stars_amount=settings.gift_price_stars,
+            goals=list(goals),
+            scene_prompts=list(job["scenes"]),
+            scene_assignments=list(job["assignments"]),
+            source_photo_paths=archived_sources,
+            visual_style=style,
+            raw_mobile_path=str(raw_mobile),
+            raw_desktop_path=str(raw_desktop),
         )
     buttons = None
     if order.stars_amount:

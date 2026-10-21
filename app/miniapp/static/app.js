@@ -15,6 +15,7 @@
   try { savedLanguage = localStorage.getItem('gift_lang') || ''; } catch (_) { /* private browsing */ }
   const state = {
     page: 'home', home: null, admin: null, job: null, menu: null, wallpaper: null, evening: null,
+    sceneStudio: null, studioScene: 0, studioCompare: {left:'current', right:'current'}, studioImages: {},
     style: 'dark', lang: savedLanguage || tg?.initDataUnsafe?.user?.language_code?.slice(0, 2) || 'uk',
     error: '', previewUrl: '', previewError: '', viewKey: '', cookingIndex: 0, cookingStep: 0,
     menuInputMode: 'list'
@@ -144,6 +145,14 @@
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const status = code => t(code === 'payment' ? 'payment_status' : code || 'queued');
   const button = (label, action, style = 'secondary') => `<button type="button" class="${style}" data-action="${action}">${label}</button>`;
+  const studioWords = () => {
+    const words = {
+    ru:{title:'Редактор сцен',lead:'Меняйте только одну часть коллажа и сохраняйте удачные лица.',locked:'Зафиксирована',unlock:'Разблокировать',lock:'Зафиксировать сцену',current:'Текущий вариант',newVersion:'Создать вариант',instruction:'Что изменить',placeholder:'Например: заменить фон на вечерний Париж, лицо и одежду сохранить',scene:'Вся сцена',clothing:'Одежда',background:'Фон',mood:'Настроение',apply:'Выбрать этот вариант',formats:'Форматы из одного заказа',makeFormats:'Создать 6 форматов',video:'Живой коллаж',phrase:'Финальная фраза',aiVoice:'Озвучить фразу голосом AI',voice:'Или загрузить свой голос',music:'Своя музыка (необязательно)',makeVideo:'Создать видео 10–20 сек.',legacy:'Этот заказ создан до появления редактора сцен. Форматы доступны, но для редактирования сцен нужен новый заказ.',compare:'Сравнение вариантов'},
+    uk:{title:'Редактор сцен',lead:'Змінюйте лише одну частину колажу та зберігайте вдалі обличчя.',locked:'Зафіксована',unlock:'Розблокувати',lock:'Зафіксувати сцену',current:'Поточний варіант',newVersion:'Створити варіант',instruction:'Що змінити',placeholder:'Наприклад: замінити тло на вечірній Париж, обличчя й одяг зберегти',scene:'Уся сцена',clothing:'Одяг',background:'Тло',mood:'Настрій',apply:'Обрати цей варіант',formats:'Формати з одного замовлення',makeFormats:'Створити 6 форматів',video:'Живий колаж',phrase:'Фінальна фраза',aiVoice:'Озвучити фразу голосом AI',voice:'Або завантажити свій голос',music:'Своя музика (необов’язково)',makeVideo:'Створити відео 10–20 сек.',legacy:'Це замовлення створене до появи редактора сцен. Формати доступні, але для редагування сцен потрібне нове замовлення.',compare:'Порівняння варіантів'},
+    en:{title:'Scene Studio',lead:'Change one part of the collage while keeping every successful face.',locked:'Locked',unlock:'Unlock',lock:'Lock scene',current:'Current version',newVersion:'Create variant',instruction:'What should change?',placeholder:'For example: use evening Paris as the background; keep face and clothes',scene:'Whole scene',clothing:'Clothing',background:'Background',mood:'Mood',apply:'Use this version',formats:'Formats from one order',makeFormats:'Create 6 formats',video:'Living collage',phrase:'Final phrase',aiVoice:'Narrate the phrase with AI',voice:'Or upload your voice',music:'Your music (optional)',makeVideo:'Create a 10–20 sec video',legacy:'This order predates Scene Studio. Formats are available, but scene editing needs a new order.',compare:'Compare variants'}
+    };
+    return words[state.lang] || words.uk;
+  };
 
   async function api(path, options = {}) {
     if (!authorization) throw Error(t('openFromBot'));
@@ -238,7 +247,7 @@
       ${job?.error ? `<p class="error">${esc(job.error)}</p>` : ''}
       ${current === 'interrupted' ? button(t('retry'), 'gift-retry', 'primary') : ''}
       ${['payment','payment_unavailable'].includes(current) ? `<section class="panel action-panel"><p>${t('unpaid')}</p><strong>${t('payment')}: ${esc(job.stars || '—')} ⭐</strong>${button(t('pay'), 'gift-pay', 'primary')}${state.home?.wayforpay_ready ? button('💳 WayForPay', 'gift-pay-wayforpay', 'secondary') : ''}${button(t('check'), 'gift-check')}</section>` : ''}
-      ${filesReady ? `<section class="panel action-panel"><div class="panel-title">${t('ready')}</div>${button(t('openGift'), 'gift-open', 'primary')}${button(t('mobile'), 'gift-mobile', 'file-button')}${button(t('desktop'), 'gift-desktop', 'file-button')}${button(t('print'), 'gift-print', 'file-button')}</section>${deliveryTools('gift')}` : ''}</div>`;
+      ${filesReady ? `<section class="panel action-panel"><div class="panel-title">${t('ready')}</div>${button('✦ Scene Studio', 'studio-open', 'primary')}${button(t('openGift'), 'gift-open', 'secondary')}${button(t('mobile'), 'gift-mobile', 'file-button')}${button(t('desktop'), 'gift-desktop', 'file-button')}${button(t('print'), 'gift-print', 'file-button')}</section>${deliveryTools('gift')}` : ''}</div>`;
   }
   function menuDetail(menu) {
     const current = menu?.status;
@@ -254,10 +263,33 @@
       ${ready ? `<section class="panel action-panel"><div class="panel-title">${t('ready')}</div>${button(t('evening'), 'menu-evening', 'primary')}${button(t('openGift'), 'menu-open', 'secondary')}${button('PDF · ' + t('print'), 'menu-pdf', 'file-button')}${button(t('recipes'), 'menu-recipes', 'file-button')}</section>${deliveryTools('menu')}` : ''}</div>`;
   }
   function wallpaperDetail(order) {
-    const files = `${button(t('mobile'), 'wallpaper-mobile', 'file-button')}${button(t('desktop'), 'wallpaper-desktop', 'file-button')}${button(t('print'), 'wallpaper-print', 'file-button')}`;
+    const files = `${button('✦ Scene Studio', 'studio-open', 'primary')}${button(t('mobile'), 'wallpaper-mobile', 'file-button')}${button(t('desktop'), 'wallpaper-desktop', 'file-button')}${button(t('print'), 'wallpaper-print', 'file-button')}`;
     const price = order?.stars ? `${esc(order.stars)} ⭐` : `${esc(order?.amount || '—')} UAH`;
     const checkout = `<p>${t('unpaid')}</p><strong>${t('payment')}: ${price}</strong>${order?.stars ? button(t('pay'), 'wallpaper-pay', 'primary') : ''}${state.home?.wayforpay_ready ? button('💳 WayForPay', 'wallpaper-pay-wayforpay', 'secondary') : ''}${button(t('check'), 'wallpaper-check')}`;
     return `<div class="page detail">${goHomeButton('orders')}${detailHead(t('gift'), order?.id, order?.paid ? 'ready' : 'payment')}${preview()}<section class="panel action-panel"><div class="panel-title">${t('details')}</div>${order?.paid ? files : checkout}</section>${order?.paid ? deliveryTools('wallpaper') : ''}</div>`;
+  }
+  function sceneStudioDetail() {
+    const studio = state.sceneStudio;
+    const words = studioWords();
+    if (!studio) return `<div class="page">${goHomeButton('orders')}<p class="error">Scene Studio unavailable</p></div>`;
+    const index = Math.min(state.studioScene || 0, Math.max(0, studio.goals.length - 1));
+    const locked = (studio.locked || []).includes(index);
+    const versions = (studio.versions || []).filter(item => item.scene_index === index);
+    const options = [`<option value="current">${esc(words.current)}</option>`, ...versions.map(item => `<option value="${item.id}">#${item.number} · ${esc(item.instruction)}</option>`)].join('');
+    const exports = ['phone','desktop','story','instagram','a3','telegram','video'].map(kind => {
+      const ready = (studio.exports || []).find(item => item.kind === kind && item.ready);
+      const labels = {phone:'📱 Phone',desktop:'🖥 Desktop',story:'▯ Story',instagram:'▣ Instagram',a3:'A3 Print',telegram:'Telegram Cover',video:'▶ MP4'};
+      return ready ? `<button class="file-button" data-action="studio-download" data-kind="${kind}">${labels[kind]}</button>` : `<span class="format-chip pending">${labels[kind]}</span>`;
+    }).join('');
+    const left = state.studioImages.left ? `<img src="${state.studioImages.left}" alt="Variant A">` : '<span>01</span>';
+    const right = state.studioImages.right ? `<img src="${state.studioImages.right}" alt="Variant B">` : '<span>02</span>';
+    const selectedVersion = versions.find(item => String(item.id) === String(state.studioCompare.right));
+    return `<div class="page scene-studio">${goHomeButton('orders')}<div class="studio-hero"><small>PREMIUM CREATIVE SUITE</small><h1>${words.title}</h1><p>${words.lead}</p></div>
+      ${!studio.editable ? `<p class="error">${words.legacy}</p>` : `<nav class="scene-tabs">${studio.goals.map((goal, scene) => `<button class="${scene===index?'active':''} ${(studio.locked||[]).includes(scene)?'locked':''}" data-action="studio-scene" data-index="${scene}"><b>${String(scene+1).padStart(2,'0')}</b><span>${esc(goal)}</span></button>`).join('')}</nav>
+      <section class="panel"><div class="panel-title">${words.compare}<span>${index+1}/${studio.goals.length}</span></div><div class="compare-selects"><select id="compare-left">${options}</select><select id="compare-right">${options}</select></div><div class="scene-compare"><figure>${left}<figcaption>A</figcaption></figure><figure>${right}<figcaption>B</figcaption></figure></div>${selectedVersion && !selectedVersion.selected ? `<button class="primary" data-action="studio-select" data-version="${selectedVersion.id}">${words.apply}</button>` : ''}${button(locked ? words.unlock : words.lock, 'studio-lock', locked ? 'secondary' : 'file-button')}</section>
+      <section class="panel scene-edit"><div class="panel-title">${words.newVersion}<span>1 AI request</span></div><div class="edit-modes">${['scene','clothing','background','mood'].map(mode => `<label><input type="radio" name="edit-mode" value="${mode}" ${mode==='scene'?'checked':''}><span>${words[mode]}</span></label>`).join('')}</div><label class="field">${words.instruction}</label><textarea id="scene-instruction" maxlength="500" placeholder="${esc(words.placeholder)}"></textarea>${button(words.newVersion, 'studio-generate', 'primary')}</section>`}
+      <section class="panel"><div class="panel-title">${words.formats}<span>NO AI COST</span></div><div class="format-grid">${exports}</div>${button(words.makeFormats, 'studio-exports', 'secondary')}</section>
+      <section class="panel video-maker"><div class="panel-title">${words.video}<span>10–20 SEC</span></div><label class="field">${words.phrase}</label><textarea id="video-phrase" maxlength="500">${esc(studio.final_phrase || '')}</textarea><label class="check-row"><input id="video-ai-voice" type="checkbox"><span>${words.aiVoice}</span></label><label class="field">${words.voice}</label><input id="video-voice" class="input" type="file" accept="audio/*"><label class="field">${words.music}</label><input id="video-music" class="input" type="file" accept="audio/*">${button(words.makeVideo, 'studio-video', 'primary')}</section></div>`;
   }
   function dishRow() {
     return `<div class="dish"><select class="input" name="category"><option value="main">Основное</option><option value="appetizer">Закуска</option><option value="salad">Салат</option><option value="soup">Суп</option><option value="dessert">Десерт</option><option value="drink">Напиток</option></select><input class="input" name="title" required maxlength="180" placeholder="${t('dishes')}"><button type="button" data-action="remove-dish" aria-label="Remove dish">×</button></div>`;
@@ -474,6 +506,7 @@
       case 'job': body = giftDetail(state.job); break;
       case 'menu': body = menuDetail(state.menu); break;
       case 'wallpaper': body = wallpaperDetail(state.wallpaper); break;
+      case 'scene-studio': body = sceneStudioDetail(); break;
       case 'settings':
         body = `<div class="page">${goHomeButton()}<h1>${t('setting')}</h1><section class="panel"><label class="field">${t('language')}</label><div class="styles">${[['uk','Українська'],['ru','Русский'],['en','English']].map(([code,label]) => `<button type="button" class="chip ${code === state.lang ? 'active' : ''}" data-lang="${code}">${label}</button>`).join('')}</div></section></div>`;
         break;
@@ -485,6 +518,12 @@
     }
     app.innerHTML = layout(body);
     if (state.page === 'gift') giftSummary();
+    if (state.page === 'scene-studio') {
+      const left = app.querySelector('#compare-left');
+      const right = app.querySelector('#compare-right');
+      if (left) left.value = state.studioCompare.left;
+      if (right) right.value = state.studioCompare.right;
+    }
   }
 
   async function open(page) {
@@ -515,6 +554,40 @@
         await loadPreview(path + '/files/preview', key);
       }
     } catch (error) { notice(error.message); }
+  }
+  function clearStudioImages() {
+    Object.values(state.studioImages || {}).forEach(url => url && URL.revokeObjectURL(url));
+    state.studioImages = {};
+  }
+  async function studioImage(value) {
+    const orderId = state.sceneStudio.order_id;
+    const scene = state.studioScene || 0;
+    const path = value === 'current'
+      ? `/wallpapers/${orderId}/studio/scenes/${scene}/current`
+      : `/wallpapers/${orderId}/studio/versions/${value}`;
+    return URL.createObjectURL(await api(path));
+  }
+  async function loadStudioCompare() {
+    clearStudioImages();
+    try {
+      const [left, right] = await Promise.all([
+        studioImage(state.studioCompare.left), studioImage(state.studioCompare.right)
+      ]);
+      state.studioImages = {left, right};
+      render();
+    } catch (error) { notice(error.message); }
+  }
+  async function openSceneStudio(orderId) {
+    clearPreview();
+    clearStudioImages();
+    state.sceneStudio = await api(`/wallpapers/${orderId}/studio`);
+    state.studioScene = 0;
+    const versions = state.sceneStudio.versions.filter(item => item.scene_index === 0);
+    state.studioCompare = {left:'current', right:versions.length ? String(versions[versions.length - 1].id) : 'current'};
+    state.page = 'scene-studio';
+    render();
+    window.scrollTo(0, 0);
+    if (state.sceneStudio.editable) await loadStudioCompare();
   }
   function openPayment(url, kind, id, provider='stars') {
     if (provider === 'stars' && tg?.openInvoice) tg.openInvoice(url, status => {
@@ -552,6 +625,73 @@
       }
       const action = element.dataset.action;
       if (!action) return;
+      if (action === 'studio-open') {
+        const orderId = state.page === 'job' ? state.job?.order_id : state.wallpaper?.id;
+        if (!orderId) throw Error('Order is not ready for Scene Studio');
+        await openSceneStudio(orderId); return;
+      }
+      if (action === 'studio-scene') {
+        state.studioScene = Number(element.dataset.index);
+        const versions = state.sceneStudio.versions.filter(item => item.scene_index === state.studioScene);
+        state.studioCompare = {left:'current', right:versions.length ? String(versions[versions.length - 1].id) : 'current'};
+        render(); await loadStudioCompare(); return;
+      }
+      if (action === 'studio-lock') {
+        const scene = state.studioScene || 0;
+        const locked = !(state.sceneStudio.locked || []).includes(scene);
+        await api(`/wallpapers/${state.sceneStudio.order_id}/studio/scenes/${scene}/lock`, {
+          method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({locked})
+        });
+        state.sceneStudio.locked = locked
+          ? [...new Set([...(state.sceneStudio.locked || []), scene])]
+          : (state.sceneStudio.locked || []).filter(value => value !== scene);
+        render(); return;
+      }
+      if (action === 'studio-generate') {
+        const field = document.querySelector('#scene-instruction');
+        if (!field.value.trim() || field.value.trim().length < 3) { field.focus(); return; }
+        const mode = document.querySelector('input[name="edit-mode"]:checked')?.value || 'scene';
+        element.disabled = true;
+        const version = await api(`/wallpapers/${state.sceneStudio.order_id}/studio/scenes/${state.studioScene}/variants`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({mode, instruction:field.value.trim()})
+        });
+        state.sceneStudio = await api(`/wallpapers/${state.sceneStudio.order_id}/studio`);
+        state.studioCompare = {left:'current', right:String(version.id)};
+        render(); await loadStudioCompare(); return;
+      }
+      if (action === 'studio-select') {
+        await api(`/wallpapers/${state.sceneStudio.order_id}/studio/versions/${element.dataset.version}/select`, {method:'POST'});
+        state.sceneStudio = await api(`/wallpapers/${state.sceneStudio.order_id}/studio`);
+        state.studioCompare = {left:'current', right:String(element.dataset.version)};
+        render(); await loadStudioCompare();
+        notice(studioWords().apply, true); return;
+      }
+      if (action === 'studio-exports') {
+        element.disabled = true;
+        await api(`/wallpapers/${state.sceneStudio.order_id}/exports`, {method:'POST'});
+        state.sceneStudio = await api(`/wallpapers/${state.sceneStudio.order_id}/studio`);
+        render(); notice(studioWords().formats, true); return;
+      }
+      if (action === 'studio-download') {
+        await download(`/wallpapers/${state.sceneStudio.order_id}/exports/${element.dataset.kind}`,
+          `wallpaper-${state.sceneStudio.order_id}-${element.dataset.kind}`);
+        return;
+      }
+      if (action === 'studio-video') {
+        const data = new FormData();
+        data.append('final_phrase', document.querySelector('#video-phrase').value.trim());
+        data.append('duration_seconds', '15');
+        data.append('ai_voice', String(document.querySelector('#video-ai-voice').checked));
+        const voice = document.querySelector('#video-voice').files[0];
+        const music = document.querySelector('#video-music').files[0];
+        if (voice) data.append('voice', voice);
+        if (music) data.append('music', music);
+        element.disabled = true;
+        await api(`/wallpapers/${state.sceneStudio.order_id}/video`, {method:'POST', body:data});
+        state.sceneStudio = await api(`/wallpapers/${state.sceneStudio.order_id}/studio`);
+        render(); notice(studioWords().video, true); return;
+      }
       if (action === 'menu-input-mode') {
         state.menuInputMode = element.dataset.mode === 'structured' ? 'structured' : 'list';
         render(); return;
@@ -710,6 +850,11 @@
   app.addEventListener('change', event => {
     if (event.target.id === 'gift-photo-input') {
       updateGiftPhotos(event.target);
+      return;
+    }
+    if (event.target.id === 'compare-left' || event.target.id === 'compare-right') {
+      state.studioCompare[event.target.id === 'compare-left' ? 'left' : 'right'] = event.target.value;
+      loadStudioCompare();
       return;
     }
     if (state.page !== 'evening' || !state.evening) return;

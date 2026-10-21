@@ -214,6 +214,7 @@ class ReplicateVisionBoardRenderer:
         )
         results = {"mobile": await asyncio.to_thread(
             self._finish_goal_story, polished, user_id, "9:16", style, goals)}
+        results["raw_mobile"] = self.output_dir / f"editorial_v5_{style}_mobile.png"
         wide = await self._render_story_stage(
             f"editorial_v5_{style}_desktop", [*paths, self.output_dir /
                 f"editorial_v5_{style}_mobile.png"],
@@ -223,6 +224,7 @@ class ReplicateVisionBoardRenderer:
         )
         results["desktop"] = await asyncio.to_thread(
             self._finish_goal_story, wide, user_id, "16:9", style, goals)
+        results["raw_desktop"] = self.output_dir / f"editorial_v5_{style}_desktop.png"
         return results
 
     async def _render_story_stage(
@@ -620,7 +622,8 @@ class ReplicateVisionBoardRenderer:
             "model": self.model,
             "image": [],
             "prompt": prompt,
-            "size": ("1920x1088" if aspect_ratio == "16:9" else "1088x1920")
+            "size": ("1024x1024" if aspect_ratio == "scene" else
+                     "1920x1088" if aspect_ratio == "16:9" else "1088x1920")
             if self.model.startswith("gpt-image-2.5") else
             ("1024x1024" if aspect_ratio == "scene" else
              "1536x1024" if aspect_ratio == "16:9" else "1024x1536"),
