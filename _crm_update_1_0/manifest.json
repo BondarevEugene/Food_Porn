@@ -1,0 +1,234 @@
+{
+  "version": "1.0.1",
+  "base_commit": "63638bc08439e0e5b9fe399f72acb8eefb1cd84f",
+  "files": [
+    {
+      "path": "main.py",
+      "mode": "replace",
+      "new_hash": "57b99f42f4058339cdc6fa401b71c1e2acd581ad807cce51111de05a3436265e"
+    },
+    {
+      "path": "app/admin_app.py",
+      "mode": "replace",
+      "new_hash": "0f77369e199156dbe449706399828338e688a50b13eb1bc5596f6234c13fa611"
+    },
+    {
+      "path": "app/bot/handlers/admin.py",
+      "mode": "replace",
+      "new_hash": "bd58ed5f16d3fb7f064b08b7a14e3d33ad6fd17ed66833383169151924119419"
+    },
+    {
+      "path": "app/bot/handlers/start.py",
+      "mode": "patch",
+      "new_hash": "12efaeac99f64c6a52f45c5c0ee53942d7c8c0b189d6d6ffc6182093e6c115b8",
+      "hunks": [
+        {
+          "before": "from app.database import async_session_maker\nfrom app.database.models import FileKind, Language, Menu, MenuStatus, ShareLink, WallpaperOrder\nfrom app.database.repositories import CustomerRepository, MenuRepository\n\nrouter = Router(name=\"start\")\n\n",
+          "after": "from app.database import async_session_maker\nfrom app.database.models import FileKind, Language, Menu, MenuStatus, ShareLink, WallpaperOrder\nfrom app.database.repositories import CustomerRepository, MenuRepository\nfrom app.services.admin_access import crm_url, has_admin_access\n\nrouter = Router(name=\"start\")\n\n"
+        },
+        {
+          "before": "            menu = await session.get(Menu, int(link.reference_id))\n            if menu and menu.is_paid and menu.status not in (MenuStatus.FAILED, MenuStatus.QUEUED):\n                await session.refresh(menu, [\"files\"])\n                path = next((Path(file.path) for file in menu.files if file.kind == FileKind.PREVIEW_OUTSIDE), None)\n                attachments = [Path(file.path) for file in menu.files\n                               if file.kind in (FileKind.PRINT_PDF, FileKind.RECIPE_SHEET)]\n        elif link.kind == \"gift\":\n            from app.miniapp.api import _read_job\n            try:\n                job = _read_job(link.owner_telegram_id, link.reference_id)\n                if job[\"status\"] == \"ready\":\n",
+          "after": "            menu = await session.get(Menu, int(link.reference_id))\n            if menu and menu.is_paid and menu.status not in (MenuStatus.FAILED, MenuStatus.QUEUED):\n                await session.refresh(menu, [\"files\"])\n                path = next(\n                    (\n                        Path(file.path)\n                        for file in menu.files\n                        if file.kind == FileKind.PREVIEW_OUTSIDE\n                    ),\n                    None,\n                )\n                attachments = [\n                    Path(file.path)\n                    for file in menu.files\n                    if file.kind in (FileKind.PRINT_PDF, FileKind.RECIPE_SHEET)\n                ]\n        elif link.kind == \"gift\":\n            from app.miniapp.api import _read_job\n\n            try:\n                job = _read_job(link.owner_telegram_id, link.reference_id)\n                if job[\"status\"] == \"ready\":\n"
+        },
+        {
+          "before": "                            path = mobile.with_name(f\"preview_{mobile.stem}.jpg\")\n                            attachments = [mobile, Path(order.desktop_path)]\n                    elif job.get(\"free\"):\n                        mobile = get_settings().generated_dir / \"wallpapers\" / str(link.owner_telegram_id) / link.reference_id / f\"manifestation_{link.owner_telegram_id}_mobile.png\"\n                        path = mobile.with_name(f\"preview_{mobile.stem}.jpg\")\n                        attachments = [mobile, mobile.with_name(mobile.name.replace(\"_mobile.png\", \"_desktop.png\"))]\n            except Exception:\n                path = None\n        elif link.kind == \"wallpaper\":\n",
+          "after": "                            path = mobile.with_name(f\"preview_{mobile.stem}.jpg\")\n                            attachments = [mobile, Path(order.desktop_path)]\n                    elif job.get(\"free\"):\n                        mobile = (\n                            get_settings().generated_dir\n                            / \"wallpapers\"\n                            / str(link.owner_telegram_id)\n                            / link.reference_id\n                            / f\"manifestation_{link.owner_telegram_id}_mobile.png\"\n                        )\n                        path = mobile.with_name(f\"preview_{mobile.stem}.jpg\")\n                        attachments = [\n                            mobile,\n                            mobile.with_name(mobile.name.replace(\"_mobile.png\", \"_desktop.png\")),\n                        ]\n            except Exception:\n                path = None\n        elif link.kind == \"wallpaper\":\n"
+        },
+        {
+          "before": "        return\n    url = get_settings().miniapp_url\n    if url:\n        await message.answer(\"Для вас підготували дещо особливе ✦ Відкрийте конверт — усередині подарунок.\",\n                             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(\n                                 text=\"✦ Відкрити подарунок\",\n                                 web_app=WebAppInfo(url=f\"{url.rstrip('/')}/open/{token}\"),\n                             )]]))\n        return\n    keyboard = (InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(\n        text=\"Створити власний подарунок ✦\", web_app=WebAppInfo(url=url))]]) if url else None)\n    await message.answer_photo(FSInputFile(str(path)),\n                               caption=\"Для вас підготували особливий подарунок 💛\", reply_markup=keyboard)\n    for attachment in attachments:\n        if attachment.is_file():\n            try:\n",
+          "after": "        return\n    url = get_settings().miniapp_url\n    if url:\n        await message.answer(\n            \"Для вас підготували дещо особливе ✦ Відкрийте конверт — усередині подарунок.\",\n            reply_markup=InlineKeyboardMarkup(\n                inline_keyboard=[\n                    [\n                        InlineKeyboardButton(\n                            text=\"✦ Відкрити подарунок\",\n                            web_app=WebAppInfo(url=f\"{url.rstrip('/')}/open/{token}\"),\n                        )\n                    ]\n                ]\n            ),\n        )\n        return\n    keyboard = (\n        InlineKeyboardMarkup(\n            inline_keyboard=[\n                [\n                    InlineKeyboardButton(\n                        text=\"Створити власний подарунок ✦\", web_app=WebAppInfo(url=url)\n                    )\n                ]\n            ]\n        )\n        if url\n        else None\n    )\n    await message.answer_photo(\n        FSInputFile(str(path)),\n        caption=\"Для вас підготували особливий подарунок 💛\",\n        reply_markup=keyboard,\n    )\n    for attachment in attachments:\n        if attachment.is_file():\n            try:\n"
+        },
+        {
+          "before": "            except Exception:\n                # Keep the share link valid; Telegram may reject an unusually large file.\n                import logging\n                logging.getLogger(__name__).exception(\"Could not send shared file %s\", attachment)\n\n\n",
+          "after": "            except Exception:\n                # Keep the share link valid; Telegram may reject an unusually large file.\n                import logging\n\n                logging.getLogger(__name__).exception(\"Could not send shared file %s\", attachment)\n\n\n"
+        },
+        {
+          "before": "    return ReplyKeyboardMarkup(\n        keyboard=[\n            [KeyboardButton(text=text, request_contact=True)],\n            [KeyboardButton(text=text_for(lang, \"🏠 Головне меню\", \"🏠 Главное меню\", \"🏠 Main menu\"))]\n        ],\n        resize_keyboard=True,\n        one_time_keyboard=True,\n    )\n\n\ndef get_products_menu_keyboard(user_id: int | None = None, lang: str = \"uk\") -> InlineKeyboardMarkup:\n    \"\"\"Головне меню вибору продуктів екосистеми.\"\"\"\n    buttons = [\n        [InlineKeyboardButton(text=text_for(lang, \"🍷 Гастрономічний подарунок\",\n            \"🍷 Гастрономический подарок\", \"🍷 A food gift\"), callback_data=\"prod_food_porn\")],\n        [InlineKeyboardButton(text=text_for(lang,\n            \"🎁 Подарунок для близької людини\", \"🎁 Подарок близкому человеку\",\n            \"🎁 A gift for someone special\"), callback_data=\"prod_manifestation\")],\n    ]\n    buttons.append([InlineKeyboardButton(text=text_for(lang, \"🌐 Мова\", \"🌐 Язык\", \"🌐 Language\"),\n                                         callback_data=\"choose_language\")])\n    if user_id in get_settings().admin_telegram_ids:\n        buttons.append([InlineKeyboardButton(text=\"👑 Панель керування (Адмін)\", callback_data=\"admin_home\")])\n    return InlineKeyboardMarkup(inline_keyboard=buttons)\n\n\ndef language_menu() -> InlineKeyboardMarkup:\n    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(\n        text=label, callback_data=f\"ui_lang:{code}\")]\n        for code, label in ((\"uk\", \"🇺🇦 Українська\"), (\"ru\", \"🇷🇺 Русский\"), (\"en\", \"🇬🇧 English\"))])\n\n\nasync def preferred_language(user: object, state: FSMContext) -> str:\n",
+          "after": "    return ReplyKeyboardMarkup(\n        keyboard=[\n            [KeyboardButton(text=text, request_contact=True)],\n            [\n                KeyboardButton(\n                    text=text_for(lang, \"🏠 Головне меню\", \"🏠 Главное меню\", \"🏠 Main menu\")\n                )\n            ],\n        ],\n        resize_keyboard=True,\n        one_time_keyboard=True,\n    )\n\n\ndef get_products_menu_keyboard(\n    user_id: int | None = None, lang: str = \"uk\", *, is_admin: bool = False\n) -> InlineKeyboardMarkup:\n    \"\"\"Головне меню вибору продуктів екосистеми.\"\"\"\n    buttons = [\n        [\n            InlineKeyboardButton(\n                text=text_for(\n                    lang,\n                    \"🍷 Гастрономічний подарунок\",\n                    \"🍷 Гастрономический подарок\",\n                    \"🍷 A food gift\",\n                ),\n                callback_data=\"prod_food_porn\",\n            )\n        ],\n        [\n            InlineKeyboardButton(\n                text=text_for(\n                    lang,\n                    \"🎁 Подарунок для близької людини\",\n                    \"🎁 Подарок близкому человеку\",\n                    \"🎁 A gift for someone special\",\n                ),\n                callback_data=\"prod_manifestation\",\n            )\n        ],\n    ]\n    buttons.append(\n        [\n            InlineKeyboardButton(\n                text=text_for(lang, \"🌐 Мова\", \"🌐 Язык\", \"🌐 Language\"),\n                callback_data=\"choose_language\",\n            )\n        ]\n    )\n    if is_admin or user_id in get_settings().admin_telegram_ids:\n        buttons.append(\n            [InlineKeyboardButton(text=\"👑 Панель керування (Адмін)\", callback_data=\"admin_home\")]\n        )\n    return InlineKeyboardMarkup(inline_keyboard=buttons)\n\n\nasync def get_user_products_menu_keyboard(user: object, lang: str = \"uk\") -> InlineKeyboardMarkup:\n    allowed = await has_admin_access(\n        user.id, getattr(user, \"username\", None), get_settings(), async_session_maker\n    )\n    return get_products_menu_keyboard(user.id, lang, is_admin=allowed)\n\n\ndef language_menu() -> InlineKeyboardMarkup:\n    return InlineKeyboardMarkup(\n        inline_keyboard=[\n            [InlineKeyboardButton(text=label, callback_data=f\"ui_lang:{code}\")]\n            for code, label in ((\"uk\", \"🇺🇦 Українська\"), (\"ru\", \"🇷🇺 Русский\"), (\"en\", \"🇬🇧 English\"))\n        ]\n    )\n\n\nasync def preferred_language(user: object, state: FSMContext) -> str:\n"
+        },
+        {
+          "before": "    return customer.language.value if customer else language_for(user)\n\n\n@router.message(F.text.in_({\"🏠 Головне меню\", \"🏠 Главное меню\", \"🏠 Main menu\",\n                           \"/start\", \"⬅️ Назад до продуктів\"}))\nasync def cmd_start(message: Message, state: FSMContext) -> None:\n    selected = (await state.get_data()).get(\"lang_selected\", False)\n    lang = await preferred_language(message.from_user, state)\n",
+          "after": "    return customer.language.value if customer else language_for(user)\n\n\n@router.message(\n    F.text.in_(\n        {\"🏠 Головне меню\", \"🏠 Главное меню\", \"🏠 Main menu\", \"/start\", \"⬅️ Назад до продуктів\"}\n    )\n)\nasync def cmd_start(message: Message, state: FSMContext) -> None:\n    selected = (await state.get_data()).get(\"lang_selected\", False)\n    lang = await preferred_language(message.from_user, state)\n"
+        },
+        {
+          "before": "    name = escape((message.from_user.first_name or \"\") if message.from_user else \"\")\n    miniapp_url = get_settings().miniapp_url\n    if miniapp_url:\n        await message.answer(text_for(lang,\n            f\"Привіт, {name}! 💛 Відкрийте майстерню подарунків: фото, бажання й замовлення тепер в одному місці.\",\n            f\"Привет, {name}! 💛 Откройте мастерскую подарков: фото, желания и заказы теперь в одном месте.\",\n            f\"Hi, {name}! 💛 Open your gift studio to create and track everything in one place.\"),\n            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(\n                text=text_for(lang, \"✨ Відкрити майстерню\", \"✨ Открыть мастерскую\", \"✨ Open the studio\"),\n                web_app=WebAppInfo(url=miniapp_url),\n            )]]))\n        return\n    await message.answer(\n        text_for(lang,\n            f\"Привіт, {name}! 💛 Допоможу візуалізувати п’ять ваших бажань у подарунку для близької людини. Потрібні фото та 5 цілей. Або оберіть гастрономічний сет.\",\n            f\"Привет, {name}! 💛 Помогу визуализировать пять ваших желаний в подарке для близкого человека. Нужны фото и 5 целей. Или выберите гастрономический сет.\",\n            f\"Hi, {name}! 💛 Let's visualize five of your wishes as a gift for someone special. Send photos and 5 goals, or choose a food menu.\"),\n        reply_markup=ReplyKeyboardRemove(),\n    )\n    await message.answer(text_for(lang, \"Чим порадуємо сьогодні?\", \"Чем порадуем сегодня?\", \"What shall we create today?\"),\n                         reply_markup=get_products_menu_keyboard(message.from_user.id, lang))\n\n\n@router.callback_query(F.data == \"back_to_products\")\n",
+          "after": "    name = escape((message.from_user.first_name or \"\") if message.from_user else \"\")\n    miniapp_url = get_settings().miniapp_url\n    if miniapp_url:\n        rows = [\n            [\n                InlineKeyboardButton(\n                    text=text_for(\n                        lang, \"✨ Відкрити майстерню\", \"✨ Открыть мастерскую\", \"✨ Open the studio\"\n                    ),\n                    web_app=WebAppInfo(url=miniapp_url),\n                )\n            ]\n        ]\n        allowed = await has_admin_access(\n            message.from_user.id,\n            getattr(message.from_user, \"username\", None),\n            get_settings(),\n            async_session_maker,\n        )\n        if allowed:\n            url = crm_url(get_settings())\n            rows.append(\n                [InlineKeyboardButton(text=\"✦ Mini CRM\", web_app=WebAppInfo(url=url))]\n                if url\n                else [InlineKeyboardButton(text=\"👑 Админка\", callback_data=\"admin_home\")]\n            )\n        await message.answer(\n            text_for(\n                lang,\n                f\"Привіт, {name}! 💛 Відкрийте майстерню подарунків: фото, бажання й замовлення тепер в одному місці.\",\n                f\"Привет, {name}! 💛 Откройте мастерскую подарков: фото, желания и заказы теперь в одном месте.\",\n                f\"Hi, {name}! 💛 Open your gift studio to create and track everything in one place.\",\n            ),\n            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),\n        )\n        return\n    await message.answer(\n        text_for(\n            lang,\n            f\"Привіт, {name}! 💛 Допоможу візуалізувати п’ять ваших бажань у подарунку для близької людини. Потрібні фото та 5 цілей. Або оберіть гастрономічний сет.\",\n            f\"Привет, {name}! 💛 Помогу визуализировать пять ваших желаний в подарке для близкого человека. Нужны фото и 5 целей. Или выберите гастрономический сет.\",\n            f\"Hi, {name}! 💛 Let's visualize five of your wishes as a gift for someone special. Send photos and 5 goals, or choose a food menu.\",\n        ),\n        reply_markup=ReplyKeyboardRemove(),\n    )\n    await message.answer(\n        text_for(\n            lang, \"Чим порадуємо сьогодні?\", \"Чем порадуем сегодня?\", \"What shall we create today?\"\n        ),\n        reply_markup=await get_user_products_menu_keyboard(message.from_user, lang),\n    )\n\n\n@router.callback_query(F.data == \"back_to_products\")\n"
+        },
+        {
+          "before": "    lang = await preferred_language(callback.from_user, state)\n    await state.clear()\n    await state.update_data(ui_lang=lang, lang_selected=selected)\n    text = text_for(lang, \"Оберіть подарунок або меню:\", \"Выберите подарок или меню:\", \"Choose a gift or a menu:\")\n    try:\n        await callback.message.edit_text(text, reply_markup=get_products_menu_keyboard(callback.from_user.id, lang), parse_mode=\"HTML\")\n    except Exception:\n        await callback.message.answer(text, reply_markup=get_products_menu_keyboard(callback.from_user.id, lang), parse_mode=\"HTML\")\n    await callback.answer()\n\n\n",
+          "after": "    lang = await preferred_language(callback.from_user, state)\n    await state.clear()\n    await state.update_data(ui_lang=lang, lang_selected=selected)\n    text = text_for(\n        lang,\n        \"Оберіть подарунок або меню:\",\n        \"Выберите подарок или меню:\",\n        \"Choose a gift or a menu:\",\n    )\n    try:\n        await callback.message.edit_text(\n            text,\n            reply_markup=await get_user_products_menu_keyboard(callback.from_user, lang),\n            parse_mode=\"HTML\",\n        )\n    except Exception:\n        await callback.message.answer(\n            text,\n            reply_markup=await get_user_products_menu_keyboard(callback.from_user, lang),\n            parse_mode=\"HTML\",\n        )\n    await callback.answer()\n\n\n"
+        },
+        {
+          "before": "        if customer:\n            customer.language = Language(lang)\n            await session.commit()\n    await callback.message.answer(text_for(lang,\n        \"Готово 💛 Оберіть подарунок:\", \"Готово 💛 Выберите подарок:\",\n        \"All set 💛 Choose a gift:\"), reply_markup=get_products_menu_keyboard(callback.from_user.id, lang))\n    await callback.answer()\n\n\n@router.message(F.contact)\nasync def receive_contact(message: Message, state: FSMContext, session_factory: async_sessionmaker[AsyncSession] = None) -> None:\n    if message.from_user is None or message.contact is None:\n        return\n    if message.contact.user_id != message.from_user.id:\n",
+          "after": "        if customer:\n            customer.language = Language(lang)\n            await session.commit()\n    await callback.message.answer(\n        text_for(\n            lang,\n            \"Готово 💛 Оберіть подарунок:\",\n            \"Готово 💛 Выберите подарок:\",\n            \"All set 💛 Choose a gift:\",\n        ),\n        reply_markup=await get_user_products_menu_keyboard(callback.from_user, lang),\n    )\n    await callback.answer()\n\n\n@router.message(F.contact)\nasync def receive_contact(\n    message: Message, state: FSMContext, session_factory: async_sessionmaker[AsyncSession] = None\n) -> None:\n    if message.from_user is None or message.contact is None:\n        return\n    if message.contact.user_id != message.from_user.id:\n"
+        },
+        {
+          "before": "\n    if (await state.get_data()).get(\"pending_food\"):\n        await state.update_data(pending_food=False)\n        await message.answer(text_for(lang, \"Дякую! Створімо гастрономічний подарунок 🍷\",\n            \"Спасибо! Создадим гастрономический подарок 🍷\", \"Thank you! Let's make a food gift 🍷\"),\n            reply_markup=ReplyKeyboardRemove())\n        await _send_food_start(message, state)\n        return\n\n    text = text_for(lang, \"Мову встановлено 💛\", \"Язык установлен 💛\", \"Language selected 💛\")\n    await message.answer(text, parse_mode=\"HTML\", reply_markup=ReplyKeyboardRemove())\n    await message.answer(text_for(lang, \"Оберіть подарунок:\", \"Выберите подарок:\", \"Choose a gift:\"),\n                         reply_markup=get_products_menu_keyboard(message.from_user.id, lang))\n\n\n@router.callback_query(F.data == \"prod_manifestation\")\nasync def start_manifestation_flow(callback: CallbackQuery, state: FSMContext) -> None:\n    await start_wallpaper_from_start(\n        callback.message, state, user_id=callback.from_user.id,\n        lang=await preferred_language(callback.from_user, state),\n    )\n    await callback.answer()\n",
+          "after": "\n    if (await state.get_data()).get(\"pending_food\"):\n        await state.update_data(pending_food=False)\n        await message.answer(\n            text_for(\n                lang,\n                \"Дякую! Створімо гастрономічний подарунок 🍷\",\n                \"Спасибо! Создадим гастрономический подарок 🍷\",\n                \"Thank you! Let's make a food gift 🍷\",\n            ),\n            reply_markup=ReplyKeyboardRemove(),\n        )\n        await _send_food_start(message, state)\n        return\n\n    text = text_for(lang, \"Мову встановлено 💛\", \"Язык установлен 💛\", \"Language selected 💛\")\n    await message.answer(text, parse_mode=\"HTML\", reply_markup=ReplyKeyboardRemove())\n    await message.answer(\n        text_for(lang, \"Оберіть подарунок:\", \"Выберите подарок:\", \"Choose a gift:\"),\n        reply_markup=await get_user_products_menu_keyboard(message.from_user, lang),\n    )\n\n\n@router.callback_query(F.data == \"prod_manifestation\")\nasync def start_manifestation_flow(callback: CallbackQuery, state: FSMContext) -> None:\n    await start_wallpaper_from_start(\n        callback.message,\n        state,\n        user_id=callback.from_user.id,\n        lang=await preferred_language(callback.from_user, state),\n    )\n    await callback.answer()\n"
+        },
+        {
+          "before": "    lang = await preferred_language(message.from_user, state)\n    await state.clear()\n    await state.update_data(ui_lang=lang, lang_selected=selected)\n    await message.answer(text_for(lang, \"Головне меню 💛\", \"Главное меню 💛\", \"Main menu 💛\"),\n                         reply_markup=get_products_menu_keyboard(message.from_user.id, lang))\n\n\n@router.callback_query(F.data == \"prod_food_porn\")\n",
+          "after": "    lang = await preferred_language(message.from_user, state)\n    await state.clear()\n    await state.update_data(ui_lang=lang, lang_selected=selected)\n    await message.answer(\n        text_for(lang, \"Головне меню 💛\", \"Главное меню 💛\", \"Main menu 💛\"),\n        reply_markup=await get_user_products_menu_keyboard(message.from_user, lang),\n    )\n\n\n@router.callback_query(F.data == \"prod_food_porn\")\n"
+        },
+        {
+          "before": "        await state.update_data(pending_food=True)\n        lang = await preferred_language(callback.from_user, state)\n        await callback.message.answer(\n            text_for(lang, \"Для замовлення меню потрібен ваш контакт. Поділіться ним, будь ласка.\",\n                     \"Для заказа меню нужен ваш контакт. Поделитесь им, пожалуйста.\",\n                     \"Please share your contact to order a food gift.\"),\n            reply_markup=get_phone_keyboard(lang),\n        )\n        await callback.answer()\n",
+          "after": "        await state.update_data(pending_food=True)\n        lang = await preferred_language(callback.from_user, state)\n        await callback.message.answer(\n            text_for(\n                lang,\n                \"Для замовлення меню потрібен ваш контакт. Поділіться ним, будь ласка.\",\n                \"Для заказа меню нужен ваш контакт. Поделитесь им, пожалуйста.\",\n                \"Please share your contact to order a food gift.\",\n            ),\n            reply_markup=get_phone_keyboard(lang),\n        )\n        await callback.answer()\n"
+        },
+        {
+          "before": "    kb = ReplyKeyboardMarkup(\n        keyboard=[[KeyboardButton(text=\"🏠 Головне меню\")]],\n        resize_keyboard=True,\n        one_time_keyboard=True\n    )\n\n    text = text_for(customer.language.value,\n        \"🍷 <b>Гастрономічний подарунок</b>\\n\\nНапишіть назву першої страви:\",\n        \"🍷 <b>Гастрономический подарок</b>\\n\\nНапишите название первого блюда:\",\n        \"🍷 <b>A food gift</b>\\n\\nType the first dish:\")\n    await message.answer(text, parse_mode=\"HTML\", reply_markup=kb)\n",
+          "after": "    kb = ReplyKeyboardMarkup(\n        keyboard=[[KeyboardButton(text=\"🏠 Головне меню\")]],\n        resize_keyboard=True,\n        one_time_keyboard=True,\n    )\n\n    text = text_for(\n        customer.language.value,\n        \"🍷 <b>Гастрономічний подарунок</b>\\n\\nНапишіть назву першої страви:\",\n        \"🍷 <b>Гастрономический подарок</b>\\n\\nНапишите название первого блюда:\",\n        \"🍷 <b>A food gift</b>\\n\\nType the first dish:\",\n    )\n    await message.answer(text, parse_mode=\"HTML\", reply_markup=kb)\n"
+        }
+      ]
+    },
+    {
+      "path": "app/config.py",
+      "mode": "patch",
+      "new_hash": "0fc78f8177f1174a4a6911e9ce4c54ace3ca8797dcb563aae43432cf630709e4",
+      "hunks": [
+        {
+          "before": "    admin_username: str = \"\"\n    admin_password: SecretStr = SecretStr(\"\")\n    admin_session_secret: SecretStr = SecretStr(\"\")\n\n    model_config = SettingsConfigDict(\n        env_file=\".env\",\n",
+          "after": "    admin_username: str = \"\"\n    admin_password: SecretStr = SecretStr(\"\")\n    admin_session_secret: SecretStr = SecretStr(\"\")\n    crm_encryption_key: SecretStr = SecretStr(\"\")\n\n    model_config = SettingsConfigDict(\n        env_file=\".env\",\n"
+        }
+      ]
+    },
+    {
+      "path": "app/miniapp/api.py",
+      "mode": "patch",
+      "new_hash": "0dc9df24d686f5d1d6e3c2e10b3e38602f972c90874ce65abf7b5a52f80f9615",
+      "hunks": [
+        {
+          "before": "from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile\nfrom fastapi.responses import FileResponse\nfrom PIL import Image\nfrom sqlalchemy import func, or_, select\n\nfrom app.bot.handlers.wallpaper import make_preview, parse_five_goals, save_photo\nfrom app.config import get_settings\nfrom app.database.models import (\n    Customer,\n    EmailDelivery,\n    FileKind,\n    ItemCategory,\n",
+          "after": "from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile\nfrom fastapi.responses import FileResponse\nfrom PIL import Image\nfrom sqlalchemy import func, select\n\nfrom app.bot.handlers.wallpaper import make_preview, parse_five_goals, save_photo\nfrom app.config import get_settings\nfrom app.crm.service import dashboard as crm_dashboard\nfrom app.crm.service import save_settings as crm_save_settings\nfrom app.database.models import (\n    EmailDelivery,\n    FileKind,\n    ItemCategory,\n"
+        },
+        {
+          "before": "from app.database.repositories import CustomerRepository, MenuRepository, WallpaperOrderRepository\nfrom app.database.session import async_session_maker\nfrom app.miniapp.auth import current_user\nfrom app.services.email_service import normalize_recipient, send_ready_order_email\nfrom app.services.free_access import has_free_generation_access\nfrom app.services.gift_pricing import checkout_price_uah\n",
+          "after": "from app.database.repositories import CustomerRepository, MenuRepository, WallpaperOrderRepository\nfrom app.database.session import async_session_maker\nfrom app.miniapp.auth import current_user\nfrom app.services.admin_access import has_admin_access\nfrom app.services.email_service import normalize_recipient, send_ready_order_email\nfrom app.services.free_access import has_free_generation_access\nfrom app.services.gift_pricing import checkout_price_uah\n"
+        },
+        {
+          "before": "                    continue\n    return {\n        \"user\": {\"id\": uid, \"name\": user.get(\"first_name\", \"\"), \"username\": user.get(\"username\")},\n        \"admin\": uid in settings.admin_telegram_ids,\n        \"language\": customer.language.value if customer else user.get(\"language_code\", \"uk\")[:2],\n        \"customer\": {\"name\": customer.name, \"phone\": customer.phone} if customer else None,\n        \"payment_ready\": settings.menu_price_stars > 0 and settings.gift_price_stars > 0,\n",
+          "after": "                    continue\n    return {\n        \"user\": {\"id\": uid, \"name\": user.get(\"first_name\", \"\"), \"username\": user.get(\"username\")},\n        \"admin\": await has_admin_access(uid, user.get(\"username\"), settings, async_session_maker),\n        \"language\": customer.language.value if customer else user.get(\"language_code\", \"uk\")[:2],\n        \"customer\": {\"name\": customer.name, \"phone\": customer.phone} if customer else None,\n        \"payment_ready\": settings.menu_price_stars > 0 and settings.gift_price_stars > 0,\n"
+        },
+        {
+          "before": "        await asyncio.to_thread(_validate_gift_files, mobile, desktop)\n        await asyncio.to_thread(make_preview, mobile)\n        if job[\"free\"]:\n            job[\"status\"] = \"ready\"\n        else:\n            cost = plan.ai_cost_usd + renderer.total_cost_usd\n",
+          "after": "        await asyncio.to_thread(_validate_gift_files, mobile, desktop)\n        await asyncio.to_thread(make_preview, mobile)\n        if job[\"free\"]:\n            async with async_session_maker() as session:\n                order = WallpaperOrder(\n                    telegram_user_id=uid, amount=Decimal(\"0\"), stars_amount=0,\n                    mobile_path=str(mobile), desktop_path=str(desktop), paid=True,\n                    payment_id=f\"VIP_JOB_{job_id}\", payment_system=\"vip_bypass\",\n                )\n                session.add(order)\n                await session.commit()\n                await session.refresh(order)\n            job[\"order_id\"] = order.id\n            job[\"status\"] = \"ready\"\n        else:\n            cost = plan.ai_cost_usd + renderer.total_cost_usd\n"
+        },
+        {
+          "before": "@router.get(\"/api/admin\")\nasync def admin_dashboard(user: Annotated[dict, Depends(current_user)]) -> dict:\n    settings = get_settings()\n    if user[\"id\"] not in settings.admin_telegram_ids:\n        raise HTTPException(403)\n    async with async_session_maker() as session:\n        customers = await session.scalar(select(func.count(Customer.id)))\n        menus = await session.scalar(select(func.count(Menu.id)))\n        gifts = await session.scalar(select(func.count(WallpaperOrder.id)))\n        paid_gifts = await session.scalar(select(func.count(WallpaperOrder.id)).where(WallpaperOrder.paid.is_(True)))\n        gift_revenue = await session.scalar(select(func.sum(WallpaperOrder.amount)).where(\n            WallpaperOrder.paid.is_(True), or_(WallpaperOrder.payment_system.is_(None),\n                                               WallpaperOrder.payment_system != \"telegram_stars\")))\n        menu_revenue = await session.scalar(select(func.sum(Menu.price_amount)).where(\n            Menu.is_paid.is_(True), or_(Menu.payment_system.is_(None),\n                                       Menu.payment_system != \"telegram_stars\")))\n        gift_stars = await session.scalar(select(func.sum(WallpaperOrder.stars_amount)).where(\n            WallpaperOrder.paid.is_(True), WallpaperOrder.payment_system == \"telegram_stars\"))\n        menu_stars = await session.scalar(select(func.sum(Menu.stars_amount)).where(\n            Menu.is_paid.is_(True), Menu.payment_system == \"telegram_stars\"))\n        vip = await get_vip_users(session, settings.default_vip_users)\n        menu_price = await get_setting(session, \"menu_price_uah\", str(settings.menu_price))\n        recent = (await session.execute(select(Menu).order_by(Menu.id.desc()).limit(10))).scalars().all()\n    return {\"customers\": customers, \"menus\": menus, \"gifts\": gifts, \"paid_gifts\": paid_gifts,\n            \"vip\": vip, \"menu_price\": menu_price,\n            \"revenue\": str((gift_revenue or 0) + (menu_revenue or 0)),\n            \"stars_revenue\": (gift_stars or 0) + (menu_stars or 0),\n            \"stars_ready\": settings.menu_price_stars > 0 and settings.gift_price_stars > 0,\n            \"payment_ready\": PaymentService(settings).portmone_ready,\n            \"recent\": [{\"id\": item.id, \"status\": item.status.value} for item in recent]}\n\n\n@router.post(\"/api/admin/vip\")\n",
+          "after": "@router.get(\"/api/admin\")\nasync def admin_dashboard(user: Annotated[dict, Depends(current_user)]) -> dict:\n    settings = get_settings()\n    if not await has_admin_access(user[\"id\"], user.get(\"username\"), settings, async_session_maker):\n        raise HTTPException(403)\n    async with async_session_maker() as session:\n        data = await crm_dashboard(session, 30)\n        vip = await get_vip_users(session, settings.default_vip_users)\n        menu_price = await get_setting(session, \"menu_price_uah\", str(settings.menu_price))\n    return {**data, \"paid_gifts\": data[\"paid_gifts\"], \"vip\": vip, \"menu_price\": menu_price,\n            \"revenue\": data[\"revenue_uah\"], \"stars_revenue\": data[\"revenue_stars\"],\n            \"stars_ready\": settings.menu_price_stars > 0 and settings.gift_price_stars > 0,\n            \"payment_ready\": PaymentService(settings).portmone_ready, \"crm_url\": \"/crm\", \"owner\": user[\"id\"] in settings.admin_telegram_ids}\n\n\n@router.post(\"/api/admin/vip\")\n"
+        },
+        {
+          "before": "\n@router.post(\"/api/admin/menu-price\")\nasync def update_menu_price(payload: dict, user: Annotated[dict, Depends(current_user)]) -> dict:\n    if user[\"id\"] not in get_settings().admin_telegram_ids:\n        raise HTTPException(403)\n    try:\n        price = Decimal(str(payload[\"price\"])).quantize(Decimal(\"0.01\"))\n",
+          "after": "\n@router.post(\"/api/admin/menu-price\")\nasync def update_menu_price(payload: dict, user: Annotated[dict, Depends(current_user)]) -> dict:\n    if not await has_admin_access(user[\"id\"], user.get(\"username\"), get_settings(), async_session_maker):\n        raise HTTPException(403)\n    try:\n        price = Decimal(str(payload[\"price\"])).quantize(Decimal(\"0.01\"))\n"
+        },
+        {
+          "before": "    except (KeyError, ValueError, ArithmeticError) as exc:\n        raise HTTPException(422, \"Enter a price from 1 to 100000 UAH\") from exc\n    async with async_session_maker() as session:\n        await set_setting(session, \"menu_price_uah\", str(price))\n    return {\"menu_price\": str(price)}\n",
+          "after": "    except (KeyError, ValueError, ArithmeticError) as exc:\n        raise HTTPException(422, \"Enter a price from 1 to 100000 UAH\") from exc\n    async with async_session_maker() as session:\n        await crm_save_settings(session, {\"menu_price_uah\": str(price)}, f\"telegram:{user['id']}\")\n    return {\"menu_price\": str(price)}\n"
+        }
+      ]
+    },
+    {
+      "path": "app/miniapp/static/app.js",
+      "mode": "patch",
+      "new_hash": "f8c0564c82f62d71a405f4ca0bfa497104fddf5946975f247dad9a95366c2001",
+      "hunks": [
+        {
+          "before": "        break;\n      case 'admin': {\n        const a = state.admin;\n        body = `<div class=\"page\">${goHomeButton()}<h1>${t('admin')}</h1><div class=\"admin-grid\">${[['♧','customers'],['◈','menus'],['✧','gifts'],['✓','paid_gifts']].map(([icon,key]) => `<div class=\"stat-card\"><span>${icon}</span><strong>${a?.[key] ?? '–'}</strong><small>${t(key === 'paid_gifts' ? 'paid' : key)}</small></div>`).join('')}</div><section class=\"panel\"><div class=\"panel-title\">${t('details')}</div><p>Telegram Stars: ${a?.stars_ready ? '✓' : '—'} · ${esc(a?.stars_revenue || 0)} ⭐</p><p>Portmone: ${a?.payment_ready ? '✓' : '—'} · ${esc(a?.revenue || '0')} UAH</p><label class=\"field\">Menu price, UAH</label><input id=\"menu-price\" class=\"input\" type=\"number\" min=\"1\" max=\"100000\" step=\"0.01\" value=\"${esc(a?.menu_price)}\">${button(t('save'), 'save-price')}<hr class=\"divider\"><label class=\"field\">${t('vip')}</label><textarea id=\"vip\" placeholder=\"username, username\">${esc((a?.vip || []).join(', '))}</textarea>${button(t('save'), 'save-vip', 'primary')}</section></div>`;\n        break;\n      }\n    }\n",
+          "after": "        break;\n      case 'admin': {\n        const a = state.admin;\n        body = `<div class=\"page\">${goHomeButton()}<h1>${t('admin')}</h1><a class=\"primary\" style=\"display:block;padding:16px;margin-bottom:18px;text-align:center;border-radius:14px\" href=\"/crm${esc(window.location.hash)}\">✦ Mini CRM · Клиенты, финансы, реклама →</a><div class=\"admin-grid\">${[['♧','customers'],['◈','menus'],['✧','gifts'],['✓','paid_gifts']].map(([icon,key]) => `<div class=\"stat-card\"><span>${icon}</span><strong>${a?.[key] ?? '–'}</strong><small>${t(key === 'paid_gifts' ? 'paid' : key)}</small></div>`).join('')}</div><section class=\"panel\"><div class=\"panel-title\">${t('details')}</div><p>Telegram Stars: ${a?.stars_ready ? '✓' : '—'} · ${esc(a?.stars_revenue || 0)} ⭐</p><p>Portmone: ${a?.payment_ready ? '✓' : '—'} · ${esc(a?.revenue || '0')} UAH</p><label class=\"field\">Menu price, UAH</label><input id=\"menu-price\" class=\"input\" type=\"number\" min=\"1\" max=\"100000\" step=\"0.01\" value=\"${esc(a?.menu_price)}\">${button(t('save'), 'save-price')}<hr class=\"divider\"><label class=\"field\">${t('vip')}</label><textarea id=\"vip\" ${a?.owner ? '' : 'readonly'} placeholder=\"username, username\">${esc((a?.vip || []).join(', '))}</textarea>${a?.owner ? button(t('save'), 'save-vip', 'primary') : ''}</section></div>`;\n        break;\n      }\n    }\n"
+        }
+      ]
+    },
+    {
+      "path": "requirements.txt",
+      "mode": "patch",
+      "new_hash": "80344fdb768c85d2521d0c807efcd630e26004999f00365e9d510356671953ca",
+      "hunks": [
+        {
+          "before": "uvicorn>=0.30,<1\nsqladmin>=0.20,<1\npython-multipart>=0.0.20,<1\n",
+          "after": "uvicorn>=0.30,<1\nsqladmin>=0.20,<1\npython-multipart>=0.0.20,<1\ncryptography>=44,<51\nitsdangerous>=2.2,<3\n"
+        }
+      ]
+    },
+    {
+      "path": "requirements-dev.txt",
+      "mode": "patch",
+      "new_hash": "0d47df8f70c6f34cec1dd0f0d41417ecf8ce89bb0e15442393aa65bbc55ca45e",
+      "hunks": [
+        {
+          "before": "pytest-asyncio>=1.1,<2\nruff>=0.12,<1\n\n",
+          "after": "pytest-asyncio>=1.1,<2\nruff>=0.12,<1\n\naiosqlite>=0.20,<1\n"
+        }
+      ]
+    },
+    {
+      "path": "pyproject.toml",
+      "mode": "patch",
+      "new_hash": "69190e5fc0956f19da2e3cfb84691b120865bdc6ea6bf516e6ad47f9dbdeb16c",
+      "hunks": [
+        {
+          "before": "  \"uvicorn>=0.30,<1\",\n  \"sqladmin>=0.20,<1\",\n  \"python-multipart>=0.0.20,<1\",\n]\n\n[tool.pytest.ini_options]\n",
+          "after": "  \"uvicorn>=0.30,<1\",\n  \"sqladmin>=0.20,<1\",\n  \"python-multipart>=0.0.20,<1\",\n  \"cryptography>=44,<51\",\n  \"itsdangerous>=2.2,<3\",\n]\n\n[tool.pytest.ini_options]\n"
+        }
+      ]
+    },
+    {
+      "path": "app/crm/__init__.py",
+      "mode": "new",
+      "new_hash": "2a1f7f468eb23794dcbea5ba70f0ca8a1ecdc13097654ee3f912dcd198de00f5"
+    },
+    {
+      "path": "app/crm/integrations.py",
+      "mode": "new",
+      "new_hash": "e5797548863dcaf58f30fe7699fa369efc6ae5f75736de181822f3b518e49cfd"
+    },
+    {
+      "path": "app/crm/models.py",
+      "mode": "new",
+      "new_hash": "10850b78dc07d04a35e7dcea0e19b8572bcf71beaf2e0a4e05fc762a43c84128"
+    },
+    {
+      "path": "app/crm/router.py",
+      "mode": "new",
+      "new_hash": "ffefb79396b18eb2f759b30c2d6999f329881fbcebcb49e50150c6336d7c9267"
+    },
+    {
+      "path": "app/crm/security.py",
+      "mode": "new",
+      "new_hash": "77291a445d31a8f040d961284b2771570fe34ebc133c2b65666cdb84457618ec"
+    },
+    {
+      "path": "app/crm/service.py",
+      "mode": "new",
+      "new_hash": "88697ffb2c4f8692a8014854896b712381e4d2e0e0fd1424036cec4963f9a2a7"
+    },
+    {
+      "path": "app/crm/static/crm.css",
+      "mode": "new",
+      "new_hash": "fdee978720f0fd096ee35e4ef7fb313cc736f295cab15b95f93bfe2f583cc820"
+    },
+    {
+      "path": "app/crm/static/crm.js",
+      "mode": "new",
+      "new_hash": "27b483c9667879ce2de4325f1f5dc13e2ee71eeeb9acc56076610928d610f99d"
+    },
+    {
+      "path": "app/crm/static/index.html",
+      "mode": "new",
+      "new_hash": "83ec33ddc421a3549c4bcaa68e957e1b512281697465f4190a724ba0edcb19c5"
+    },
+    {
+      "path": "app/services/admin_access.py",
+      "mode": "new",
+      "new_hash": "3c841adbca6671b45a47c3b1319d8b5a0a362594f95c8e639a185f97c8985203"
+    },
+    {
+      "path": "tests/test_bootstrap_runtime.py",
+      "mode": "new",
+      "new_hash": "a4efeb825b8265dd563b3dbfeec09106d18724ff9242c61d64405593dddaae20"
+    },
+    {
+      "path": "tests/test_mini_crm.py",
+      "mode": "new",
+      "new_hash": "364376adda6b0c93774c3d56b8a9b96dd6b29ff82da9baf73ef91b6678ccff2d"
+    }
+  ]
+}

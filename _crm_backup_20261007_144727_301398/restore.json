@@ -1,0 +1,94 @@
+[
+  {
+    "path": "main.py",
+    "existed": true
+  },
+  {
+    "path": "app/admin_app.py",
+    "existed": true
+  },
+  {
+    "path": "app/bot/handlers/admin.py",
+    "existed": true
+  },
+  {
+    "path": "app/bot/handlers/start.py",
+    "existed": true
+  },
+  {
+    "path": "app/config.py",
+    "existed": true
+  },
+  {
+    "path": "app/miniapp/api.py",
+    "existed": true
+  },
+  {
+    "path": "app/miniapp/static/app.js",
+    "existed": true
+  },
+  {
+    "path": "requirements.txt",
+    "existed": true
+  },
+  {
+    "path": "requirements-dev.txt",
+    "existed": true
+  },
+  {
+    "path": "pyproject.toml",
+    "existed": true
+  },
+  {
+    "path": "app/crm/__init__.py",
+    "existed": false
+  },
+  {
+    "path": "app/crm/integrations.py",
+    "existed": false
+  },
+  {
+    "path": "app/crm/models.py",
+    "existed": false
+  },
+  {
+    "path": "app/crm/router.py",
+    "existed": false
+  },
+  {
+    "path": "app/crm/security.py",
+    "existed": false
+  },
+  {
+    "path": "app/crm/service.py",
+    "existed": false
+  },
+  {
+    "path": "app/crm/static/crm.css",
+    "existed": false
+  },
+  {
+    "path": "app/crm/static/crm.js",
+    "existed": false
+  },
+  {
+    "path": "app/crm/static/index.html",
+    "existed": false
+  },
+  {
+    "path": "app/services/admin_access.py",
+    "existed": false
+  },
+  {
+    "path": "tests/test_bootstrap_runtime.py",
+    "existed": false
+  },
+  {
+    "path": "tests/test_mini_crm.py",
+    "existed": false
+  },
+  {
+    "path": ".env",
+    "existed": true
+  }
+]
