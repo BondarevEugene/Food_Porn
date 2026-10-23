@@ -43,13 +43,23 @@ async def verify_payment_callback(
                 await callback.answer("Оплата Stars ещё обрабатывается Telegram.", show_alert=True)
                 return
             try:
-                verified = await PaymentService(settings).verify_portmone_payment(menu_id, menu.price_amount)
+                payment = PaymentService(settings)
+                if menu.payment_system == "mono":
+                    verified = await payment.verify_mono_payment(
+                        menu_id,
+                        menu.price_amount,
+                        menu.payment_id or "",
+                    )
+                    provider_name = "Monobank"
+                else:
+                    verified = await payment.verify_portmone_payment(menu_id, menu.price_amount)
+                    provider_name = "Portmone"
             except Exception:
                 logger.exception("Payment verification failed for menu %s", menu_id)
                 await callback.answer("Проверка оплаты временно недоступна. Повторите позже.", show_alert=True)
                 return
             if verified is None:
-                await callback.answer("Оплата пока не подтверждена Portmone.", show_alert=True)
+                await callback.answer(f"Оплата пока не подтверждена {provider_name}.", show_alert=True)
                 return
 
         pdf = next((Path(f.path) for f in menu.files if f.kind == FileKind.PRINT_PDF), None)
@@ -60,7 +70,7 @@ async def verify_payment_callback(
             return
 
         if not menu.is_paid:
-            await repo.mark_as_paid(menu_id, verified.payment_id, "portmone")
+            await repo.mark_as_paid(menu_id, verified.payment_id, menu.payment_system or "portmone")
         await callback.answer("Оплата подтверждена!")
         await callback.message.answer_document(FSInputFile(str(pdf)), caption="Ваш готовый буклет для печати")
         await callback.message.answer_document(FSInputFile(str(recipe)), caption="Рецепты и список покупок")

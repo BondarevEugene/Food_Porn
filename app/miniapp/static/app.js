@@ -5,6 +5,8 @@
   tg?.expand();
   const app = document.querySelector('#app');
   const launchData = tg?.initData || '';
+  const channelToken = new URLSearchParams(window.location.search).get('channel_token') || '';
+  const authorization = launchData ? 'tma ' + launchData : channelToken ? 'channel ' + channelToken : '';
   let giftPhotoUrls = [];
   let giftPhotoSelection = 0;
   let giftPhotoCheck = Promise.resolve();
@@ -13,8 +15,10 @@
   try { savedLanguage = localStorage.getItem('gift_lang') || ''; } catch (_) { /* private browsing */ }
   const state = {
     page: 'home', home: null, admin: null, job: null, menu: null, wallpaper: null, evening: null,
+    sceneStudio: null, studioScene: 0, studioCompare: {left:'current', right:'current'}, studioImages: {},
     style: 'dark', lang: savedLanguage || tg?.initDataUnsafe?.user?.language_code?.slice(0, 2) || 'uk',
-    error: '', previewUrl: '', previewError: '', viewKey: ''
+    error: '', previewUrl: '', previewError: '', viewKey: '', cookingIndex: 0, cookingStep: 0,
+    menuInputMode: 'list'
   };
   const copy = {
     ru: {
@@ -26,6 +30,7 @@
       wishes: 'От 5 до 9 желаний', wishesHint: 'Напишите по одному желанию в каждом поле.', addWish: 'Добавить желание', theme: 'Атмосфера', dark: 'Тёплая тёмная', light: 'Светлая', color: 'Яркая',
       create: 'Создать подарок', foodLead: 'Расскажите, какие блюда войдут в ваше меню.', name: 'Ваше имя', phone: 'Телефон с кодом страны',
       cover: 'Фото для обложки', spread: 'Фото для разворота', dishes: 'Блюда', add: 'Добавить блюдо', send: 'Создать меню',
+      menuSimple: 'Просто список', menuDetailed: 'По категориям', dishListHint: 'Одно блюдо с новой строки. Можно написать «Десерт: тирамису» или «пас».',
       status: 'Состояние заказа', preview: 'Предпросмотр', mobile: 'Изображение для телефона', desktop: 'Изображение для экрана',
       print: 'Архив для типографии', recipes: 'Рецепты и продукты', check: 'Проверить оплату', pay: 'Перейти к оплате',
       working: 'Мы создаём ваш подарок. Это займёт несколько минут.', payment: 'К оплате', setting: 'Настройки', language: 'Язык',
@@ -65,6 +70,7 @@
       wishes: 'Від 5 до 9 бажань', wishesHint: 'Напишіть по одному бажанню в кожному полі.', addWish: 'Додати бажання', theme: 'Атмосфера', dark: 'Тепла темна', light: 'Світла', color: 'Яскрава',
       create: 'Створити подарунок', foodLead: 'Розкажіть, які страви увійдуть до вашого меню.', name: 'Ваше ім’я', phone: 'Телефон із кодом країни',
       cover: 'Фото для обкладинки', spread: 'Фото для розвороту', dishes: 'Страви', add: 'Додати страву', send: 'Створити меню',
+      menuSimple: 'Просто список', menuDetailed: 'За категоріями', dishListHint: 'Одна страва з нового рядка. Можна написати «Десерт: тірамісу» або «пас».',
       status: 'Стан замовлення', preview: 'Попередній перегляд', mobile: 'Зображення для телефона', desktop: 'Зображення для екрана',
       print: 'Архів для друкарні', recipes: 'Рецепти та продукти', check: 'Перевірити оплату', pay: 'Перейти до оплати',
       working: 'Ми створюємо ваш подарунок. Це триватиме кілька хвилин.', payment: 'До сплати', setting: 'Налаштування', language: 'Мова',
@@ -104,6 +110,7 @@
       wishes: '5 to 9 wishes', wishesHint: 'Write one wish in each field.', addWish: 'Add a wish', theme: 'Atmosphere', dark: 'Warm dark', light: 'Light', color: 'Colorful',
       create: 'Create gift', foodLead: 'Tell us which dishes belong in your menu.', name: 'Your name', phone: 'Phone with country code',
       cover: 'Cover photo', spread: 'Spread photo', dishes: 'Dishes', add: 'Add dish', send: 'Create menu',
+      menuSimple: 'Simple list', menuDetailed: 'By category', dishListHint: 'One dish per line. You may write “Dessert: tiramisu” or “pass”.',
       status: 'Order status', preview: 'Preview', mobile: 'Phone image', desktop: 'Desktop image', print: 'Print archive',
       recipes: 'Recipes and shopping list', check: 'Check payment', pay: 'Pay now', working: 'We are creating your gift. This may take a few minutes.',
       payment: 'Amount due', setting: 'Settings', language: 'Language', vip: 'Free access: Telegram usernames', save: 'Save',
@@ -138,11 +145,19 @@
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const status = code => t(code === 'payment' ? 'payment_status' : code || 'queued');
   const button = (label, action, style = 'secondary') => `<button type="button" class="${style}" data-action="${action}">${label}</button>`;
+  const studioWords = () => {
+    const words = {
+    ru:{title:'Редактор сцен',lead:'Меняйте только одну часть коллажа и сохраняйте удачные лица.',locked:'Зафиксирована',unlock:'Разблокировать',lock:'Зафиксировать сцену',current:'Текущий вариант',newVersion:'Создать вариант',instruction:'Что изменить',placeholder:'Например: заменить фон на вечерний Париж, лицо и одежду сохранить',scene:'Вся сцена',clothing:'Одежда',background:'Фон',mood:'Настроение',apply:'Выбрать этот вариант',formats:'Форматы из одного заказа',makeFormats:'Создать 6 форматов',video:'Живой коллаж',phrase:'Финальная фраза',aiVoice:'Озвучить фразу голосом AI',voice:'Или загрузить свой голос',music:'Своя музыка (необязательно)',makeVideo:'Создать видео 10–20 сек.',legacy:'Этот заказ создан до появления редактора сцен. Форматы доступны, но для редактирования сцен нужен новый заказ.',compare:'Сравнение вариантов'},
+    uk:{title:'Редактор сцен',lead:'Змінюйте лише одну частину колажу та зберігайте вдалі обличчя.',locked:'Зафіксована',unlock:'Розблокувати',lock:'Зафіксувати сцену',current:'Поточний варіант',newVersion:'Створити варіант',instruction:'Що змінити',placeholder:'Наприклад: замінити тло на вечірній Париж, обличчя й одяг зберегти',scene:'Уся сцена',clothing:'Одяг',background:'Тло',mood:'Настрій',apply:'Обрати цей варіант',formats:'Формати з одного замовлення',makeFormats:'Створити 6 форматів',video:'Живий колаж',phrase:'Фінальна фраза',aiVoice:'Озвучити фразу голосом AI',voice:'Або завантажити свій голос',music:'Своя музика (необов’язково)',makeVideo:'Створити відео 10–20 сек.',legacy:'Це замовлення створене до появи редактора сцен. Формати доступні, але для редагування сцен потрібне нове замовлення.',compare:'Порівняння варіантів'},
+    en:{title:'Scene Studio',lead:'Change one part of the collage while keeping every successful face.',locked:'Locked',unlock:'Unlock',lock:'Lock scene',current:'Current version',newVersion:'Create variant',instruction:'What should change?',placeholder:'For example: use evening Paris as the background; keep face and clothes',scene:'Whole scene',clothing:'Clothing',background:'Background',mood:'Mood',apply:'Use this version',formats:'Formats from one order',makeFormats:'Create 6 formats',video:'Living collage',phrase:'Final phrase',aiVoice:'Narrate the phrase with AI',voice:'Or upload your voice',music:'Your music (optional)',makeVideo:'Create a 10–20 sec video',legacy:'This order predates Scene Studio. Formats are available, but scene editing needs a new order.',compare:'Compare variants'}
+    };
+    return words[state.lang] || words.uk;
+  };
 
   async function api(path, options = {}) {
-    if (!launchData) throw Error(t('openFromBot'));
+    if (!authorization) throw Error(t('openFromBot'));
     const response = await fetch('/miniapp/api' + path, {
-      ...options, headers: {Authorization: 'tma ' + launchData, ...(options.headers || {})}
+      ...options, headers: {Authorization: authorization, ...(options.headers || {})}
     });
     if (!response.ok) {
       let detail;
@@ -216,7 +231,8 @@
     return `<div class="eyebrow">${t('number')} #${esc(id)}</div><h1>${title}</h1><div class="status-pill"><span class="status-dot"></span>${esc(status(currentStatus))}</div>`;
   }
   function deliveryTools(prefix) {
-    return `<section class="panel delivery-panel"><div class="panel-title">${t('delivery')}</div><button type="button" class="primary" data-action="${prefix}-share">${t('share')}</button><label class="field" for="recipient-email">${t('email')}</label><input id="recipient-email" class="input" type="email" autocomplete="email" placeholder="name@example.com"><button type="button" class="secondary" data-action="${prefix}-email">${t('sendEmail')}</button></section>`;
+    const schedule = state.lang === 'uk' ? 'Надіслати у вибраний час' : state.lang === 'ru' ? 'Отправить в выбранное время' : 'Send at a chosen time';
+    return `<section class="panel delivery-panel"><div class="panel-title">${t('delivery')}</div><button type="button" class="primary" data-action="${prefix}-share">${t('share')}</button><label class="field" for="recipient-email">${t('email')}</label><input id="recipient-email" class="input" type="email" autocomplete="email" placeholder="name@example.com"><button type="button" class="secondary" data-action="${prefix}-email">${t('sendEmail')}</button><label class="field" for="delivery-time">${schedule}</label><input id="delivery-time" class="input" type="datetime-local"><button type="button" class="secondary" data-action="${prefix}-schedule">${schedule}</button></section>`;
   }
   function giftDetail(job) {
     const current = job?.status;
@@ -230,8 +246,8 @@
       <section class="panel"><div class="panel-title">${t('goals')} <span>${String(job?.goals?.length || 0).padStart(2,'0')}</span></div><ol class="wishes-list">${(job?.goals || []).map(goal => `<li>${esc(goal)}</li>`).join('')}</ol></section>
       ${job?.error ? `<p class="error">${esc(job.error)}</p>` : ''}
       ${current === 'interrupted' ? button(t('retry'), 'gift-retry', 'primary') : ''}
-      ${['payment','payment_unavailable'].includes(current) ? `<section class="panel action-panel"><p>${t('unpaid')}</p><strong>${t('payment')}: ${esc(job.stars || '—')} ⭐</strong>${button(t('pay'), 'gift-pay', 'primary')}${button(t('check'), 'gift-check')}</section>` : ''}
-      ${filesReady ? `<section class="panel action-panel"><div class="panel-title">${t('ready')}</div>${button(t('openGift'), 'gift-open', 'primary')}${button(t('mobile'), 'gift-mobile', 'file-button')}${button(t('desktop'), 'gift-desktop', 'file-button')}${button(t('print'), 'gift-print', 'file-button')}</section>${deliveryTools('gift')}` : ''}</div>`;
+      ${['payment','payment_unavailable'].includes(current) ? `<section class="panel action-panel"><p>${t('unpaid')}</p><strong>${t('payment')}: ${esc(job.stars || '—')} ⭐</strong>${button(t('pay'), 'gift-pay', 'primary')}${state.home?.wayforpay_ready ? button('💳 WayForPay', 'gift-pay-wayforpay', 'secondary') : ''}${button(t('check'), 'gift-check')}</section>` : ''}
+      ${filesReady ? `<section class="panel action-panel"><div class="panel-title">${t('ready')}</div>${button('✦ Scene Studio', 'studio-open', 'primary')}${button(t('openGift'), 'gift-open', 'secondary')}${button(t('mobile'), 'gift-mobile', 'file-button')}${button(t('desktop'), 'gift-desktop', 'file-button')}${button(t('print'), 'gift-print', 'file-button')}</section>${deliveryTools('gift')}` : ''}</div>`;
   }
   function menuDetail(menu) {
     const current = menu?.status;
@@ -243,14 +259,37 @@
     return `<div class="page detail">${goHomeButton('orders')}${detailHead(t('food'), menu?.id, current)}${canPreview ? preview() : `<section class="panel soft"><p>${esc(progressText)}</p></section>`}
       <section class="panel"><div class="panel-title">${t('dishes')} <span>${String(menu?.items?.length || 0).padStart(2,'0')}</span></div>${menu?.items?.length ? `<ol class="wishes-list">${menu.items.map(item => `<li>${esc(item.title)}</li>`).join('')}</ol>` : `<p class="muted">${t('noDishes')}</p>`}</section>
       ${menu?.error ? `<p class="error">${esc(menu.error)}</p>` : ''}
-      ${current === 'waiting_for_payment' && !menu.paid ? `<section class="panel action-panel"><p>${t('unpaid')}</p><strong>${t('payment')}: ${esc(menu.stars || '—')} ⭐</strong>${button(t('pay'), 'menu-pay', 'primary')}${button(t('check'), 'menu-check')}</section>` : ''}
+      ${current === 'waiting_for_payment' && !menu.paid ? `<section class="panel action-panel"><p>${t('unpaid')}</p><strong>${t('payment')}: ${esc(menu.stars || '—')} ⭐</strong>${button(t('pay'), 'menu-pay', 'primary')}${state.home?.wayforpay_ready ? button('💳 WayForPay', 'menu-pay-wayforpay', 'secondary') : ''}${button(t('check'), 'menu-check')}</section>` : ''}
       ${ready ? `<section class="panel action-panel"><div class="panel-title">${t('ready')}</div>${button(t('evening'), 'menu-evening', 'primary')}${button(t('openGift'), 'menu-open', 'secondary')}${button('PDF · ' + t('print'), 'menu-pdf', 'file-button')}${button(t('recipes'), 'menu-recipes', 'file-button')}</section>${deliveryTools('menu')}` : ''}</div>`;
   }
   function wallpaperDetail(order) {
-    const files = `${button(t('mobile'), 'wallpaper-mobile', 'file-button')}${button(t('desktop'), 'wallpaper-desktop', 'file-button')}${button(t('print'), 'wallpaper-print', 'file-button')}`;
+    const files = `${button('✦ Scene Studio', 'studio-open', 'primary')}${button(t('mobile'), 'wallpaper-mobile', 'file-button')}${button(t('desktop'), 'wallpaper-desktop', 'file-button')}${button(t('print'), 'wallpaper-print', 'file-button')}`;
     const price = order?.stars ? `${esc(order.stars)} ⭐` : `${esc(order?.amount || '—')} UAH`;
-    const checkout = `<p>${t('unpaid')}</p><strong>${t('payment')}: ${price}</strong>${order?.stars ? button(t('pay'), 'wallpaper-pay', 'primary') : ''}${button(t('check'), 'wallpaper-check')}`;
+    const checkout = `<p>${t('unpaid')}</p><strong>${t('payment')}: ${price}</strong>${order?.stars ? button(t('pay'), 'wallpaper-pay', 'primary') : ''}${state.home?.wayforpay_ready ? button('💳 WayForPay', 'wallpaper-pay-wayforpay', 'secondary') : ''}${button(t('check'), 'wallpaper-check')}`;
     return `<div class="page detail">${goHomeButton('orders')}${detailHead(t('gift'), order?.id, order?.paid ? 'ready' : 'payment')}${preview()}<section class="panel action-panel"><div class="panel-title">${t('details')}</div>${order?.paid ? files : checkout}</section>${order?.paid ? deliveryTools('wallpaper') : ''}</div>`;
+  }
+  function sceneStudioDetail() {
+    const studio = state.sceneStudio;
+    const words = studioWords();
+    if (!studio) return `<div class="page">${goHomeButton('orders')}<p class="error">Scene Studio unavailable</p></div>`;
+    const index = Math.min(state.studioScene || 0, Math.max(0, studio.goals.length - 1));
+    const locked = (studio.locked || []).includes(index);
+    const versions = (studio.versions || []).filter(item => item.scene_index === index);
+    const options = [`<option value="current">${esc(words.current)}</option>`, ...versions.map(item => `<option value="${item.id}">#${item.number} · ${esc(item.instruction)}</option>`)].join('');
+    const exports = ['phone','desktop','story','instagram','a3','telegram','video'].map(kind => {
+      const ready = (studio.exports || []).find(item => item.kind === kind && item.ready);
+      const labels = {phone:'📱 Phone',desktop:'🖥 Desktop',story:'▯ Story',instagram:'▣ Instagram',a3:'A3 Print',telegram:'Telegram Cover',video:'▶ MP4'};
+      return ready ? `<button class="file-button" data-action="studio-download" data-kind="${kind}">${labels[kind]}</button>` : `<span class="format-chip pending">${labels[kind]}</span>`;
+    }).join('');
+    const left = state.studioImages.left ? `<img src="${state.studioImages.left}" alt="Variant A">` : '<span>01</span>';
+    const right = state.studioImages.right ? `<img src="${state.studioImages.right}" alt="Variant B">` : '<span>02</span>';
+    const selectedVersion = versions.find(item => String(item.id) === String(state.studioCompare.right));
+    return `<div class="page scene-studio">${goHomeButton('orders')}<div class="studio-hero"><small>PREMIUM CREATIVE SUITE</small><h1>${words.title}</h1><p>${words.lead}</p></div>
+      ${!studio.editable ? `<p class="error">${words.legacy}</p>` : `<nav class="scene-tabs">${studio.goals.map((goal, scene) => `<button class="${scene===index?'active':''} ${(studio.locked||[]).includes(scene)?'locked':''}" data-action="studio-scene" data-index="${scene}"><b>${String(scene+1).padStart(2,'0')}</b><span>${esc(goal)}</span></button>`).join('')}</nav>
+      <section class="panel"><div class="panel-title">${words.compare}<span>${index+1}/${studio.goals.length}</span></div><div class="compare-selects"><select id="compare-left">${options}</select><select id="compare-right">${options}</select></div><div class="scene-compare"><figure>${left}<figcaption>A</figcaption></figure><figure>${right}<figcaption>B</figcaption></figure></div>${selectedVersion && !selectedVersion.selected ? `<button class="primary" data-action="studio-select" data-version="${selectedVersion.id}">${words.apply}</button>` : ''}${button(locked ? words.unlock : words.lock, 'studio-lock', locked ? 'secondary' : 'file-button')}</section>
+      <section class="panel scene-edit"><div class="panel-title">${words.newVersion}<span>1 AI request</span></div><div class="edit-modes">${['scene','clothing','background','mood'].map(mode => `<label><input type="radio" name="edit-mode" value="${mode}" ${mode==='scene'?'checked':''}><span>${words[mode]}</span></label>`).join('')}</div><label class="field">${words.instruction}</label><textarea id="scene-instruction" maxlength="500" placeholder="${esc(words.placeholder)}"></textarea>${button(words.newVersion, 'studio-generate', 'primary')}</section>`}
+      <section class="panel"><div class="panel-title">${words.formats}<span>NO AI COST</span></div><div class="format-grid">${exports}</div>${button(words.makeFormats, 'studio-exports', 'secondary')}</section>
+      <section class="panel video-maker"><div class="panel-title">${words.video}<span>10–20 SEC</span></div><label class="field">${words.phrase}</label><textarea id="video-phrase" maxlength="500">${esc(studio.final_phrase || '')}</textarea><label class="check-row"><input id="video-ai-voice" type="checkbox"><span>${words.aiVoice}</span></label><label class="field">${words.voice}</label><input id="video-voice" class="input" type="file" accept="audio/*"><label class="field">${words.music}</label><input id="video-music" class="input" type="file" accept="audio/*">${button(words.makeVideo, 'studio-video', 'primary')}</section></div>`;
   }
   function dishRow() {
     return `<div class="dish"><select class="input" name="category"><option value="main">Основное</option><option value="appetizer">Закуска</option><option value="salad">Салат</option><option value="soup">Суп</option><option value="dessert">Десерт</option><option value="drink">Напиток</option></select><input class="input" name="title" required maxlength="180" placeholder="${t('dishes')}"><button type="button" data-action="remove-dish" aria-label="Remove dish">×</button></div>`;
@@ -259,6 +298,25 @@
   function clock(minutes) {
     const normalized = ((minutes % 1440) + 1440) % 1440;
     return `${String(Math.floor(normalized / 60)).padStart(2,'0')}:${String(normalized % 60).padStart(2,'0')}`;
+  }
+  function recipeSteps(item) {
+    const raw = String(item?.recipe || '').trim();
+    if (!raw) return [];
+    const lines = raw.split(/\n+|(?=\d+[.)]\s+)/).map(value => value.replace(/^\d+[.)]\s*/, '').trim()).filter(Boolean);
+    return lines.length > 1 ? lines : raw.split(/(?<=[.!?])\s+/).filter(Boolean);
+  }
+  function cookingPanel(courses) {
+    if (!courses.length) return '';
+    state.cookingIndex = Math.min(state.cookingIndex || 0, courses.length - 1);
+    const item = courses[state.cookingIndex];
+    const steps = recipeSteps(item);
+    state.cookingStep = Math.min(state.cookingStep || 0, Math.max(steps.length - 1, 0));
+    const labels = state.lang === 'uk'
+      ? {title:'Готуємо разом',prev:'Назад',next:'Далі',done:'Готово',allergens:'Алергени',equipment:'Обладнання',replace:'Заміни'}
+      : state.lang === 'ru'
+      ? {title:'Готовим вместе',prev:'Назад',next:'Далее',done:'Готово',allergens:'Аллергены',equipment:'Оборудование',replace:'Замены'}
+      : {title:'Cook together',prev:'Back',next:'Next',done:'Done',allergens:'Allergens',equipment:'Equipment',replace:'Substitutions'};
+    return `<section class="panel cooking-mode"><div class="panel-title">${labels.title} <span>${state.cookingStep + 1}/${Math.max(steps.length,1)}</span></div><div class="styles">${courses.map((dish,index)=>`<button type="button" class="chip ${index===state.cookingIndex?'active':''}" data-action="cook-dish" data-index="${index}">${esc(dish.title)}</button>`).join('')}</div><h3>${esc(item.title)}</h3>${item.equipment?.length?`<p class="muted"><b>${labels.equipment}:</b> ${esc(item.equipment.join(', '))}</p>`:''}${item.allergens?.length?`<p class="muted"><b>${labels.allergens}:</b> ${esc(item.allergens.join(', '))}</p>`:''}<div class="note" style="margin-top:14px">${esc(steps[state.cookingStep] || item.recipe)}</div>${item.substitutions?.length?`<p class="muted"><b>${labels.replace}:</b> ${esc(item.substitutions.join(' · '))}</p>`:''}<div class="actions" style="margin-top:14px"><button type="button" class="secondary" data-action="cook-prev" ${state.cookingStep<1?'disabled':''}>← ${labels.prev}</button><button type="button" class="primary" data-action="cook-next">${state.cookingStep>=steps.length-1?labels.done:labels.next+' →'}</button></div></section>`;
   }
   function eveningPage() {
     if (!state.evening) return `<div class="page">${goHomeButton('menu')}<h1>${t('evening')}</h1><section class="panel soft"><p>${t('eveningOld')}</p></section></div>`;
@@ -281,7 +339,7 @@
       <section class="panel"><label class="field" for="dinner-time">${t('firstServe')}</label><input class="input time-input" id="dinner-time" type="time" value="${esc(time)}"><p class="muted">${t('approx')}: ${t('prepare').toLowerCase()} та ${t('serve').toLowerCase()}.</p></section>
       <section class="panel"><div class="panel-title">${t('shopping')} <span>${buying.size}</span></div><div class="shopping-list">${[...buying].map(([ingredient,count]) => `<label class="shop-row"><input type="checkbox" data-ingredient="${esc(ingredient)}" ${state.eveningChecked?.[ingredient] ? 'checked' : ''}><span>${esc(ingredient)}${count > 1 ? ` ×${count}` : ''}</span></label>`).join('')}</div></section>
       <section class="panel"><div class="panel-title">${t('prepare')}</div><ol class="plan-list">${cooking.map(({item,when}) => `<li><time>${clock(when)}</time><span><strong>${esc(item.title)}</strong><small>${esc(item.prep_minutes)} + ${esc(item.cook_minutes)} ${t('minutes')}</small></span></li>`).join('')}</ol></section>
-      <section class="panel"><div class="panel-title">${t('serve')}</div><ol class="plan-list">${serving.map(({item,when}) => `<li><time>${clock(when)}</time><span>${esc(item.title)}</span></li>`).join('')}</ol></section></div>`;
+      <section class="panel"><div class="panel-title">${t('serve')}</div><ol class="plan-list">${serving.map(({item,when}) => `<li><time>${clock(when)}</time><span>${esc(item.title)}</span></li>`).join('')}</ol></section>${cookingPanel(courses)}</div>`;
   }
   async function openEvening() {
     const id = state.menu?.id;
@@ -439,7 +497,7 @@
         break;
       }
       case 'food':
-        body = `<div class="form">${goHomeButton()}<div class="eyebrow">02 / CULINARY STORY</div><h1>${t('food')}</h1><p class="sub">${t('foodLead')}</p><form id="menu-form" class="panel">${!state.home?.customer ? `<label class="field">${t('name')}</label><input class="input" name="name" required maxlength="100"><label class="field">${t('phone')}</label><input class="input" type="tel" name="phone" required placeholder="+380…">` : ''}<label class="field">${t('cover')}</label><input class="input" name="cover" type="file" accept="image/jpeg,image/png,image/webp" required><label class="field">${t('spread')}</label><input class="input" name="spread" type="file" accept="image/jpeg,image/png,image/webp" required><label class="field">${t('dishes')}</label><div id="dishes">${dishRow()}</div>${button('+ ' + t('add'), 'add-dish')}${button(t('send'), 'submit-menu', 'primary')}</form></div>`;
+        body = `<div class="form">${goHomeButton()}<div class="eyebrow">02 / CULINARY STORY</div><h1>${t('food')}</h1><p class="sub">${t('foodLead')}</p><form id="menu-form" class="panel">${!state.home?.customer ? `<label class="field">${t('name')}</label><input class="input" name="name" required maxlength="100"><label class="field">${t('phone')}</label><input class="input" type="tel" name="phone" required placeholder="+380…">` : ''}<label class="field">${t('cover')}</label><input class="input" name="cover" type="file" accept="image/jpeg,image/png,image/webp" required><label class="field">${t('spread')}</label><input class="input" name="spread" type="file" accept="image/jpeg,image/png,image/webp" required><label class="field">${t('dishes')}</label><div class="styles"><button type="button" class="chip ${state.menuInputMode==='list'?'active':''}" data-action="menu-input-mode" data-mode="list">${t('menuSimple')}</button><button type="button" class="chip ${state.menuInputMode==='structured'?'active':''}" data-action="menu-input-mode" data-mode="structured">${t('menuDetailed')}</button></div>${state.menuInputMode==='list'?`<div id="dish-list-mode"><textarea class="input" name="dish_list" required maxlength="2500" placeholder="${t('dishListHint')}"></textarea><p class="muted">${t('dishListHint')}</p></div>`:`<div id="dish-structured-mode"><div id="dishes">${dishRow()}</div>${button('+ ' + t('add'), 'add-dish')}</div>`}${button(t('send'), 'submit-menu', 'primary')}</form></div>`;
         break;
       case 'orders':
         body = `<div class="page">${goHomeButton()}<div class="eyebrow">YOUR STORIES</div><h1>${t('orders')}</h1><p class="sub">${t('ordersSub')}</p><div class="orders-list">${orderRows()}</div></div>`;
@@ -448,6 +506,7 @@
       case 'job': body = giftDetail(state.job); break;
       case 'menu': body = menuDetail(state.menu); break;
       case 'wallpaper': body = wallpaperDetail(state.wallpaper); break;
+      case 'scene-studio': body = sceneStudioDetail(); break;
       case 'settings':
         body = `<div class="page">${goHomeButton()}<h1>${t('setting')}</h1><section class="panel"><label class="field">${t('language')}</label><div class="styles">${[['uk','Українська'],['ru','Русский'],['en','English']].map(([code,label]) => `<button type="button" class="chip ${code === state.lang ? 'active' : ''}" data-lang="${code}">${label}</button>`).join('')}</div></section></div>`;
         break;
@@ -459,6 +518,12 @@
     }
     app.innerHTML = layout(body);
     if (state.page === 'gift') giftSummary();
+    if (state.page === 'scene-studio') {
+      const left = app.querySelector('#compare-left');
+      const right = app.querySelector('#compare-right');
+      if (left) left.value = state.studioCompare.left;
+      if (right) right.value = state.studioCompare.right;
+    }
   }
 
   async function open(page) {
@@ -490,10 +555,45 @@
       }
     } catch (error) { notice(error.message); }
   }
-  function openPayment(url, kind, id) {
-    if (tg?.openInvoice) tg.openInvoice(url, status => {
+  function clearStudioImages() {
+    Object.values(state.studioImages || {}).forEach(url => url && URL.revokeObjectURL(url));
+    state.studioImages = {};
+  }
+  async function studioImage(value) {
+    const orderId = state.sceneStudio.order_id;
+    const scene = state.studioScene || 0;
+    const path = value === 'current'
+      ? `/wallpapers/${orderId}/studio/scenes/${scene}/current`
+      : `/wallpapers/${orderId}/studio/versions/${value}`;
+    return URL.createObjectURL(await api(path));
+  }
+  async function loadStudioCompare() {
+    clearStudioImages();
+    try {
+      const [left, right] = await Promise.all([
+        studioImage(state.studioCompare.left), studioImage(state.studioCompare.right)
+      ]);
+      state.studioImages = {left, right};
+      render();
+    } catch (error) { notice(error.message); }
+  }
+  async function openSceneStudio(orderId) {
+    clearPreview();
+    clearStudioImages();
+    state.sceneStudio = await api(`/wallpapers/${orderId}/studio`);
+    state.studioScene = 0;
+    const versions = state.sceneStudio.versions.filter(item => item.scene_index === 0);
+    state.studioCompare = {left:'current', right:versions.length ? String(versions[versions.length - 1].id) : 'current'};
+    state.page = 'scene-studio';
+    render();
+    window.scrollTo(0, 0);
+    if (state.sceneStudio.editable) await loadStudioCompare();
+  }
+  function openPayment(url, kind, id, provider='stars') {
+    if (provider === 'stars' && tg?.openInvoice) tg.openInvoice(url, status => {
       if (status === 'paid') setTimeout(() => openOrder(kind, id), 1200);
     });
+    else if (tg?.openLink) tg.openLink(url);
     else if (tg?.openTelegramLink) tg.openTelegramLink(url);
     else window.open(url, '_blank');
   }
@@ -525,6 +625,77 @@
       }
       const action = element.dataset.action;
       if (!action) return;
+      if (action === 'studio-open') {
+        const orderId = state.page === 'job' ? state.job?.order_id : state.wallpaper?.id;
+        if (!orderId) throw Error('Order is not ready for Scene Studio');
+        await openSceneStudio(orderId); return;
+      }
+      if (action === 'studio-scene') {
+        state.studioScene = Number(element.dataset.index);
+        const versions = state.sceneStudio.versions.filter(item => item.scene_index === state.studioScene);
+        state.studioCompare = {left:'current', right:versions.length ? String(versions[versions.length - 1].id) : 'current'};
+        render(); await loadStudioCompare(); return;
+      }
+      if (action === 'studio-lock') {
+        const scene = state.studioScene || 0;
+        const locked = !(state.sceneStudio.locked || []).includes(scene);
+        await api(`/wallpapers/${state.sceneStudio.order_id}/studio/scenes/${scene}/lock`, {
+          method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({locked})
+        });
+        state.sceneStudio.locked = locked
+          ? [...new Set([...(state.sceneStudio.locked || []), scene])]
+          : (state.sceneStudio.locked || []).filter(value => value !== scene);
+        render(); return;
+      }
+      if (action === 'studio-generate') {
+        const field = document.querySelector('#scene-instruction');
+        if (!field.value.trim() || field.value.trim().length < 3) { field.focus(); return; }
+        const mode = document.querySelector('input[name="edit-mode"]:checked')?.value || 'scene';
+        element.disabled = true;
+        const version = await api(`/wallpapers/${state.sceneStudio.order_id}/studio/scenes/${state.studioScene}/variants`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({mode, instruction:field.value.trim()})
+        });
+        state.sceneStudio = await api(`/wallpapers/${state.sceneStudio.order_id}/studio`);
+        state.studioCompare = {left:'current', right:String(version.id)};
+        render(); await loadStudioCompare(); return;
+      }
+      if (action === 'studio-select') {
+        await api(`/wallpapers/${state.sceneStudio.order_id}/studio/versions/${element.dataset.version}/select`, {method:'POST'});
+        state.sceneStudio = await api(`/wallpapers/${state.sceneStudio.order_id}/studio`);
+        state.studioCompare = {left:'current', right:String(element.dataset.version)};
+        render(); await loadStudioCompare();
+        notice(studioWords().apply, true); return;
+      }
+      if (action === 'studio-exports') {
+        element.disabled = true;
+        await api(`/wallpapers/${state.sceneStudio.order_id}/exports`, {method:'POST'});
+        state.sceneStudio = await api(`/wallpapers/${state.sceneStudio.order_id}/studio`);
+        render(); notice(studioWords().formats, true); return;
+      }
+      if (action === 'studio-download') {
+        await download(`/wallpapers/${state.sceneStudio.order_id}/exports/${element.dataset.kind}`,
+          `wallpaper-${state.sceneStudio.order_id}-${element.dataset.kind}`);
+        return;
+      }
+      if (action === 'studio-video') {
+        const data = new FormData();
+        data.append('final_phrase', document.querySelector('#video-phrase').value.trim());
+        data.append('duration_seconds', '15');
+        data.append('ai_voice', String(document.querySelector('#video-ai-voice').checked));
+        const voice = document.querySelector('#video-voice').files[0];
+        const music = document.querySelector('#video-music').files[0];
+        if (voice) data.append('voice', voice);
+        if (music) data.append('music', music);
+        element.disabled = true;
+        await api(`/wallpapers/${state.sceneStudio.order_id}/video`, {method:'POST', body:data});
+        state.sceneStudio = await api(`/wallpapers/${state.sceneStudio.order_id}/studio`);
+        render(); notice(studioWords().video, true); return;
+      }
+      if (action === 'menu-input-mode') {
+        state.menuInputMode = element.dataset.mode === 'structured' ? 'structured' : 'list';
+        render(); return;
+      }
       if (action === 'add-dish') {
         if (document.querySelectorAll('.dish').length < 18) document.querySelector('#dishes').insertAdjacentHTML('beforeend', dishRow());
         return;
@@ -581,7 +752,10 @@
         const form = document.querySelector('#menu-form');
         if (!form.reportValidity()) return;
         const payload = new FormData(form);
-        payload.set('dishes', JSON.stringify([...form.querySelectorAll('.dish')].map(row => ({category:row.querySelector('select').value, title:row.querySelector('input').value.trim()}))));
+        const dishPayload = state.menuInputMode === 'list'
+          ? {mode:'list', text:String(new FormData(form).get('dish_list') || '').trim()}
+          : [...form.querySelectorAll('.dish')].map(row => ({category:row.querySelector('select').value, title:row.querySelector('input').value.trim()}));
+        payload.set('dishes', JSON.stringify(dishPayload));
         payload.set('language', state.lang);
         element.disabled = true;
         const menu = await api('/menus', {method:'POST', body:payload});
@@ -589,6 +763,16 @@
         render(); return;
       }
       if (action === 'menu-evening') { await openEvening(); return; }
+      if (action === 'cook-dish') { state.cookingIndex = Number(element.dataset.index)||0; state.cookingStep = 0; render(); return; }
+      if (action === 'cook-prev') { state.cookingStep = Math.max(0,(state.cookingStep||0)-1); render(); return; }
+      if (action === 'cook-next') {
+        const selected = new Set(state.eveningSelected || []);
+        const courses = state.evening.serve.filter(item => selected.has(dishKey(item)));
+        const steps = recipeSteps(courses[state.cookingIndex]);
+        if (state.cookingStep < steps.length - 1) state.cookingStep += 1;
+        else if (state.cookingIndex < courses.length - 1) { state.cookingIndex += 1; state.cookingStep = 0; }
+        render(); return;
+      }
       if (action === 'gift-open' || action === 'menu-open') {
         const target = action === 'gift-open' ? `gifts/${state.job.id}` : `menus/${state.menu.id}`;
         const result = await api(`/${target}/share`, {method:'POST'});
@@ -597,11 +781,14 @@
         return;
       }
       if (action === 'gift-retry') { state.job = await api(`/gifts/${state.job.id}/retry`, {method:'POST'}); render(); return; }
-      if (['gift-pay','menu-pay','wallpaper-pay'].includes(action)) {
-        const path = action === 'gift-pay' ? `/gifts/${state.job.id}` : action === 'menu-pay' ? `/menus/${state.menu.id}` : `/wallpapers/${state.wallpaper.id}`;
-        const result = await api(path + '/checkout', {method:'POST'});
-        openPayment(result.url, action === 'gift-pay' ? 'job' : action === 'menu-pay' ? 'menu' : 'wallpaper',
-          action === 'gift-pay' ? state.job.id : action === 'menu-pay' ? state.menu.id : state.wallpaper.id);
+      if (['gift-pay','menu-pay','wallpaper-pay','gift-pay-wayforpay','menu-pay-wayforpay','wallpaper-pay-wayforpay'].includes(action)) {
+        const baseAction = action.replace('-wayforpay', '');
+        const path = baseAction === 'gift-pay' ? `/gifts/${state.job.id}` : baseAction === 'menu-pay' ? `/menus/${state.menu.id}` : `/wallpapers/${state.wallpaper.id}`;
+        const query = action.endsWith('-wayforpay') ? '?provider=wayforpay' : '';
+        const result = await api(path + '/checkout' + query, {method:'POST'});
+        openPayment(result.url, baseAction === 'gift-pay' ? 'job' : baseAction === 'menu-pay' ? 'menu' : 'wallpaper',
+          baseAction === 'gift-pay' ? state.job.id : baseAction === 'menu-pay' ? state.menu.id : state.wallpaper.id,
+          result.provider);
         return;
       }
       if (['gift-check','menu-check','wallpaper-check'].includes(action)) {
@@ -644,6 +831,17 @@
         notice(t('emailSent'), true);
         return;
       }
+      if (action === 'gift-schedule' || action === 'menu-schedule' || action === 'wallpaper-schedule') {
+        const email = document.querySelector('#recipient-email');
+        const when = document.querySelector('#delivery-time');
+        if (!email?.checkValidity() || !email.value) { email?.reportValidity(); return; }
+        if (!when?.value) { when?.focus(); return; }
+        const kind = action.split('-')[0];
+        const reference = kind === 'gift' ? state.job.id : kind === 'menu' ? state.menu.id : state.wallpaper.id;
+        await api('/deliveries/schedule', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({kind,reference_id:String(reference),email:email.value.trim(),send_at:new Date(when.value).toISOString()})});
+        notice(state.lang==='uk'?'Доставку заплановано':state.lang==='ru'?'Доставка запланирована':'Delivery scheduled', true);
+        return;
+      }
       for (const [prefix, kind, id] of [['gift-', 'gifts', state.job?.id], ['menu-', 'menus', state.menu?.id], ['wallpaper-', 'wallpapers', state.wallpaper?.id]]) {
         if (action.startsWith(prefix)) { await download(`/${kind}/${id}/files/${action.slice(prefix.length)}`, `${kind}-${id}-${action.slice(prefix.length)}`); return; }
       }
@@ -652,6 +850,11 @@
   app.addEventListener('change', event => {
     if (event.target.id === 'gift-photo-input') {
       updateGiftPhotos(event.target);
+      return;
+    }
+    if (event.target.id === 'compare-left' || event.target.id === 'compare-right') {
+      state.studioCompare[event.target.id === 'compare-left' ? 'left' : 'right'] = event.target.value;
+      loadStudioCompare();
       return;
     }
     if (state.page !== 'evening' || !state.evening) return;
@@ -672,7 +875,7 @@
   app.addEventListener('input', event => {
     if (event.target.closest('#gift-goals')) { saveGiftDraft(); giftSummary(); }
   });
-  if (!launchData) {
+  if (!authorization) {
     app.innerHTML = `<main class="loading">${t('openFromBot')}</main>`;
     return;
   }

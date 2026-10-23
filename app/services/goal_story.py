@@ -13,6 +13,8 @@ from openai import AsyncOpenAI
 from PIL import Image, ImageOps
 
 from app.config import Settings
+from app.database.session import async_session_maker
+from app.services.cost_tracker import estimate_text_cost, log_openai_response
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,12 @@ class GoalScenePlanner:
     def __init__(self, settings: Settings, client: AsyncOpenAI | None = None) -> None:
         self.settings = settings
         self.client = client
+        self.user_id = 0
+        self.order_id: str | None = None
+
+    def set_tracking_context(self, *, user_id: int, order_id: str) -> None:
+        self.user_id = user_id
+        self.order_id = order_id
 
     @staticmethod
     def _image_part(path: Path) -> dict:
@@ -53,7 +61,13 @@ class GoalScenePlanner:
             "url": f"data:image/jpeg;base64,{encoded}", "detail": "low",
         }}
 
-    async def plan(self, *, photos: Sequence[Path], goals: Sequence[str], lang: str = "uk") -> GoalScenePlan:
+    async def plan(
+        self,
+        *,
+        photos: Sequence[Path],
+        goals: Sequence[str],
+        lang: str = "uk",
+    ) -> GoalScenePlan:
         if not 1 <= len(photos) <= 7 or not 5 <= len(goals) <= 9:
             raise ValueError("Provide one to seven photographs and five to nine goals")
         if any(not isinstance(goal, str) or not goal.strip() for goal in goals):
@@ -110,11 +124,24 @@ class GoalScenePlanner:
                 for scene in scenes
             ):
                 raise ValueError("AI did not provide a scene direction for each goal")
-            usage = result.usage
-            if usage is None:
-                raise ValueError("Cannot measure vision token usage")
-            cost = (Decimal(usage.prompt_tokens) * Decimal("0.15")
-                    + Decimal(usage.completion_tokens) * Decimal("0.60")) / Decimal(1_000_000)
+            cost = estimate_text_cost(result, self.settings)
+            try:
+                async with async_session_maker() as session:
+                    await log_openai_response(
+                        session,
+                        settings=self.settings,
+                        response=result,
+                        user_id=self.user_id,
+                        model_name=self.settings.recipe_model,
+                        operation="gift_scene_plan",
+                        product_type="wallpaper",
+                        order_id=self.order_id,
+                        cost_usd=cost,
+                        details={"photo_count": len(photos), "goal_count": len(goals)},
+                    )
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception("Failed to persist gift scene planning cost")
             return GoalScenePlan(tuple(assignments), tuple(scene.strip() for scene in scenes), cost)
         finally:
             if self.client is None:

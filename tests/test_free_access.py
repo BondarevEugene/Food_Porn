@@ -41,6 +41,30 @@ async def test_free_ids_and_existing_vip_usernames(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_admin_role_does_not_silently_bypass_checkout(monkeypatch):
+    settings = Settings(_env_file=None, admin_telegram_ids=(42,), default_vip_users=[])
+    factory = SessionFactory()
+
+    async def paid_test_ids(session):
+        return {42}
+
+    monkeypatch.setattr(free_access, "get_paid_test_user_ids", paid_test_ids)
+    assert not await free_access.has_free_generation_access(42, "owner", settings, factory)
+
+
+@pytest.mark.asyncio
+async def test_admin_keeps_free_access_without_paid_test_override(monkeypatch):
+    settings = Settings(_env_file=None, admin_telegram_ids=(42,))
+    factory = SessionFactory()
+
+    async def paid_test_ids(session):
+        return set()
+
+    monkeypatch.setattr(free_access, "get_paid_test_user_ids", paid_test_ids)
+    assert await free_access.has_free_generation_access(42, None, settings, factory)
+
+
+@pytest.mark.asyncio
 async def test_configured_vip_list_replaces_defaults(monkeypatch):
     async def value(session, key, default):
         assert key == "vip_usernames" and "bondarev_e" in default

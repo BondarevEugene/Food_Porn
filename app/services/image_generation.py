@@ -7,19 +7,20 @@ import base64
 import io
 import logging
 import os
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
-from decimal import Decimal
 
 import httpx
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, RateLimitError
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.config import Settings
+from app.database.session import async_session_maker
 
 # --- NEW: Import AI cost tracker ---
-from app.services.cost_tracker import log_ai_generation
-from app.database.session import async_session_maker
+from app.services.cost_tracker import log_openai_response
+from app.services.gift_pricing import image_cost_usd
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,15 @@ class ImageGenerationService:
     def allow_quota_probe(self) -> None:
         self._quota_blocked_until = 0.0
 
-    async def generate(self, prompt: str, destination: Path, customer_id: int | None = None) -> Path:
+    async def generate(
+        self,
+        prompt: str,
+        destination: Path,
+        customer_id: int | None = None,
+        *,
+        product_type: str | None = None,
+        order_id: str | int | None = None,
+    ) -> Path:
         # A demo placeholder must never become a paid PDF or a VIP delivery.
         if self.settings.use_mock_images:
             raise ImageGenerationError("USE_MOCK_IMAGES=true: выключите режим заглушек в .env для настоящих блюд")
@@ -71,7 +80,12 @@ class ImageGenerationService:
         attempts = max(1, self.settings.image_retries)
         for attempt in range(attempts):
             try:
-                data = await self._request_image(prompt, customer_id=customer_id)
+                data = await self._request_image(
+                    prompt,
+                    customer_id=customer_id,
+                    product_type=product_type,
+                    order_id=order_id,
+                )
                 return self._save_verified_jpeg(data, destination)
             except RateLimitError as exc:
                 code = self._openai_error_code(exc)
@@ -92,7 +106,15 @@ class ImageGenerationService:
             await asyncio.sleep(min(2**attempt, 8))
         raise RetryableImageGenerationError("Image API unavailable")
 
-    async def _request_image(self, prompt: str, destination: Path | None = None, customer_id: int | None = None) -> bytes | Path:
+    async def _request_image(
+        self,
+        prompt: str,
+        destination: Path | None = None,
+        customer_id: int | None = None,
+        *,
+        product_type: str | None = None,
+        order_id: str | int | None = None,
+    ) -> bytes | Path:
         # GPT Image returns b64_json; its URL is often null. Preserve the exact
         # dish name and styling instructions already composed by PromptBuilder.
         response = await self.openai_client.images.generate(
@@ -103,28 +125,29 @@ class ImageGenerationService:
             n=1,
         )
 
-        # --- NEW: Log AI generation cost ---
-        # Стоимость генерации изображения зависит от модели и разрешения.
-        # Например, DALL-E 3 (standard, 1024x1024) = $0.040, HD = $0.080.
-        # Для DALL-E 2 512x512 = $0.018. Мы возьмем дефолт DALL-E 3 Standard ($0.040).
-        cost_usd = Decimal("0.040")
-        if "dall-e-2" in self.settings.openai_image_model.lower():
-            cost_usd = Decimal("0.018")
-
-        if customer_id:
-            try:
-                async with async_session_maker() as session:
-                    await log_ai_generation(
-                        session=session,
-                        user_id=customer_id,
-                        model_name=self.settings.openai_image_model,
-                        prompt_tokens=0,      # DALL-E тарифицируется поштучно, не за токены
-                        completion_tokens=0,
-                        cost_usd=cost_usd
-                    )
-            except Exception as e:
-                logger.error("Failed to log AI image generation cost: %s", e)
-        # -----------------------------------
+        try:
+            measured_cost = image_cost_usd(response.usage, self.settings.openai_image_model)
+        except (AttributeError, ValueError):
+            measured_cost = getattr(self.settings, "openai_image_fallback_cost_usd", Decimal("0.040"))
+        try:
+            async with async_session_maker() as session:
+                await log_openai_response(
+                    session,
+                    settings=self.settings,
+                    response=response,
+                    user_id=customer_id or 0,
+                    model_name=self.settings.openai_image_model,
+                    operation="menu_dish_image",
+                    product_type=product_type,
+                    order_id=order_id,
+                    cost_usd=Decimal(measured_cost),
+                    details={
+                        "size": self.settings.openai_image_size,
+                        "quality": self.settings.openai_image_quality,
+                    },
+                )
+        except Exception:
+            logger.exception("Failed to persist AI image cost")
 
         if not response.data:
             raise ImageGenerationError("Image API returned no image")

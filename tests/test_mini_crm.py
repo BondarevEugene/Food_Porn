@@ -178,11 +178,11 @@ async def test_vip_button_in_legacy_menu_and_miniapp(crm, monkeypatch):
         get_data=AsyncMock(return_value={}), clear=AsyncMock(), update_data=AsyncMock()
     )
     monkeypatch.setattr(start, "preferred_language", AsyncMock(return_value="ru"))
-    message = SimpleNamespace(from_user=user, answer=AsyncMock())
+    message = SimpleNamespace(from_user=user, answer=AsyncMock(), text="🏠 Главное меню")
     await start.cmd_start(message, state)
     keyboard = message.answer.call_args.kwargs["reply_markup"]
     assert any(
-        button.web_app and button.web_app.url == "https://example.org/crm"
+        button.callback_data == "admin_home"
         for row in keyboard.inline_keyboard
         for button in row
     )
@@ -190,7 +190,7 @@ async def test_vip_button_in_legacy_menu_and_miniapp(crm, monkeypatch):
     await start.cmd_start(message, state)
     keyboard = message.answer.call_args.kwargs["reply_markup"]
     assert not any(
-        button.web_app and "/crm" in button.web_app.url
+        button.callback_data == "admin_home"
         for row in keyboard.inline_keyboard
         for button in row
     )

@@ -22,16 +22,22 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand, MenuButtonCommands, MenuButtonWebApp, WebAppInfo
+from aiogram.types import BotCommand, MenuButtonCommands
 
 from app.admin_app import app
 from app.admin_app import engine as admin_engine
+from app.api.wayforpay import router as wayforpay_api_router
 from app.bot.handlers import menu, payment, registration, stars, start
 from app.bot.handlers.admin import router as admin_router
+from app.bot.handlers.portmone_sandbox import router as portmone_sandbox_router
 from app.bot.handlers.wallpaper import router as wallpaper_router
+from app.bot.handlers.wayforpay import router as wayforpay_bot_router
+from app.channels.router import router as channels_router
 from app.config import Settings, get_settings
 from app.database.session import Database
 from app.miniapp.api import router as miniapp_router
+from app.services.openai_costs import OpenAICostSynchronizer
+from app.services.scheduled_delivery import ScheduledDeliveryWorker
 from app.workers.menu_pipeline import MenuPipeline
 from src.payment.portmone.router import router as portmone_router
 
@@ -43,7 +49,9 @@ SHUTDOWN_TIMEOUT = 15.0
 
 # Сохраняем объект приложения, его авторизацию и startup-обработчики.
 app.include_router(portmone_router)
+app.include_router(wayforpay_api_router)
 app.include_router(miniapp_router)
+app.include_router(channels_router)
 
 
 @app.get("/health", include_in_schema=False)
@@ -118,6 +126,8 @@ def create_dispatcher(settings: Settings, database: Database, pipeline: MenuPipe
         registration.router,
         menu.router,
         wallpaper_router,
+        portmone_sandbox_router,
+        wayforpay_bot_router,
         payment.router,
         stars.router,
     )
@@ -125,23 +135,14 @@ def create_dispatcher(settings: Settings, database: Database, pipeline: MenuPipe
 
 
 async def configure_telegram(bot: Bot, settings: Settings) -> None:
-    commands = [BotCommand(command="start", description="Відкрити майстерню")]
-    if settings.miniapp_url:
-        menu_button = MenuButtonWebApp(
-            text="Відкрити подарунки",
-            web_app=WebAppInfo(url=settings.miniapp_url),
-        )
-    else:
-        commands.extend(
-            [
-                BotCommand(command="new", description="Створити новий сет / маніфестацію"),
-                BotCommand(command="admin", description="Панель керування"),
-            ]
-        )
-        # После отключения Mini App убираем сохраненную Telegram web-кнопку.
-        menu_button = MenuButtonCommands()
+    commands = [
+        BotCommand(command="start", description="Відкрити головне меню"),
+        BotCommand(command="history", description="Мої гастрономічні замовлення"),
+        BotCommand(command="admin", description="Панель керування"),
+    ]
     await bot.set_my_commands(commands)
-    await bot.set_chat_menu_button(menu_button=menu_button)
+    # The native command button remains visible even when the Mini App is configured.
+    await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
 
 
 @contextmanager
@@ -270,6 +271,8 @@ async def run_services(
 def clear_runtime_state() -> None:
     app.state.pipeline = None
     app.state.bot = None
+    app.state.openai_cost_sync = None
+    app.state.scheduled_delivery = None
 
 
 async def main() -> None:
@@ -297,6 +300,15 @@ async def main() -> None:
         )
         resources.push_async_callback(close_resource, "Telegram session", bot.session.close)
 
+        cost_sync = OpenAICostSynchronizer(settings, database.session_factory)
+        resources.push_async_callback(close_resource, "OpenAI cost synchronizer", cost_sync.stop)
+        await cost_sync.start()
+        scheduled_delivery = ScheduledDeliveryWorker(database.session_factory)
+        resources.push_async_callback(
+            close_resource, "scheduled gift delivery", scheduled_delivery.stop
+        )
+        await scheduled_delivery.start()
+
         pipeline = MenuPipeline(
             bot=bot, settings=settings, session_factory=database.session_factory
         )
@@ -306,6 +318,8 @@ async def main() -> None:
 
         app.state.pipeline = pipeline
         app.state.bot = bot
+        app.state.openai_cost_sync = cost_sync
+        app.state.scheduled_delivery = scheduled_delivery
         resources.callback(clear_runtime_state)
 
         await configure_telegram(bot, settings)

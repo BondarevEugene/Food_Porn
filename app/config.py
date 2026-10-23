@@ -10,6 +10,7 @@ Layer: Application Core
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
@@ -26,6 +27,10 @@ class Settings(BaseSettings):
 
     # APIs
     openai_api_key: SecretStr = SecretStr("replace_me")
+    # Organization Admin key is separate from the normal project API key and
+    # is used only to import actual billed costs into the CRM.
+    openai_admin_api_key: SecretStr = SecretStr("")
+    openai_project_id: str = ""
     spoonacular_api_key: SecretStr = SecretStr("replace_me")
 
     # Generation Toggles
@@ -37,6 +42,18 @@ class Settings(BaseSettings):
     openai_image_quality: str = "medium"
     wallpaper_image_model: str = "gpt-image-2.5-sunburst"
     wallpaper_image_quality: str = "xhigh"
+    openai_tts_model: str = "gpt-4o-mini-tts"
+    openai_tts_voice: str = "alloy"
+    gift_video_seconds: int = Field(default=15, ge=10, le=20)
+    recipe_model: str = "gpt-4o-mini"
+    openai_text_input_usd_per_million: Decimal = Field(default=Decimal("0.15"), ge=0)
+    openai_text_output_usd_per_million: Decimal = Field(default=Decimal("0.60"), ge=0)
+    openai_cached_input_usd_per_million: Decimal = Field(default=Decimal("0.075"), ge=0)
+    openai_image_fallback_cost_usd: Decimal = Field(default=Decimal("0.040"), ge=0)
+    openai_tts_fallback_cost_usd: Decimal = Field(default=Decimal("0.020"), ge=0)
+    openai_cost_sync_enabled: bool = False
+    openai_cost_sync_interval_minutes: int = Field(default=60, ge=15, le=1440)
+    openai_cost_sync_days: int = Field(default=35, ge=1, le=180)
 
     # Application Configuration
     app_env: str = "development"
@@ -44,12 +61,30 @@ class Settings(BaseSettings):
     storage_root: Path = Path("storage")
     # Public HTTPS address of the Telegram Mini App. Leave empty until deployed.
     miniapp_url: str = ""
+    channel_link_secret: SecretStr = SecretStr("")
+    channel_link_ttl_hours: int = Field(default=168, ge=1, le=720)
     miniapp_port: int = Field(default=8080, ge=1, le=65535)
     max_upload_mb: int = Field(default=20, ge=1, le=50)
     image_concurrency: int = Field(default=1, ge=1, le=3)
     image_retries: int = Field(default=2, ge=1, le=4)
     openai_quota_cooldown_seconds: int = Field(default=300, ge=30, le=3600)
     enable_image_cache: bool = True
+
+    # Omnichannel messaging. Empty credentials keep an adapter disabled.
+    meta_verify_token: SecretStr = SecretStr("")
+    meta_app_secret: SecretStr = SecretStr("")
+    meta_graph_api_version: str = "v24.0"
+    whatsapp_access_token: SecretStr = SecretStr("")
+    whatsapp_phone_number_id: str = ""
+    messenger_page_access_token: SecretStr = SecretStr("")
+    messenger_page_id: str = ""
+    instagram_access_token: SecretStr = SecretStr("")
+    instagram_business_account_id: str = ""
+    viber_auth_token: SecretStr = SecretStr("")
+    viber_bot_name: str = "Food Porn"
+    slack_signing_secret: SecretStr = SecretStr("")
+    slack_bot_token: SecretStr = SecretStr("")
+    discord_public_key: str = ""
 
     # --- Комерційні параметри ---
     usd_exchange_rate: float = Field(default=41.5)
@@ -69,6 +104,24 @@ class Settings(BaseSettings):
     portmone_payee_id: str = Field(default="replace_me")
     portmone_login: str = Field(default="replace_me")
     portmone_password: SecretStr = SecretStr("replace_me")
+    # Diagnostic card checkout. It must remain disabled outside Portmone sandbox.
+    portmone_test_mode: bool = False
+    portmone_test_amount_uah: Decimal = Field(default=Decimal("1.00"), gt=0, le=100)
+
+    # Monobank Acquiring. MONO_TOKEN is issued in the merchant cabinet.
+    mono_token: SecretStr = SecretStr("")
+    mono_redirect_url: str = ""
+    mono_webhook_url: str = ""
+
+    # WayForPay hosted card checkout. In sandbox mode the application may use
+    # the public test merchant from the official WayForPay documentation.
+    public_base_url: str = ""
+    wayforpay_merchant_account: str = ""
+    wayforpay_merchant_secret_key: SecretStr = SecretStr("")
+    wayforpay_merchant_domain: str = ""
+    wayforpay_test_mode: bool = False
+    wayforpay_menu_price_uah: Decimal = Field(default=Decimal("5.00"), gt=0, le=100000)
+    wayforpay_wallpaper_price_uah: Decimal = Field(default=Decimal("1.00"), gt=0, le=100000)
 
     # --- Настройки типографии ---
     printshop_email: str = ""

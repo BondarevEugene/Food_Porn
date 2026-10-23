@@ -23,13 +23,14 @@ from aiogram.types import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.bot.handlers.menu import begin_menu_setup
 from app.bot.handlers.wallpaper import language_for, start_wallpaper_from_start, text_for
 from app.bot.states.wallpaper import WallpaperStates
 from app.config import get_settings
 from app.database import async_session_maker
 from app.database.models import FileKind, Language, Menu, MenuStatus, ShareLink, WallpaperOrder
-from app.database.repositories import CustomerRepository, MenuRepository
-from app.services.admin_access import crm_url, has_admin_access
+from app.database.repositories import CustomerRepository
+from app.services.admin_access import has_admin_access
 
 router = Router(name="start")
 
@@ -145,6 +146,18 @@ async def open_shared_gift(message: Message) -> None:
                 logging.getLogger(__name__).exception("Could not send shared file %s", attachment)
 
 
+@router.message(F.text.startswith("/start ref_"))
+async def open_referral(message: Message, state: FSMContext) -> None:
+    """Keep referral starts usable without letting them bypass onboarding."""
+    inviter = (message.text or "").removeprefix("/start ref_").strip()
+    if inviter.isdigit() and message.from_user and inviter != str(message.from_user.id):
+        await state.update_data(referrer_telegram_id=int(inviter))
+    await message.answer(
+        "Вітаємо 💛 / Добро пожаловать 💛 / Welcome 💛\n\nМова / Язык / Language:",
+        reply_markup=language_menu(),
+    )
+
+
 def get_phone_keyboard(lang: str = "uk") -> ReplyKeyboardMarkup:
     text = text_for(lang, "📱 Поділитися номером", "📱 Поделиться номером", "📱 Share phone number")
     return ReplyKeyboardMarkup(
@@ -168,12 +181,7 @@ def get_products_menu_keyboard(
     buttons = [
         [
             InlineKeyboardButton(
-                text=text_for(
-                    lang,
-                    "🍷 Гастрономічний подарунок",
-                    "🍷 Гастрономический подарок",
-                    "🍷 A food gift",
-                ),
+                text=text_for(lang, "🍽 Створити меню", "🍽 Создать меню", "🍽 Create a menu"),
                 callback_data="prod_food_porn",
             )
         ],
@@ -181,22 +189,28 @@ def get_products_menu_keyboard(
             InlineKeyboardButton(
                 text=text_for(
                     lang,
-                    "🎁 Подарунок для близької людини",
-                    "🎁 Подарок близкому человеку",
-                    "🎁 A gift for someone special",
+                    "📱 Створити карту бажань на заставку",
+                    "📱 Создать карту желаний на заставку",
+                    "📱 Create a vision-board wallpaper",
                 ),
                 callback_data="prod_manifestation",
             )
         ],
     ]
-    buttons.append(
+    buttons.extend([
         [
-            InlineKeyboardButton(
-                text=text_for(lang, "🌐 Мова", "🌐 Язык", "🌐 Language"),
-                callback_data="choose_language",
-            )
-        ]
-    )
+            InlineKeyboardButton(text=text_for(lang, "📦 Мої замовлення", "📦 Мои заказы", "📦 My orders"), callback_data="home_orders"),
+            InlineKeyboardButton(text=text_for(lang, "🎁 Запросити друга", "🎁 Пригласить друга", "🎁 Invite a friend"), callback_data="home_referral"),
+        ],
+        [
+            InlineKeyboardButton(text=text_for(lang, "📖 Інструкція", "📖 Инструкция", "📖 How it works"), callback_data="home_instruction"),
+            InlineKeyboardButton(text="FAQ", callback_data="home_faq"),
+        ],
+        [
+            InlineKeyboardButton(text=text_for(lang, "💬 Підтримка", "💬 Поддержка", "💬 Support"), callback_data="home_support"),
+            InlineKeyboardButton(text=text_for(lang, "🌐 Мова", "🌐 Язык", "🌐 Language"), callback_data="choose_language"),
+        ],
+    ])
     if is_admin or user_id in get_settings().admin_telegram_ids:
         buttons.append(
             [InlineKeyboardButton(text="👑 Панель керування (Адмін)", callback_data="admin_home")]
@@ -235,46 +249,18 @@ async def preferred_language(user: object, state: FSMContext) -> str:
     )
 )
 async def cmd_start(message: Message, state: FSMContext) -> None:
+    if (getattr(message, "text", "") or "").strip() == "/start":
+        await state.clear()
+        await message.answer(
+            "Вітаємо 💛 / Добро пожаловать 💛 / Welcome 💛\n\nМова / Язык / Language:",
+            reply_markup=language_menu(),
+        )
+        return
     selected = (await state.get_data()).get("lang_selected", False)
     lang = await preferred_language(message.from_user, state)
     await state.clear()
     await state.update_data(ui_lang=lang, lang_selected=selected)
     name = escape((message.from_user.first_name or "") if message.from_user else "")
-    miniapp_url = get_settings().miniapp_url
-    if miniapp_url:
-        rows = [
-            [
-                InlineKeyboardButton(
-                    text=text_for(
-                        lang, "✨ Відкрити майстерню", "✨ Открыть мастерскую", "✨ Open the studio"
-                    ),
-                    web_app=WebAppInfo(url=miniapp_url),
-                )
-            ]
-        ]
-        allowed = await has_admin_access(
-            message.from_user.id,
-            getattr(message.from_user, "username", None),
-            get_settings(),
-            async_session_maker,
-        )
-        if allowed:
-            url = crm_url(get_settings())
-            rows.append(
-                [InlineKeyboardButton(text="✦ Mini CRM", web_app=WebAppInfo(url=url))]
-                if url
-                else [InlineKeyboardButton(text="👑 Админка", callback_data="admin_home")]
-            )
-        await message.answer(
-            text_for(
-                lang,
-                f"Привіт, {name}! 💛 Відкрийте майстерню подарунків: фото, бажання й замовлення тепер в одному місці.",
-                f"Привет, {name}! 💛 Откройте мастерскую подарков: фото, желания и заказы теперь в одном месте.",
-                f"Hi, {name}! 💛 Open your gift studio to create and track everything in one place.",
-            ),
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
-        )
-        return
     await message.answer(
         text_for(
             lang,
@@ -345,6 +331,80 @@ async def set_ui_language(callback: CallbackQuery, state: FSMContext) -> None:
             "All set 💛 Choose a gift:",
         ),
         reply_markup=await get_user_products_menu_keyboard(callback.from_user, lang),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "home_instruction")
+async def show_instruction(callback: CallbackQuery, state: FSMContext) -> None:
+    lang = await preferred_language(callback.from_user, state)
+    await callback.message.answer(
+        text_for(
+            lang,
+            "📖 <b>Як це працює</b>\n\n1. Оберіть продукт.\n2. Додайте фото й побажання або список страв.\n3. Перевірте форму та сплатіть.\n4. Отримайте готові електронні файли в Telegram.",
+            "📖 <b>Как это работает</b>\n\n1. Выберите продукт.\n2. Добавьте фото и пожелания или список блюд.\n3. Проверьте форму и оплатите.\n4. Получите готовые электронные файлы в Telegram.",
+            "📖 <b>How it works</b>\n\n1. Choose a product.\n2. Add photos and wishes or dishes.\n3. Review the form and pay.\n4. Receive the digital files in Telegram.",
+        ),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 В начало", callback_data="back_to_products")]
+        ]),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "home_faq")
+async def show_faq(callback: CallbackQuery, state: FSMContext) -> None:
+    lang = await preferred_language(callback.from_user, state)
+    await callback.message.answer(
+        text_for(
+            lang,
+            "❓ <b>Часті питання</b>\n\n• Меню: два фото, список страв, рецепти та PDF.\n• Карта бажань: фото, цілі та заставки для телефону й комп’ютера.\n• До оплати можна повертатися назад і змінювати дані.",
+            "❓ <b>Частые вопросы</b>\n\n• Меню: два фото, список блюд, рецепты и PDF.\n• Карта желаний: фото, цели и заставки для телефона и компьютера.\n• До оплаты можно вернуться назад и изменить данные.",
+            "❓ <b>FAQ</b>\n\n• Menu: two photos, dishes, recipes and PDF.\n• Vision board: photos, goals, mobile and desktop wallpapers.\n• You can go back and edit everything before payment.",
+        ),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 В начало", callback_data="back_to_products")]
+        ]),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "home_support")
+async def show_support(callback: CallbackQuery, state: FSMContext) -> None:
+    lang = await preferred_language(callback.from_user, state)
+    await callback.message.answer(
+        text_for(
+            lang,
+            "💬 Опишіть проблему одним повідомленням і додайте скріншот. Адміністратор побачить ваш Telegram ID:",
+            "💬 Опишите проблему одним сообщением и приложите скриншот. Администратор увидит ваш Telegram ID:",
+            "💬 Describe the issue in one message and attach a screenshot. The administrator will see your Telegram ID:",
+        ) + f" <code>{callback.from_user.id}</code>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 В начало", callback_data="back_to_products")]
+        ]),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "home_referral")
+async def show_referral(callback: CallbackQuery, state: FSMContext) -> None:
+    lang = await preferred_language(callback.from_user, state)
+    bot = await callback.bot.get_me()
+    link = f"https://t.me/{bot.username}?start=ref_{callback.from_user.id}"
+    await callback.message.answer(
+        text_for(
+            lang,
+            "🎁 Поділіться посиланням із другом:",
+            "🎁 Поделитесь ссылкой с другом:",
+            "🎁 Share this link with a friend:",
+        ) + f"\n<code>{link}</code>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 В начало", callback_data="back_to_products")]
+        ]),
+        parse_mode="HTML",
     )
     await callback.answer()
 
@@ -458,20 +518,4 @@ async def _send_food_start(message: Message, state: FSMContext, customer=None) -
     if customer is None:
         await message.answer("Не вдалося знайти ваш профіль. Спробуйте /start ще раз.")
         return
-    async with async_session_maker() as session:
-        menu = await MenuRepository(session).create(customer)
-    await state.update_data(menu_id=menu.id)
-
-    kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🏠 Головне меню")]],
-        resize_keyboard=True,
-        one_time_keyboard=True,
-    )
-
-    text = text_for(
-        customer.language.value,
-        "🍷 <b>Гастрономічний подарунок</b>\n\nНапишіть назву першої страви:",
-        "🍷 <b>Гастрономический подарок</b>\n\nНапишите название первого блюда:",
-        "🍷 <b>A food gift</b>\n\nType the first dish:",
-    )
-    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+    await begin_menu_setup(message, state, customer, customer.language.value)

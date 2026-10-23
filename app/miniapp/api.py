@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import secrets
+import subprocess
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -29,13 +30,23 @@ from app.database.models import (
     Language,
     Menu,
     MenuStatus,
+    ScheduledDelivery,
     ShareLink,
+    WallpaperExport,
     WallpaperOrder,
+    WallpaperSceneVersion,
 )
-from app.database.repositories import CustomerRepository, MenuRepository, WallpaperOrderRepository
+from app.database.repositories import (
+    CustomerRepository,
+    MenuRepository,
+    WallpaperOrderRepository,
+    WallpaperStudioRepository,
+    WayForPayPaymentRepository,
+)
 from app.database.session import async_session_maker
 from app.miniapp.auth import current_user
 from app.services.admin_access import has_admin_access
+from app.services.dish_input import normalize_dish_payload
 from app.services.email_service import normalize_recipient, send_ready_order_email
 from app.services.free_access import has_free_generation_access
 from app.services.gift_pricing import checkout_price_uah
@@ -47,12 +58,21 @@ from app.services.replicate_vision_board import ImageSafetyError, ReplicateVisio
 from app.services.settings_service import get_setting, get_vip_users, set_setting
 from app.services.stars import OrderRef, create_invoice
 from app.services.storage import InvalidImageError, StorageService
+from app.services.wallpaper_studio import (
+    EDIT_MODES,
+    WallpaperExportService,
+    WallpaperSceneEditor,
+    archive_source_photos,
+    current_scene_preview,
+)
+from app.services.wayforpay import WayForPayService, apply_verified_payment
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/miniapp")
 STATIC = Path(__file__).with_name("static")
 _tasks: set[asyncio.Task] = set()
 _user_jobs: set[int] = set()
+_studio_jobs: set[int] = set()
 
 
 def _validate_gift_files(mobile: Path, desktop: Path) -> None:
@@ -89,6 +109,47 @@ def _write_job(user_id: int, job_id: str, data: dict) -> None:
 def _track(task: asyncio.Task) -> None:
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
+
+
+async def _wayforpay_checkout(
+    *, product: str, reference_id: int, owner_id: int, description: str
+) -> dict[str, str]:
+    service = WayForPayService(get_settings())
+    if not service.ready:
+        raise HTTPException(503, "WayForPay is temporarily unavailable")
+    async with async_session_maker() as session:
+        attempt, url = await service.create_checkout(
+            session,
+            telegram_user_id=owner_id,
+            product=product,
+            reference_id=reference_id,
+            description=description,
+        )
+    return {
+        "url": url,
+        "amount": f"{attempt.amount:.2f}",
+        "currency": "UAH",
+        "provider": "wayforpay",
+    }
+
+
+async def _wayforpay_is_paid(product: str, reference_id: int, owner_id: int) -> bool:
+    service = WayForPayService(get_settings())
+    if not service.ready:
+        return False
+    async with async_session_maker() as session:
+        repository = WayForPayPaymentRepository(session)
+        attempt = await repository.latest_for_product(product, str(reference_id), owner_id)
+        if attempt is None:
+            return False
+        if attempt.status == "approved":
+            return True
+        try:
+            payload = await service.check_status(attempt)
+            return await apply_verified_payment(session, attempt, payload)
+        except Exception:
+            logger.exception("Mini App WayForPay check failed for %s #%s", product, reference_id)
+            return False
 
 
 def _public_job(job: dict) -> dict:
@@ -231,6 +292,7 @@ async def home(user: Annotated[dict, Depends(current_user)]) -> dict:
         "payment_ready": settings.menu_price_stars > 0 and settings.gift_price_stars > 0,
         "menu_payment_ready": settings.menu_price_stars > 0,
         "gift_payment_ready": settings.gift_price_stars > 0,
+        "wayforpay_ready": WayForPayService(settings).ready,
         "free_access": await has_free_generation_access(uid, user.get("username"), settings, async_session_maker),
         "jobs": jobs,
         "wallpapers": [{"id": o.id, "paid": o.paid, "amount": str(o.amount),
@@ -268,7 +330,9 @@ async def create_gift(
     if uid in _user_jobs:
         raise HTTPException(409, "Another gift is being created")
     free = await has_free_generation_access(uid, user.get("username"), settings, async_session_maker)
-    if not free and settings.gift_price_stars < 1:
+    source_channel = user.get("source_channel", "telegram")
+    stars_ready = source_channel == "telegram" and settings.gift_price_stars > 0
+    if not free and not (stars_ready or PaymentService(settings).portmone_ready):
         raise HTTPException(503, "Payment is temporarily unavailable; generation has not started")
     # Reserve the user slot before awaiting uploads.
     if uid in _user_jobs:
@@ -294,6 +358,7 @@ async def create_gift(
         raise
     job = {"id": job_id, "user_id": uid, "goals": parsed, "style": style,
            "language": language, "status": "generating",
+           "source_channel": source_channel,
            "free": free, "price": None, "stars": None, "invoice": None, "order_id": None,
            "progress": "plan"}
     _write_job(uid, job_id, job)
@@ -307,17 +372,27 @@ async def _generate_gift(uid: int, job_id: str, photos: list[Path], username: st
     settings = get_settings()
     job = _read_job(uid, job_id)
     try:
-        plan = await GoalScenePlanner(settings).plan(
-            photos=photos, goals=job["goals"], lang=job["language"])
+        planner = GoalScenePlanner(settings)
+        if hasattr(planner, "set_tracking_context"):
+            planner.set_tracking_context(user_id=uid, order_id=job_id)
+        plan = await planner.plan(photos=photos, goals=job["goals"], lang=job["language"])
         job["progress"] = "render"
         _write_job(uid, job_id, job)
+        render_dir = settings.generated_dir / "wallpapers" / str(uid) / job_id
+        archived_sources = await asyncio.to_thread(archive_source_photos, photos, render_dir)
+        if not isinstance(archived_sources, list):
+            archived_sources = []
         renderer = ReplicateVisionBoardRenderer(
-            output_dir=settings.generated_dir / "wallpapers" / str(uid) / job_id,
+            output_dir=render_dir,
             model=settings.wallpaper_image_model, quality=settings.wallpaper_image_quality)
+        if hasattr(renderer, "set_tracking_context"):
+            renderer.set_tracking_context(user_id=uid, order_id=job_id)
         formats = await renderer.generate_goal_story(
             user_id=uid, photo_paths=photos, goals=job["goals"],
             assignments=plan.assignments, scenes=plan.scenes, style=job["style"])
         mobile, desktop = formats["mobile"], formats["desktop"]
+        raw_mobile = formats.get("raw_mobile", mobile)
+        raw_desktop = formats.get("raw_desktop", desktop)
         job["progress"] = "quality"
         _write_job(uid, job_id, job)
         await asyncio.to_thread(_validate_gift_files, mobile, desktop)
@@ -328,6 +403,17 @@ async def _generate_gift(uid: int, job_id: str, photos: list[Path], username: st
                     telegram_user_id=uid, amount=Decimal("0"), stars_amount=0,
                     mobile_path=str(mobile), desktop_path=str(desktop), paid=True,
                     payment_id=f"VIP_JOB_{job_id}", payment_system="vip_bypass",
+                    paid_at=datetime.now(UTC),
+                    source_channel=job.get("source_channel", "telegram"),
+                    goals=list(job["goals"]),
+                    scene_prompts=list(plan.scenes),
+                    scene_assignments=list(plan.assignments),
+                    source_photo_paths=archived_sources,
+                    visual_style=job["style"],
+                    original_mobile_path=str(mobile),
+                    original_desktop_path=str(desktop),
+                    raw_mobile_path=str(raw_mobile),
+                    raw_desktop_path=str(raw_desktop),
                 )
                 session.add(order)
                 await session.commit()
@@ -340,7 +426,20 @@ async def _generate_gift(uid: int, job_id: str, photos: list[Path], username: st
             async with async_session_maker() as session:
                 order = await WallpaperOrderRepository(session).create(
                     telegram_user_id=uid, amount=price, mobile_path=str(mobile), desktop_path=str(desktop),
-                    stars_amount=settings.gift_price_stars)
+                    stars_amount=(
+                        settings.gift_price_stars
+                        if job.get("source_channel", "telegram") == "telegram"
+                        else None
+                    ),
+                    source_channel=job.get("source_channel", "telegram"),
+                    goals=list(job["goals"]),
+                    scene_prompts=list(plan.scenes),
+                    scene_assignments=list(plan.assignments),
+                    source_photo_paths=archived_sources,
+                    visual_style=job["style"],
+                    raw_mobile_path=str(raw_mobile),
+                    raw_desktop_path=str(raw_desktop),
+                )
             job["order_id"] = order.id
             job["price"] = str(price)
             job["stars"] = order.stars_amount
@@ -364,7 +463,7 @@ async def _generate_gift(uid: int, job_id: str, photos: list[Path], username: st
         _user_jobs.discard(uid)
         # Telegram is the notification channel; the complete files remain behind authenticated API.
         bot = getattr(__import__("app.main", fromlist=["app"]).app.state, "bot", None)
-        if bot:
+        if bot and job.get("source_channel", "telegram") == "telegram":
             try:
                 await bot.send_message(uid, "💛 Подарунок готовий. Відкрийте майстерню в боті." if job["status"] in {"payment", "ready"}
                                        else "💛 Не вдалося завершити подарунок. Відкрийте майстерню, щоб спробувати знову.")
@@ -413,6 +512,10 @@ async def verify_gift(job_id: str, user: Annotated[dict, Depends(current_user)])
         if order is None:
             raise HTTPException(404)
         if not order.paid:
+            if await _wayforpay_is_paid("wallpaper", order.id, user["id"]):
+                job["status"] = "ready"
+                _write_job(user["id"], job_id, job)
+                return {"paid": True}
             if order.stars_amount:
                 return {"paid": False}
             verified = await PaymentService(get_settings()).verify_portmone_payment(
@@ -427,7 +530,8 @@ async def verify_gift(job_id: str, user: Annotated[dict, Depends(current_user)])
 
 @router.post("/api/gifts/{job_id}/checkout")
 async def gift_checkout(job_id: str, request: Request,
-                        user: Annotated[dict, Depends(current_user)]) -> dict:
+                        user: Annotated[dict, Depends(current_user)],
+                        provider: str | None = None) -> dict:
     job = _read_job(user["id"], job_id)
     if not job.get("order_id") or job["status"] not in {"payment", "payment_unavailable"}:
         raise HTTPException(409, "No outstanding payment")
@@ -435,17 +539,43 @@ async def gift_checkout(job_id: str, request: Request,
         order = await WallpaperOrderRepository(session).get_for_user(job["order_id"], user["id"])
     if order is None or order.paid:
         raise HTTPException(409, "No outstanding payment")
-    if not order.stars_amount:
-        raise HTTPException(409, "This historic order has no Star price")
-    bot = getattr(request.app.state, "bot", None)
-    if bot is None:
-        raise HTTPException(503, "Bot is not running")
-    url = await create_invoice(bot, OrderRef("wallpaper", order.id, user["id"], order.stars_amount))
+    if provider == "wayforpay":
+        return await _wayforpay_checkout(
+            product="wallpaper",
+            reference_id=order.id,
+            owner_id=user["id"],
+            description=f"Food Porn digital gift #{order.id}",
+        )
+    if order.source_channel == "telegram" and order.stars_amount:
+        bot = getattr(request.app.state, "bot", None)
+        if bot is None:
+            raise HTTPException(503, "Bot is not running")
+        url = await create_invoice(
+            bot, OrderRef("wallpaper", order.id, user["id"], order.stars_amount)
+        )
+        provider = "stars"
+    else:
+        payment = PaymentService(get_settings())
+        if not payment.portmone_ready:
+            raise HTTPException(503, "Card payment is temporarily unavailable")
+        url = await payment.create_portmone_invoice(
+            order.id,
+            order.amount,
+            f"Food Porn digital gift #{order.id}",
+            product="wallpaper",
+        )
+        provider = "portmone"
     job["invoice"] = url
     job["status"] = "payment"
     job.pop("error", None)
     _write_job(user["id"], job_id, job)
-    return {"url": url, "stars": order.stars_amount, "provider": "stars"}
+    return {
+        "url": url,
+        "stars": order.stars_amount,
+        "amount": str(order.amount),
+        "currency": "UAH" if provider == "portmone" else None,
+        "provider": provider,
+    }
 
 
 @router.get("/api/gifts/{job_id}/files/{kind}")
@@ -515,6 +645,66 @@ async def _deliver_email(uid: int, kind: str, ref: str, email: str, paths: list[
                                   reference_id=ref, recipient_email=address))
         await session.commit()
     return {"sent": True, "email": address}
+
+
+@router.post("/api/deliveries/schedule")
+async def schedule_delivery(
+    payload: dict, user: Annotated[dict, Depends(current_user)]
+) -> dict:
+    """Schedule a paid digital gift without revealing its price to the recipient."""
+    kind = str(payload.get("kind") or "")
+    reference = str(payload.get("reference_id") or "")
+    email = normalize_recipient(str(payload.get("email") or ""))
+    try:
+        send_at = datetime.fromisoformat(str(payload.get("send_at") or "").replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(422, "send_at must be an ISO date with timezone") from exc
+    if send_at.tzinfo is None:
+        raise HTTPException(422, "send_at must include a timezone")
+    send_at = send_at.astimezone(UTC)
+    now = datetime.now(UTC)
+    if not now + timedelta(minutes=5) <= send_at <= now + timedelta(days=365):
+        raise HTTPException(422, "Delivery must be 5 minutes to 365 days in the future")
+
+    if kind == "menu":
+        menu = await _own_menu(int(reference), user["id"])
+        if not menu.is_paid:
+            raise HTTPException(403, "Complete the order before scheduling")
+        files = {item.kind: Path(item.path) for item in menu.files}
+        paths = [files.get(FileKind.PRINT_PDF), files.get(FileKind.RECIPE_SHEET)]
+    elif kind == "wallpaper":
+        order = await _own_wallpaper(int(reference), user["id"])
+        if not order.paid:
+            raise HTTPException(403, "Complete the order before scheduling")
+        paths = [Path(order.mobile_path), Path(order.desktop_path)]
+    elif kind == "gift":
+        job = _read_job(user["id"], reference)
+        if job.get("status") != "ready":
+            raise HTTPException(403, "Gift is not ready")
+        order = await _own_wallpaper(int(job["order_id"]), user["id"])
+        if not order.paid:
+            raise HTTPException(403, "Complete the order before scheduling")
+        paths = [Path(order.mobile_path), Path(order.desktop_path)]
+    else:
+        raise HTTPException(422, "Unknown delivery kind")
+    attachments = [path for path in paths if path is not None]
+    if len(attachments) != len(paths) or not all(path.is_file() for path in attachments):
+        raise HTTPException(409, "Complete files are not ready")
+    async with async_session_maker() as session:
+        delivery = ScheduledDelivery(
+            owner_user_id=user["id"],
+            kind=kind,
+            reference_id=reference,
+            recipient_email=email,
+            subject="Food Porn · для вас подготовлен особенный подарок",
+            attachments=[str(path) for path in attachments],
+            send_at=send_at,
+            status="pending",
+        )
+        session.add(delivery)
+        await session.commit()
+        await session.refresh(delivery)
+    return {"id": delivery.id, "status": delivery.status, "send_at": send_at.isoformat()}
 
 
 async def _create_share(uid: int, kind: str, ref: str, request: Request) -> dict:
@@ -616,6 +806,283 @@ async def wallpaper_status(order_id: int, user: Annotated[dict, Depends(current_
             "created_at": order.created_at.isoformat() if order.created_at else None}
 
 
+def _scene_version_payload(version: WallpaperSceneVersion) -> dict:
+    return {
+        "id": version.id,
+        "scene_index": version.scene_index,
+        "number": version.version_number,
+        "mode": version.edit_mode,
+        "instruction": version.instruction,
+        "selected": version.is_selected,
+        "cost_usd": str(version.ai_cost_usd),
+        "created_at": version.created_at.isoformat() if version.created_at else None,
+        "preview_url": f"/miniapp/api/wallpapers/{version.order_id}/studio/versions/{version.id}",
+    }
+
+
+@router.get("/api/wallpapers/{order_id}/studio")
+async def wallpaper_studio(order_id: int, user: Annotated[dict, Depends(current_user)]) -> dict:
+    order = await _own_wallpaper(order_id, user["id"])
+    if not order.paid:
+        raise HTTPException(403, "Scene Studio unlocks after payment")
+    async with async_session_maker() as session:
+        repository = WallpaperStudioRepository(session)
+        versions = await repository.versions(order.id)
+        exports = await repository.exports(order.id)
+    revision = WallpaperExportService(order).source_revision
+    return {
+        "order_id": order.id,
+        "editable": bool(order.goals and order.scene_prompts and order.source_photo_paths),
+        "goals": list(order.goals or []),
+        "scenes": list(order.scene_prompts or []),
+        "locked": list(order.locked_scene_indexes or []),
+        "style": order.visual_style or "dark",
+        "final_phrase": order.final_phrase or "",
+        "versions": [_scene_version_payload(item) for item in versions],
+        "exports": [
+            {
+                "kind": item.kind,
+                "ready": item.source_revision == revision and Path(item.path).is_file(),
+                "url": f"/miniapp/api/wallpapers/{order.id}/exports/{item.kind}",
+            }
+            for item in exports
+        ],
+    }
+
+
+@router.post("/api/wallpapers/{order_id}/studio/scenes/{scene_index}/lock")
+async def lock_wallpaper_scene(
+    order_id: int, scene_index: int, payload: dict,
+    user: Annotated[dict, Depends(current_user)],
+) -> dict:
+    await _own_wallpaper(order_id, user["id"])
+    async with async_session_maker() as session:
+        order = await session.get(WallpaperOrder, order_id)
+        if order is None or order.telegram_user_id != user["id"] or not order.paid:
+            raise HTTPException(404)
+        if not 0 <= scene_index < len(order.goals or []):
+            raise HTTPException(422, "Unknown scene")
+        locked = set(int(value) for value in (order.locked_scene_indexes or []))
+        if bool(payload.get("locked", True)):
+            locked.add(scene_index)
+        else:
+            locked.discard(scene_index)
+        order.locked_scene_indexes = sorted(locked)
+        await session.commit()
+        return {"scene_index": scene_index, "locked": scene_index in locked}
+
+
+@router.post("/api/wallpapers/{order_id}/studio/scenes/{scene_index}/variants")
+async def create_wallpaper_scene_variant(
+    order_id: int, scene_index: int, payload: dict,
+    user: Annotated[dict, Depends(current_user)],
+) -> dict:
+    if order_id in _studio_jobs:
+        raise HTTPException(409, "Another Scene Studio operation is still running")
+    edit_mode = str(payload.get("mode", "scene"))
+    instruction = str(payload.get("instruction", ""))
+    if edit_mode not in EDIT_MODES:
+        raise HTTPException(422, "Choose scene, clothing, background or mood")
+    _studio_jobs.add(order_id)
+    try:
+        async with async_session_maker() as session:
+            order = await session.get(WallpaperOrder, order_id)
+            if order is None or order.telegram_user_id != user["id"] or not order.paid:
+                raise HTTPException(404)
+            settings = get_settings()
+            renderer = ReplicateVisionBoardRenderer(
+                output_dir=Path(order.mobile_path).parent,
+                model=settings.wallpaper_image_model,
+                quality=settings.wallpaper_image_quality,
+            )
+            renderer.set_tracking_context(user_id=user["id"], order_id=f"studio:{order.id}")
+            editor = WallpaperSceneEditor(renderer)
+            try:
+                path, cost = await editor.generate_variant(order, scene_index, edit_mode, instruction)
+            except PermissionError as exc:
+                raise HTTPException(409, str(exc)) from exc
+            except (ValueError, FileNotFoundError) as exc:
+                raise HTTPException(422, str(exc)) from exc
+            version = await WallpaperStudioRepository(session).add_version(
+                order_id=order.id,
+                scene_index=scene_index,
+                scene_asset_path=str(path),
+                edit_mode=edit_mode,
+                instruction=instruction,
+                ai_cost_usd=cost,
+            )
+            return _scene_version_payload(version)
+    finally:
+        _studio_jobs.discard(order_id)
+
+
+@router.post("/api/wallpapers/{order_id}/studio/versions/{version_id}/select")
+async def select_wallpaper_scene_variant(
+    order_id: int, version_id: int,
+    user: Annotated[dict, Depends(current_user)],
+) -> dict:
+    if order_id in _studio_jobs:
+        raise HTTPException(409, "Another Scene Studio operation is still running")
+    _studio_jobs.add(order_id)
+    try:
+        async with async_session_maker() as session:
+            order = await session.get(WallpaperOrder, order_id)
+            if order is None or order.telegram_user_id != user["id"] or not order.paid:
+                raise HTTPException(404)
+            repository = WallpaperStudioRepository(session)
+            version = await repository.get_version(version_id, order.id)
+            if version is None:
+                raise HTTPException(404, "Scene version not found")
+            if version.scene_index in set(order.locked_scene_indexes or []):
+                raise HTTPException(409, "Unlock this scene before selecting another version")
+            renderer = ReplicateVisionBoardRenderer(output_dir=Path(order.mobile_path).parent)
+            outputs = await WallpaperSceneEditor(renderer).apply_variant(
+                order, version.scene_index, version.scene_asset_path, str(version.id)
+            )
+            order.mobile_path = str(outputs["mobile"])
+            order.desktop_path = str(outputs["desktop"])
+            order.raw_mobile_path = str(outputs["raw_mobile"])
+            order.raw_desktop_path = str(outputs["raw_desktop"])
+            await repository.select_version(order, version)
+            await asyncio.to_thread(make_preview, Path(order.mobile_path))
+            return {"selected": version.id, "scene_index": version.scene_index}
+    finally:
+        _studio_jobs.discard(order_id)
+
+
+@router.get("/api/wallpapers/{order_id}/studio/scenes/{scene_index}/current")
+async def wallpaper_scene_current(
+    order_id: int, scene_index: int,
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    order = await _own_wallpaper(order_id, user["id"])
+    if not order.paid or not 0 <= scene_index < len(order.goals or []):
+        raise HTTPException(404)
+    destination = Path(order.mobile_path).parent / "scene_studio" / f"current_scene_{scene_index}.png"
+    await asyncio.to_thread(current_scene_preview, order, scene_index, destination)
+    return FileResponse(destination, media_type="image/png", headers={"Cache-Control": "private, no-store"})
+
+
+@router.get("/api/wallpapers/{order_id}/studio/versions/{version_id}")
+async def wallpaper_scene_version_file(
+    order_id: int, version_id: int,
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    await _own_wallpaper(order_id, user["id"])
+    async with async_session_maker() as session:
+        version = await WallpaperStudioRepository(session).get_version(version_id, order_id)
+    if version is None or not Path(version.scene_asset_path).is_file():
+        raise HTTPException(404)
+    return FileResponse(version.scene_asset_path, media_type="image/png",
+                        headers={"Cache-Control": "private, no-store"})
+
+
+@router.post("/api/wallpapers/{order_id}/exports")
+async def create_wallpaper_exports(
+    order_id: int, user: Annotated[dict, Depends(current_user)]
+) -> dict:
+    order = await _own_wallpaper(order_id, user["id"])
+    if not order.paid:
+        raise HTTPException(403)
+    service = WallpaperExportService(order)
+    rendered = await asyncio.to_thread(service.render_static)
+    async with async_session_maker() as session:
+        repository = WallpaperStudioRepository(session)
+        for kind, (path, width, height) in rendered.items():
+            await repository.save_export(
+                order_id=order.id, kind=kind, path=str(path), mime_type="image/png",
+                source_revision=service.source_revision, width=width, height=height,
+            )
+    return {"ready": list(rendered), "revision": service.source_revision}
+
+
+async def _save_audio_upload(upload: UploadFile | None, destination: Path, limit: int) -> Path | None:
+    if upload is None or not upload.filename:
+        return None
+    allowed = {"audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/ogg", "audio/mp4"}
+    if upload.content_type not in allowed:
+        raise HTTPException(422, "Upload MP3, WAV, OGG or M4A audio")
+    content = await upload.read(limit + 1)
+    if len(content) > limit:
+        raise HTTPException(413, "Audio file is too large")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(content)
+    return destination
+
+
+@router.post("/api/wallpapers/{order_id}/video")
+async def create_wallpaper_video(
+    order_id: int,
+    user: Annotated[dict, Depends(current_user)],
+    final_phrase: str = Form(""),
+    duration_seconds: int = Form(15),
+    ai_voice: bool = Form(False),
+    voice: Annotated[UploadFile | None, File()] = None,
+    music: Annotated[UploadFile | None, File()] = None,
+) -> dict:
+    order = await _own_wallpaper(order_id, user["id"])
+    if not order.paid:
+        raise HTTPException(403)
+    if order_id in _studio_jobs:
+        raise HTTPException(409, "Another Scene Studio operation is still running")
+    _studio_jobs.add(order_id)
+    try:
+        settings = get_settings()
+        upload_root = Path(order.mobile_path).parent / "scene_studio" / "audio"
+        limit = settings.max_upload_mb * 1024 * 1024
+        voice_path = await _save_audio_upload(voice, upload_root / "voice", limit)
+        music_path = await _save_audio_upload(music, upload_root / "music", limit)
+        phrase = " ".join(final_phrase.split()).strip()[:500]
+        if not phrase:
+            phrase = "Твоя прекрасная история уже начинается."
+        service = WallpaperExportService(order)
+        try:
+            path = await service.render_video(
+                settings=settings,
+                goals=list(order.goals or []),
+                final_phrase=phrase,
+                duration_seconds=duration_seconds,
+                voice_path=voice_path,
+                music_path=music_path,
+                ai_voice=ai_voice and voice_path is None,
+            )
+        except (ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+        async with async_session_maker() as session:
+            current = await session.get(WallpaperOrder, order.id)
+            current.final_phrase = phrase
+            await WallpaperStudioRepository(session).save_export(
+                order_id=order.id, kind="video", path=str(path), mime_type="video/mp4",
+                source_revision=service.source_revision,
+                width=720, height=1280,
+                duration_seconds=Decimal(min(20, max(10, duration_seconds))),
+            )
+        return {"kind": "video", "ready": True,
+                "url": f"/miniapp/api/wallpapers/{order.id}/exports/video"}
+    finally:
+        _studio_jobs.discard(order_id)
+
+
+@router.get("/api/wallpapers/{order_id}/exports/{kind}")
+async def wallpaper_export_file(
+    order_id: int, kind: str, user: Annotated[dict, Depends(current_user)]
+) -> FileResponse:
+    order = await _own_wallpaper(order_id, user["id"])
+    if not order.paid:
+        raise HTTPException(403)
+    async with async_session_maker() as session:
+        export = await session.scalar(
+            select(WallpaperExport).where(
+                WallpaperExport.order_id == order.id, WallpaperExport.kind == kind
+            )
+        )
+    current_revision = WallpaperExportService(order).source_revision
+    if export is None or export.source_revision != current_revision or not Path(export.path).is_file():
+        raise HTTPException(409, "Create this format for the current revision first")
+    return FileResponse(export.path, media_type=export.mime_type, filename=Path(export.path).name,
+                        headers={"Cache-Control": "private, no-store"})
+
+
 @router.post("/api/wallpapers/{order_id}/email")
 async def email_wallpaper(order_id: int, payload: dict,
                           user: Annotated[dict, Depends(current_user)]) -> dict:
@@ -644,23 +1111,44 @@ async def share_wallpaper(order_id: int, request: Request,
 
 @router.post("/api/wallpapers/{order_id}/checkout")
 async def wallpaper_checkout(order_id: int, request: Request,
-                             user: Annotated[dict, Depends(current_user)]) -> dict:
+                             user: Annotated[dict, Depends(current_user)],
+                             provider: str | None = None) -> dict:
     order = await _own_wallpaper(order_id, user["id"])
     if order.paid:
         raise HTTPException(409, "Already paid")
-    if not order.stars_amount:
-        raise HTTPException(409, "This historic order has no Star price")
-    bot = getattr(request.app.state, "bot", None)
-    if bot is None:
-        raise HTTPException(503, "Bot is not running")
-    url = await create_invoice(bot, OrderRef("wallpaper", order.id, user["id"], order.stars_amount))
-    return {"url": url, "stars": order.stars_amount, "provider": "stars"}
+    if provider == "wayforpay":
+        return await _wayforpay_checkout(
+            product="wallpaper",
+            reference_id=order.id,
+            owner_id=user["id"],
+            description=f"Food Porn digital gift #{order.id}",
+        )
+    if order.source_channel == "telegram" and order.stars_amount:
+        bot = getattr(request.app.state, "bot", None)
+        if bot is None:
+            raise HTTPException(503, "Bot is not running")
+        url = await create_invoice(
+            bot, OrderRef("wallpaper", order.id, user["id"], order.stars_amount)
+        )
+        return {"url": url, "stars": order.stars_amount, "provider": "stars"}
+    payment = PaymentService(get_settings())
+    if not payment.portmone_ready:
+        raise HTTPException(503, "Card payment is temporarily unavailable")
+    url = await payment.create_portmone_invoice(
+        order.id,
+        order.amount,
+        f"Food Porn digital gift #{order.id}",
+        product="wallpaper",
+    )
+    return {"url": url, "amount": str(order.amount), "currency": "UAH", "provider": "portmone"}
 
 
 @router.post("/api/wallpapers/{order_id}/verify")
 async def verify_wallpaper(order_id: int, user: Annotated[dict, Depends(current_user)]) -> dict:
     order = await _own_wallpaper(order_id, user["id"])
     if not order.paid:
+        if await _wayforpay_is_paid("wallpaper", order.id, user["id"]):
+            return {"paid": True}
         if order.stars_amount:
             return {"paid": False}
         verified = await PaymentService(get_settings()).verify_portmone_payment(
@@ -713,18 +1201,17 @@ async def create_menu(
     pipeline = getattr(request.app.state, "pipeline", None)
     if pipeline is None:
         raise HTTPException(503, "Run the Mini App together with the bot via launcher.py start")
-    if not await has_free_generation_access(user["id"], user.get("username"), settings, async_session_maker) and settings.menu_price_stars < 1:
+    is_free = await has_free_generation_access(
+        user["id"], user.get("username"), settings, async_session_maker
+    )
+    card_ready = PaymentService(settings).portmone_ready
+    stars_ready = user.get("source_channel", "telegram") == "telegram" and settings.menu_price_stars > 0
+    if not is_free and not (stars_ready or card_ready):
         raise HTTPException(503, "Payment is temporarily unavailable; generation has not started")
     if language not in {"uk", "ru", "en"}:
         raise HTTPException(422, "Unknown language")
     try:
-        items = json.loads(dishes)
-        if not isinstance(items, list) or not 1 <= len(items) <= 18:
-            raise ValueError()
-        for item in items:
-            if (not isinstance(item, dict) or item.get("category") not in ItemCategory._value2member_map_
-                    or not isinstance(item.get("title"), str) or not 2 <= len(item["title"].strip()) <= 180):
-                raise ValueError()
+        items = normalize_dish_payload(json.loads(dishes))
     except (ValueError, TypeError) as exc:
         raise HTTPException(422, "Add 1–18 dishes with a category and name") from exc
     async with async_session_maker() as session:
@@ -740,9 +1227,12 @@ async def create_menu(
             customer = await customer_repo.register(
                 telegram_user_id=user["id"], phone=phone, name=name.strip()[:100],
                 language=Language(language),
-                country="Not provided", city="Not provided")
+                country="Not provided", city="Not provided",
+                source_channel=user.get("source_channel", "telegram"),
+                external_user_id=user.get("external_user_id"),
+            )
         repo = MenuRepository(session)
-        menu = await repo.create(customer)
+        menu = await repo.create(customer, source_channel=user.get("source_channel", "telegram"))
         try:
             storage = StorageService(settings)
             paths = {}
@@ -800,17 +1290,34 @@ async def menu_status(menu_id: int, user: Annotated[dict, Depends(current_user)]
 
 @router.post("/api/menus/{menu_id}/checkout")
 async def menu_checkout(menu_id: int, request: Request,
-                        user: Annotated[dict, Depends(current_user)]) -> dict:
+                        user: Annotated[dict, Depends(current_user)],
+                        provider: str | None = None) -> dict:
     menu = await _own_menu(menu_id, user["id"])
     if menu.is_paid or menu.status != MenuStatus.WAITING_FOR_PAYMENT or menu.price_amount is None:
         raise HTTPException(409, "No outstanding payment for this menu")
-    if not menu.stars_amount:
-        raise HTTPException(409, "This historic order has no Star price")
-    bot = getattr(request.app.state, "bot", None)
-    if bot is None:
-        raise HTTPException(503, "Bot is not running")
-    url = await create_invoice(bot, OrderRef("menu", menu.id, user["id"], menu.stars_amount))
-    return {"url": url, "stars": menu.stars_amount, "provider": "stars"}
+    if provider == "wayforpay":
+        return await _wayforpay_checkout(
+            product="menu",
+            reference_id=menu.id,
+            owner_id=user["id"],
+            description=f"Food Porn digital menu #{menu.id}",
+        )
+    if menu.source_channel == "telegram" and menu.stars_amount:
+        bot = getattr(request.app.state, "bot", None)
+        if bot is None:
+            raise HTTPException(503, "Bot is not running")
+        url = await create_invoice(bot, OrderRef("menu", menu.id, user["id"], menu.stars_amount))
+        return {"url": url, "stars": menu.stars_amount, "provider": "stars"}
+    payment = PaymentService(get_settings())
+    if not payment.portmone_ready:
+        raise HTTPException(503, "Card payment is temporarily unavailable")
+    url = await payment.create_portmone_invoice(
+        menu.id,
+        menu.price_amount,
+        f"Food Porn digital menu #{menu.id}",
+        product="menu",
+    )
+    return {"url": url, "amount": str(menu.price_amount), "currency": "UAH", "provider": "portmone"}
 
 
 @router.post("/api/menus/{menu_id}/verify")
@@ -819,20 +1326,31 @@ async def verify_menu(menu_id: int, user: Annotated[dict, Depends(current_user)]
     if menu.status in (MenuStatus.FAILED, MenuStatus.QUEUED):
         raise HTTPException(409, "The print file is being repaired or is incomplete")
     if not menu.is_paid:
+        if await _wayforpay_is_paid("menu", menu.id, user["id"]):
+            menu.is_paid = True
+            menu.payment_system = "wayforpay"
         if menu.stars_amount:
-            return {"paid": False}
-        if menu.status != MenuStatus.WAITING_FOR_PAYMENT or menu.price_amount is None:
+            if not menu.is_paid:
+                return {"paid": False}
+        if not menu.is_paid and (
+            menu.status != MenuStatus.WAITING_FOR_PAYMENT or menu.price_amount is None
+        ):
             raise HTTPException(409, "No payment to check")
-        verified = await PaymentService(get_settings()).verify_portmone_payment(menu.id, menu.price_amount)
-        if verified is None:
-            return {"paid": False}
+        verified = None
+        if not menu.is_paid:
+            verified = await PaymentService(get_settings()).verify_portmone_payment(
+                menu.id, menu.price_amount
+            )
+            if verified is None:
+                return {"paid": False}
         pdf = next((Path(item.path) for item in menu.files if item.kind == FileKind.PRINT_PDF), None)
         recipes = next((Path(item.path) for item in menu.files if item.kind == FileKind.RECIPE_SHEET), None)
         if pdf is None or not pdf.is_file() or recipes is None or not recipes.is_file():
             raise HTTPException(503, "Payment received, but print files are temporarily unavailable")
-        async with async_session_maker() as session:
-            await MenuRepository(session).mark_as_paid(menu.id, verified.payment_id, "portmone")
-        menu.is_paid = True
+        if not menu.is_paid:
+            async with async_session_maker() as session:
+                await MenuRepository(session).mark_as_paid(menu.id, verified.payment_id, "portmone")
+            menu.is_paid = True
     if menu.payment_system != "telegram_stars" and menu.status != MenuStatus.SENT_TO_PRINTSHOP:
         pdf = next((Path(item.path) for item in menu.files if item.kind == FileKind.PRINT_PDF), None)
         if pdf and pdf.is_file():
@@ -871,7 +1389,7 @@ async def menu_evening(menu_id: int, user: Annotated[dict, Depends(current_user)
     path = get_settings().generated_dir / str(menu_id) / "evening_plan.json"
     try:
         plan = json.loads(path.read_text(encoding="utf-8"))
-        if plan.get("version") != 1 or not isinstance(plan.get("shopping"), list):
+        if plan.get("version") not in {1, 2} or not isinstance(plan.get("shopping"), list):
             raise ValueError("Invalid plan")
         return plan
     except (OSError, ValueError, TypeError, AttributeError):

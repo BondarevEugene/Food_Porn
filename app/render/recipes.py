@@ -14,7 +14,13 @@ from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Space
 
 
 def render_recipe_sheet(
-    destination: Path, details: dict, shopping_list: list[str], language: str = "uk"
+    destination: Path,
+    details: dict,
+    shopping_list: list[str],
+    language: str = "uk",
+    *,
+    shopping_sections: dict[str, list[dict]] | None = None,
+    meal_plan: list[tuple[str, str]] | None = None,
 ) -> Path:
     """Render exact user dish names, ingredients and instructions to A4 PDF."""
     font_name = "FoodPornDejaVu"
@@ -35,17 +41,69 @@ def render_recipe_sheet(
     is_uk = language.lower() == "uk"
     story = [Paragraph("Рецепти та список покупок" if is_uk else "Рецепты и список покупок", title), Spacer(1, 8 * mm)]
     story.append(Paragraph("Список покупок" if is_uk else "Список покупок", heading))
-    for ingredient in shopping_list:
-        story.append(Paragraph("• " + escape(str(ingredient).removeprefix("• ")), body))
+    aisle_names = {
+        "produce": "Овочі та фрукти" if is_uk else "Овощи и фрукты",
+        "meat_fish": "М'ясо та риба" if is_uk else "Мясо и рыба",
+        "dairy": "Молочне" if is_uk else "Молочное",
+        "bakery": "Випічка" if is_uk else "Выпечка",
+        "pantry": "Бакалія" if is_uk else "Бакалея",
+        "drinks": "Напої" if is_uk else "Напитки",
+        "frozen": "Заморожене" if is_uk else "Замороженное",
+        "other": "Інше" if is_uk else "Другое",
+    }
+    if shopping_sections:
+        for aisle, items in shopping_sections.items():
+            story.append(Paragraph(escape(aisle_names.get(aisle, aisle)), heading))
+            for item in items:
+                amount = " ".join(filter(None, (str(item.get("amount") or ""), str(item.get("unit") or ""))))
+                pantry = " · є в коморі?" if is_uk and item.get("pantry") else " · есть дома?" if item.get("pantry") else ""
+                story.append(Paragraph(
+                    "• " + escape(f"{item.get('name', '')} {amount}{pantry}".strip()), body
+                ))
+    else:
+        for ingredient in shopping_list:
+            story.append(Paragraph("• " + escape(str(ingredient).removeprefix("• ")), body))
+    ordered_details: list[tuple[str | None, str, dict]] = []
+    included: set[str] = set()
+    if meal_plan:
+        for meal_slot, dish in meal_plan:
+            info = details.get(dish)
+            if isinstance(info, dict) and dish not in included:
+                ordered_details.append((meal_slot, dish, info))
+                included.add(dish)
     for dish, info in details.items():
-        if not isinstance(info, dict):
-            continue
+        if isinstance(info, dict) and dish not in included:
+            ordered_details.append((None, dish, info))
+    meal_names = {
+        "breakfast": "Сніданок" if is_uk else "Завтрак",
+        "lunch": "Обід" if is_uk else "Обед",
+        "dinner": "Вечеря" if is_uk else "Ужин",
+        "other": "Інше" if is_uk else "Без раздела",
+    }
+    previous_slot: str | None = None
+    for meal_slot, dish, info in ordered_details:
+        if meal_slot and meal_slot != previous_slot:
+            story.append(Paragraph(escape(meal_names.get(meal_slot, meal_slot)), title))
+            previous_slot = meal_slot
         lines = [Paragraph(escape(str(dish)), heading)]
         for ingredient in info.get("ingredients", []):
             lines.append(Paragraph("• " + escape(str(ingredient)), body))
+        facts = []
+        if info.get("servings"):
+            facts.append(("Порцій" if is_uk else "Порций") + f": {info['servings']}")
+        if info.get("difficulty"):
+            facts.append(("Складність" if is_uk else "Сложность") + f": {info['difficulty']}")
+        if info.get("equipment"):
+            facts.append(("Обладнання" if is_uk else "Оборудование") + ": " + ", ".join(map(str, info["equipment"])))
+        if info.get("allergens"):
+            facts.append(("Алергени" if is_uk else "Аллергены") + ": " + ", ".join(map(str, info["allergens"])))
+        if facts:
+            lines.append(Paragraph(escape(" · ".join(facts)), body))
         recipe = str(info.get("recipe", "")).strip()
         if recipe:
             lines.append(Paragraph(escape(recipe).replace("\n", "<br/>"), body))
+        for substitute in info.get("substitutions", []):
+            lines.append(Paragraph("↔ " + escape(str(substitute)), body))
         story.append(KeepTogether(lines[:2]) if len(lines) > 1 else lines[0])
         story.extend(lines[2:] if len(lines) > 1 else [])
     doc = SimpleDocTemplate(

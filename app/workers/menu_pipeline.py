@@ -22,7 +22,7 @@ from pathlib import Path
 from aiogram.types import FSInputFile
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.bot.keyboards import get_payment_keyboard
+from app.bot.keyboards import add_wayforpay_option, get_payment_keyboard
 from app.config import Settings
 from app.database.models import FileKind, GenerationStatus, MenuStatus
 from app.database.repositories import MenuRepository
@@ -32,11 +32,14 @@ from app.services.evening_plan import build_evening_plan, save_evening_plan
 from app.services.free_access import has_free_generation_access
 from app.services.image_generation import ImageGenerationService
 from app.services.menu_quality import validate_menu_artwork, validate_menu_files
+from app.services.payment import PaymentService
+from app.services.portmone_sandbox import send_portmone_sandbox_offer
 from app.services.prompt_builder import PromptBuilder
 from app.services.recipe_generator import RecipeGeneratorService
 from app.services.settings_service import get_setting
-from app.services.shopping import aggregate_shopping_list
+from app.services.shopping import aggregate_shopping_list, aggregate_shopping_sections
 from app.services.stars import OrderRef, create_invoice
+from app.services.wayforpay import WayForPayService
 
 logger = logging.getLogger(__name__)
 
@@ -103,8 +106,9 @@ class MenuPipeline:
                 if self.settings.use_mock_images:
                     raise RuntimeError("USE_MOCK_IMAGES=true: настоящие фотографии отключены. Установите false в .env")
                 customer_telegram_id = menu.customer.telegram_user_id
+                is_telegram = menu.source_channel == "telegram"
                 username = None
-                if customer_telegram_id not in (
+                if is_telegram and customer_telegram_id not in (
                     *self.settings.admin_telegram_ids, *self.settings.free_generation_telegram_ids,
                 ):
                     try:
@@ -131,7 +135,13 @@ class MenuPipeline:
 
                     destination = self.settings.uploads_dir / str(menu.id) / f"item_{item.id}.jpg"
                     try:
-                        path = await self.image_service.generate(prompt, destination)
+                        path = await self.image_service.generate(
+                            prompt,
+                            destination,
+                            customer_id=customer_telegram_id,
+                            product_type="menu",
+                            order_id=menu.id,
+                        )
                         await repo.set_item_done(item, str(path))
                     except Exception as img_exc:
                         logger.error(f"Image generation failed for item {item.id}: {img_exc}")
@@ -147,10 +157,19 @@ class MenuPipeline:
                 # Шаг 2: Генерация рецептов через LLM или локальный фоллбэк
                 language = getattr(menu.customer, "language", "uk") or "uk"
                 dish_titles = [item.title for item in menu.items if item.title != "—"]
-                menu_details = await self.recipe_service.generate_menu_details(dish_titles, language)
+                menu_details = await self.recipe_service.generate_menu_details(
+                    dish_titles,
+                    language,
+                    user_id=customer_telegram_id,
+                    order_id=menu.id,
+                )
+                for item in menu.items:
+                    if item.title in menu_details:
+                        await repo.save_recipe_details(item, menu_details[item.title])
 
                 # Шаг 3: Агрегация списка покупок
                 shopping_list = aggregate_shopping_list(menu_details)
+                shopping_sections = aggregate_shopping_sections(menu_details)
                 shopping_text = self._format_shopping_list(shopping_list, language)
 
                 # Рецепты и список продуктов выдаются вместе с оплаченным PDF.
@@ -163,11 +182,23 @@ class MenuPipeline:
                     menu_details,
                     shopping_list,
                     str(language),
+                    shopping_sections=shopping_sections,
+                    meal_plan=[
+                        (item.meal_slot or "other", item.title)
+                        for item in menu.items
+                        if item.title != "—"
+                    ],
                 )
                 validate_menu_files(menu, (production_pdf_path, recipe_path,
                                            rendered_artifacts.inside_preview,
                                            rendered_artifacts.outside_preview), menu_details)
-                plan = build_evening_plan(menu.items, menu_details, shopping_list, str(language))
+                plan = build_evening_plan(
+                    menu.items,
+                    menu_details,
+                    shopping_list,
+                    str(language),
+                    shopping_sections=shopping_sections,
+                )
                 save_evening_plan(self.settings.generated_dir / str(menu.id) / "evening_plan.json", plan)
                 for kind, path in rendered_artifacts.as_mapping().items():
                     await repo.save_file(menu.id, kind, str(path))
@@ -176,7 +207,7 @@ class MenuPipeline:
                 logger.info(f"Render artifacts created successfully -> Outside preview: {preview_image_path}")
 
                 # Получение chat_id и идентификации пользователя
-                chat_id = menu.customer.telegram_user_id
+                chat_id = menu.customer.telegram_user_id if is_telegram else None
 
                 is_uk = str(language).lower() in ("uk", "ukrainian")
 
@@ -210,6 +241,48 @@ class MenuPipeline:
 
                         await self.bot.send_message(chat_id=chat_id, text=shopping_text, parse_mode="HTML")
 
+                        if is_vip and self.settings.portmone_test_mode:
+                            await send_portmone_sandbox_offer(
+                                bot=self.bot,
+                                settings=self.settings,
+                                session_factory=self.session_factory,
+                                telegram_user_id=chat_id,
+                                product="menu",
+                                reference_id=str(menu.id),
+                                language=str(language),
+                            )
+                        wayforpay = WayForPayService(self.settings)
+                        if is_vip and wayforpay.ready:
+                            try:
+                                attempt, checkout_url = await wayforpay.create_checkout(
+                                    session,
+                                    telegram_user_id=chat_id,
+                                    product="menu",
+                                    reference_id=menu.id,
+                                    description=f"Food Porn digital menu #{menu.id}",
+                                    grants_entitlement=False,
+                                )
+                                await self.bot.send_message(
+                                    chat_id=chat_id,
+                                    text=(
+                                        "🧪 Тестова оплата WayForPay для VIP. Файли вже відкриті."
+                                        if is_uk
+                                        else "🧪 Тестовая оплата WayForPay для VIP. Файлы уже открыты."
+                                    ),
+                                    reply_markup=add_wayforpay_option(
+                                        None,
+                                        product="menu",
+                                        reference_id=menu.id,
+                                        payment_id=attempt.id,
+                                        checkout_url=checkout_url,
+                                        amount=f"{attempt.amount:.2f}",
+                                        language=str(language),
+                                        test_mode=attempt.test_mode,
+                                    ),
+                                )
+                            except Exception:
+                                logger.exception("Could not create VIP WayForPay menu checkout %s", menu.id)
+
                     await repo.set_status(menu_id, MenuStatus.COMPLETED)
                     logger.info(f"VIP Pipeline successfully finished for Menu ID:{menu_id}")
                     return
@@ -220,37 +293,126 @@ class MenuPipeline:
                 if price <= 0:
                     raise ValueError("Menu price must be positive")
                 pay_keyboard = None
-                if self.settings.menu_price_stars > 0:
+                payment = PaymentService(self.settings)
+                wayforpay = WayForPayService(self.settings)
+                if is_telegram and payment.mono_ready:
+                    try:
+                        invoice = await payment.create_mono_invoice(
+                            menu.id,
+                            price,
+                            f"Food Porn digital menu #{menu.id}",
+                        )
+                        await repo.set_waiting_for_payment(
+                            menu.id,
+                            price,
+                            payment_id=invoice.invoice_id,
+                            payment_system="mono",
+                        )
+                        pay_keyboard = get_payment_keyboard(
+                            menu.id,
+                            invoice.page_url,
+                            language,
+                            provider="mono",
+                            amount=str(price),
+                        )
+                    except Exception as exc:
+                        logger.error("Monobank checkout unavailable for menu %s: %s", menu.id, exc)
+                if is_telegram and pay_keyboard is None and self.settings.menu_price_stars > 0:
                     try:
                         stars = self.settings.menu_price_stars
-                        await repo.set_waiting_for_payment(menu.id, price, stars)
-                        invoice = await create_invoice(self.bot, OrderRef(
-                            "menu", menu.id, customer_telegram_id, stars))
-                        pay_keyboard = get_payment_keyboard(menu.id, invoice, language)
+                        await repo.set_waiting_for_payment(
+                            menu.id,
+                            price,
+                            stars,
+                            payment_system="telegram_stars",
+                        )
+                        invoice_url = await create_invoice(
+                            self.bot,
+                            OrderRef("menu", menu.id, customer_telegram_id, stars),
+                        )
+                        pay_keyboard = get_payment_keyboard(menu.id, invoice_url, language)
                     except Exception as exc:
                         logger.error("Stars checkout unavailable for menu %s: %s", menu.id, exc)
-                if pay_keyboard is None and self.settings.menu_price_stars <= 0:
+                if is_telegram and pay_keyboard is None and payment.portmone_ready:
+                    try:
+                        invoice_url = await payment.create_portmone_invoice(
+                            menu.id,
+                            price,
+                            f"Food Porn digital menu #{menu.id}",
+                        )
+                        await repo.set_waiting_for_payment(
+                            menu.id,
+                            price,
+                            payment_system="portmone",
+                        )
+                        pay_keyboard = get_payment_keyboard(
+                            menu.id,
+                            invoice_url,
+                            language,
+                            provider="portmone",
+                            amount=str(price),
+                        )
+                    except Exception as exc:
+                        logger.error("Portmone checkout unavailable for menu %s: %s", menu.id, exc)
+                if is_telegram and wayforpay.ready:
+                    try:
+                        attempt, checkout_url = await wayforpay.create_checkout(
+                            session,
+                            telegram_user_id=customer_telegram_id,
+                            product="menu",
+                            reference_id=menu.id,
+                            description=f"Food Porn digital menu #{menu.id}",
+                        )
+                        if pay_keyboard is None:
+                            price = attempt.amount
+                            await repo.set_waiting_for_payment(
+                                menu.id,
+                                attempt.amount,
+                                payment_system="wayforpay",
+                            )
+                        pay_keyboard = add_wayforpay_option(
+                            pay_keyboard,
+                            product="menu",
+                            reference_id=menu.id,
+                            payment_id=attempt.id,
+                            checkout_url=checkout_url,
+                            amount=f"{attempt.amount:.2f}",
+                            language=str(language),
+                            test_mode=attempt.test_mode,
+                        )
+                    except Exception as exc:
+                        logger.error("WayForPay checkout unavailable for menu %s: %s", menu.id, exc)
+                if not is_telegram and (payment.mono_ready or payment.portmone_ready or wayforpay.ready):
+                    await repo.set_waiting_for_payment(
+                        menu.id,
+                        wayforpay.price_for("menu") if wayforpay.ready else price,
+                        payment_system=(
+                            "mono" if payment.mono_ready
+                            else "portmone" if payment.portmone_ready
+                            else "wayforpay"
+                        ),
+                    )
+                elif pay_keyboard is None:
                     await repo.set_status(menu.id, MenuStatus.IMAGES_READY)
 
                 if preview_image_path and Path(preview_image_path).exists() and chat_id:
                     caption = (
                         f"✨ <b>Ваш превью-гастрономічний сет #{menu.id} готовий!</b>\n\n"
                         f"🔒 <i>На превью нанесені захисні водяні знаки.</i>\n"
-                        f"⭐ <b>Повний комплект:</b> {self.settings.menu_price_stars} Stars\n\n"
+                        f"💳 <b>Повний комплект:</b> {price} UAH\n\n"
                         f"Після підтвердження оплати ви отримаєте чистий буклет та рецепти."
                         if is_uk else
                         f"✨ <b>Ваш превью-гастрономический сет #{menu.id} готов!</b>\n\n"
                         f"🔒 <i>На превью нанесены защитные водяные знаки.</i>\n"
-                        f"⭐ <b>Полный комплект:</b> {self.settings.menu_price_stars} Stars\n\n"
+                        f"💳 <b>Полный комплект:</b> {price} UAH\n\n"
                         f"После подтверждения оплаты вы получите чистый буклет и рецепты."
                     )
                     if pay_keyboard is None:
-                        caption += ("\n\nРахунок можна повторно відкрити у Майстерні."
-                                    if is_uk and self.settings.menu_price_stars > 0 else
-                                    "\n\nСчёт можно повторно открыть в Мастерской."
-                                    if self.settings.menu_price_stars > 0 else
-                                    "\n\nОплата тимчасово недоступна." if is_uk else
-                                    "\n\nОплата временно недоступна.")
+                        caption += (
+                            "\n\nОплата тимчасово недоступна. Ми вже зберегли ваше замовлення."
+                            if is_uk
+                            else "\n\nОплата временно недоступна. Мы уже сохранили ваш заказ."
+                        )
 
                     await self.bot.send_photo(
                         chat_id=chat_id,
@@ -265,13 +427,14 @@ class MenuPipeline:
             except Exception as proc_exc:
                 logger.error(f"Pipeline processing failed for Menu ID:{menu_id}: {proc_exc}", exc_info=True)
                 await repo.set_status(menu_id, MenuStatus.FAILED, error_message=str(proc_exc))
-                try:
-                    await self.bot.send_message(
-                        menu.customer.telegram_user_id,
-                        "Не удалось подготовить полный комплект. Оплата не выставлена; повторите создание позже.",
-                    )
-                except Exception:
-                    logger.exception("Could not notify customer about failed menu %s", menu_id)
+                if menu.source_channel == "telegram":
+                    try:
+                        await self.bot.send_message(
+                            menu.customer.telegram_user_id,
+                            "Не удалось подготовить полный комплект. Оплата не выставлена; повторите создание позже.",
+                        )
+                    except Exception:
+                        logger.exception("Could not notify customer about failed menu %s", menu_id)
 
     @staticmethod
     def _format_shopping_list(shopping_list: dict | list, language: str) -> str:

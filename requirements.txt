@@ -17,3 +17,4 @@ sqladmin>=0.20,<1
 python-multipart>=0.0.20,<1
 cryptography>=44,<51
 itsdangerous>=2.2,<3
+imageio-ffmpeg>=0.6,<1

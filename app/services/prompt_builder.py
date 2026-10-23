@@ -26,6 +26,18 @@ CATEGORY_HINTS = {
 
 class PromptBuilder:
     def build(self, item: MenuItem) -> str:
+        if item.title.casefold() in {
+            "сюрприз от повара",
+            "сюрприз від шефа",
+            "chef's surprise",
+        }:
+            return (
+                "Create a mysterious premium restaurant dessert: an elegant cake hidden "
+                "behind intentional cinematic soft focus and gentle bokeh, so its exact "
+                "flavour and decoration remain a surprise. Dark matte charcoal background, "
+                "warm candlelight, subtle gold accents, luxury romantic menu photography. "
+                "No people, hands, text, letters, logo, watermark or border. Square image."
+            )
         subject = CATEGORY_HINTS[item.category]
         return (
             f"Create a realistic premium restaurant food photograph of {item.title!r}, "

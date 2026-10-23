@@ -98,6 +98,22 @@ async def dashboard(identity: Identity, days: Days = 30):
         return await service.dashboard(session, days)
 
 
+@router.post("/api/openai-costs/sync")
+async def sync_openai_costs(request: Request, identity: Identity, days: Days = 35):
+    """Owner-only manual reconciliation with the OpenAI organization cost ledger."""
+    require_owner(identity)
+    synchronizer = getattr(request.app.state, "openai_cost_sync", None)
+    if synchronizer is None:
+        raise HTTPException(503, "Синхронизатор расходов не запущен")
+    if not synchronizer.configured:
+        raise HTTPException(409, "OPENAI_ADMIN_API_KEY не настроен")
+    try:
+        imported = await synchronizer.sync_once(days=days)
+    except Exception as exc:
+        raise HTTPException(502, f"OpenAI cost sync failed: {type(exc).__name__}") from exc
+    return {"ok": True, "imported": imported, "synced_at": synchronizer.last_synced_at}
+
+
 @router.get("/api/orders")
 async def orders(
     identity: Identity,
@@ -151,8 +167,10 @@ async def settings(identity: Identity):
     config = get_settings()
     result["services"] = {
         "portmone": PaymentService(config).portmone_ready,
+        "mono": PaymentService(config).mono_ready,
         "smtp": bool(config.smtp_host and config.smtp_user),
         "openai": config.openai_api_key.get_secret_value() not in {"", "replace_me"},
+        "openai_costs": config.openai_admin_api_key.get_secret_value() not in {"", "replace_me"},
         "encryption": bool(config.crm_encryption_key.get_secret_value()),
     }
     return result

@@ -8,9 +8,11 @@ Module: Bot Routers Registry
 from aiogram import Dispatcher
 
 from app.bot.handlers.admin import router as admin_router
+from app.bot.handlers.portmone_sandbox import router as portmone_sandbox_router
 from app.bot.handlers.registration import router as registration_router
 from app.bot.handlers.start import router as start_router
 from app.bot.handlers.wallpaper import router as wallpaper_router
+from app.bot.handlers.wayforpay import router as wayforpay_router
 
 
 def setup_routers(dp: Dispatcher) -> None:
@@ -18,4 +20,6 @@ def setup_routers(dp: Dispatcher) -> None:
     dp.include_router(admin_router)
     dp.include_router(start_router)
     dp.include_router(wallpaper_router)
+    dp.include_router(portmone_sandbox_router)
+    dp.include_router(wayforpay_router)
     dp.include_router(registration_router)

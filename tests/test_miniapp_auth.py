@@ -50,13 +50,22 @@ async def test_api_does_not_expose_orders_or_admin_without_telegram_signature():
                     "/miniapp/api/gifts/" + "a" * 32 + "/files/mobile",
                     "/miniapp/api/wallpapers/1",
                     "/miniapp/api/wallpapers/1/files/mobile",
+                    "/miniapp/api/wallpapers/1/studio",
+                    "/miniapp/api/wallpapers/1/studio/scenes/0/current",
+                    "/miniapp/api/wallpapers/1/studio/versions/1",
+                    "/miniapp/api/wallpapers/1/exports/story",
                     "/miniapp/api/menus/1/files/pdf"):
             assert (await client.get(url)).status_code == 401
         for url in ("/miniapp/api/gifts/" + "a" * 32 + "/share",
                     "/miniapp/api/gifts/" + "a" * 32 + "/email",
                     "/miniapp/api/menus/1/checkout", "/miniapp/api/menus/1/share",
                     "/miniapp/api/menus/1/email", "/miniapp/api/wallpapers/1/email",
-                    "/miniapp/api/wallpapers/1/share"):
+                    "/miniapp/api/wallpapers/1/share",
+                    "/miniapp/api/wallpapers/1/studio/scenes/0/lock",
+                    "/miniapp/api/wallpapers/1/studio/scenes/0/variants",
+                    "/miniapp/api/wallpapers/1/studio/versions/1/select",
+                    "/miniapp/api/wallpapers/1/exports",
+                    "/miniapp/api/wallpapers/1/video"):
             assert (await client.post(url, json={"email": "anyone@example.org"})).status_code == 401
 
 

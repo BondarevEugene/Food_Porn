@@ -67,9 +67,9 @@ async def test_telegram_commands_and_button(url):
     bot = SimpleNamespace(set_my_commands=AsyncMock(), set_chat_menu_button=AsyncMock())
     await bootstrap.configure_telegram(bot, SimpleNamespace(miniapp_url=url))
     commands = bot.set_my_commands.call_args.args[0]
-    assert [cmd.command for cmd in commands] == (["start"] if url else ["start", "new", "admin"])
+    assert [cmd.command for cmd in commands] == ["start", "history", "admin"]
     button = bot.set_chat_menu_button.call_args.kwargs["menu_button"]
-    assert button.type == ("web_app" if url else "commands")
+    assert button.type == "commands"
 
 
 @pytest.mark.parametrize("failure", ["telegram", "pipeline", "services", None])

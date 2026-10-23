@@ -6,7 +6,7 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
-from app.services.settings_service import get_vip_users
+from app.services.settings_service import get_paid_test_user_ids, get_vip_users
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +15,16 @@ async def has_free_generation_access(
     user_id: int, username: str | None, settings: Settings,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> bool:
-    """Prefer stable Telegram IDs; support the project's existing VIP list."""
-    if user_id in settings.admin_telegram_ids or user_id in settings.free_generation_telegram_ids:
+    """Check owner/VIP access with an explicit commercial-test override."""
+    if user_id in settings.admin_telegram_ids:
+        try:
+            async with session_factory() as session:
+                if user_id in await get_paid_test_user_ids(session):
+                    return False
+        except Exception:
+            logger.exception("Could not check paid test mode for owner %s", user_id)
+        return True
+    if user_id in settings.free_generation_telegram_ids:
         return True
     candidate = (username or "").strip().lstrip("@").casefold()
     if not candidate:

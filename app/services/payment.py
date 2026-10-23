@@ -18,6 +18,9 @@ from app.config import Settings
 logger = logging.getLogger(__name__)
 LINK_API = "https://www.portmone.com.ua/r3/api/gateway/"
 STATUS_API = "https://www.portmone.com.ua/gateway/"
+MONO_CREATE_API = "https://api.monobank.ua/api/merchant/invoice/create"
+MONO_STATUS_API = "https://api.monobank.ua/api/merchant/invoice/status"
+PAYMENT_PRODUCTS = frozenset({"menu", "wallpaper", "sandbox_menu", "sandbox_wallpaper"})
 
 
 class PaymentError(RuntimeError):
@@ -29,6 +32,12 @@ class VerifiedPayment:
     payment_id: str
     order_number: str
     amount: Decimal
+
+
+@dataclass(frozen=True)
+class MonoInvoice:
+    invoice_id: str
+    page_url: str
 
 
 class PaymentService:
@@ -46,6 +55,17 @@ class PaymentService:
             )
         )
 
+    @property
+    def mono_ready(self) -> bool:
+        return self.settings.currency == "UAH" and bool(
+            self.settings.mono_token.get_secret_value().strip()
+        )
+
+    def _mono_headers(self) -> dict[str, str]:
+        if not self.mono_ready:
+            raise PaymentError("Monobank merchant token is not configured")
+        return {"X-Token": self.settings.mono_token.get_secret_value().strip()}
+
     def _credentials(self) -> dict[str, str]:
         if not self.portmone_ready:
             raise PaymentError("Portmone merchant credentials are not configured")
@@ -57,7 +77,7 @@ class PaymentService:
 
     @staticmethod
     def _order_number(order_id: int, product: str = "menu") -> str:
-        if order_id <= 0 or product not in {"menu", "wallpaper"}:
+        if order_id <= 0 or product not in PAYMENT_PRODUCTS:
             raise ValueError("Invalid payment order")
         return f"{product}_{order_id}"
 
@@ -134,4 +154,85 @@ class PaymentService:
                 and item.get("shopBillId")
             ):
                 return VerifiedPayment(str(item["shopBillId"]), order_number, amount)
+        return None
+
+    async def create_mono_invoice(
+        self,
+        menu_id: int,
+        amount: float,
+        description: str,
+        product: str = "menu",
+    ) -> MonoInvoice:
+        """Create a Monobank acquiring invoice; amounts are sent in kopecks."""
+        money = Decimal(str(amount)).quantize(Decimal("0.01"))
+        if money <= 0:
+            raise PaymentError("Payment amount must be positive")
+        reference = self._order_number(menu_id, product)
+        payload: dict[str, object] = {
+            "amount": int(money * 100),
+            "ccy": 980,
+            "merchantPaymInfo": {
+                "reference": reference,
+                "destination": description[:280],
+                "comment": description[:280],
+            },
+            "validity": 3600,
+            "paymentType": "debit",
+        }
+        if self.settings.mono_redirect_url.startswith("https://"):
+            payload["redirectUrl"] = self.settings.mono_redirect_url
+        if self.settings.mono_webhook_url.startswith("https://"):
+            payload["webHookUrl"] = self.settings.mono_webhook_url
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(MONO_CREATE_API, headers=self._mono_headers(), json=payload)
+            response.raise_for_status()
+        try:
+            data = response.json()
+            invoice_id = str(data["invoiceId"])
+            page_url = str(data["pageUrl"])
+        except (ValueError, KeyError, TypeError) as exc:
+            raise PaymentError("Monobank did not return an invoice") from exc
+        parsed = urlparse(page_url)
+        if parsed.scheme != "https" or parsed.hostname != "pay.mbnk.biz":
+            raise PaymentError("Monobank returned an unexpected checkout URL")
+        return MonoInvoice(invoice_id=invoice_id, page_url=page_url)
+
+    async def verify_mono_payment(
+        self,
+        menu_id: int,
+        expected_amount: float,
+        invoice_id: str,
+        product: str = "menu",
+    ) -> VerifiedPayment | None:
+        """Verify the invoice on Monobank servers before releasing files."""
+        if not invoice_id:
+            return None
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(
+                MONO_STATUS_API,
+                headers=self._mono_headers(),
+                params={"invoiceId": invoice_id},
+            )
+            response.raise_for_status()
+        try:
+            data = response.json()
+            actual_amount = int(data["amount"])
+        except (ValueError, KeyError, TypeError) as exc:
+            raise PaymentError("Monobank returned an invalid status response") from exc
+        reference = data.get("reference")
+        if reference is None and isinstance(data.get("merchantPaymInfo"), dict):
+            reference = data["merchantPaymInfo"].get("reference")
+        expected_kopecks = int(Decimal(str(expected_amount)).quantize(Decimal("0.01")) * 100)
+        if (
+            data.get("status") == "success"
+            and str(data.get("invoiceId")) == invoice_id
+            and reference == self._order_number(menu_id, product)
+            and int(data.get("ccy", 980)) == 980
+            and actual_amount == expected_kopecks
+        ):
+            return VerifiedPayment(
+                payment_id=invoice_id,
+                order_number=str(reference),
+                amount=Decimal(actual_amount) / 100,
+            )
         return None

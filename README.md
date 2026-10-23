@@ -4,13 +4,85 @@
 
 Бот собирает ровно пять фотографий (портрет и четыре сцены) и ровно пять целей. Коллаж компонуется из всех пяти исходных снимков в мобильный 1080 × 1920 и настольный 1920 × 1080 PNG. Надписи рисуются из текста пользователя; встроенных фраз нет. Текущий `ReplicateVisionBoardRenderer` работает локально через Pillow и **не обращается к Replicate**. Результат может отличаться от фотореалистичной генерации с переносом лица.
 
-Если Portmone настроен, коллаж предварительно показывается с водяным знаком, а полный файл выдаётся после проверки заказа, суммы, получателя и статуса через серверный запрос Portmone. При отсутствии платёжных реквизитов полный результат выдаётся бесплатно для тестирования. Для меню действуют отдельные номера заказов (`menu_…` и `wallpaper_…`) и отдельные снимки цены. Ссылка на оплату создаётся только через API платёжного сервиса.
+Для цифрового меню поддерживаются Monobank Acquiring и дополнительная защищённая оплата картой WayForPay. Бот создаёт отдельный инвойс и выдаёт файлы только после серверной проверки статуса, подписи, суммы, валюты и номера заказа. Telegram Stars остаются резервным вариантом, а Portmone — диагностическим контуром.
 
 Перед запуском обновлённой версии сделайте резервную копию PostgreSQL и выполните `alembic upgrade head`. Оставлены ваши миграции `226c0d2b7f58`, `42fd32b02ed1`, `ffb74d9cb65b`, и добавлена следующая миграция `20260928_0003`. Файлы `.env`, пользовательские фото и каталоги `storage` не входят в пакет исправлений.
 
-Настройки `.env` для платных меню и коллажа: `PORTMONE_PAYEE_ID`, `PORTMONE_LOGIN`, `PORTMONE_PASSWORD`, `MENU_PRICE`, `CURRENCY=UAH`. Для выдачи файлов в типографию дополнительно нужны `PRINTSHOP_EMAIL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_USE_TLS`. Для защиты Telegram админки укажите `ADMIN_TELEGRAM_IDS`. Веб админку можно отдельно включить через `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`.
+Настройки `.env` для карточной продажи меню: `MONO_TOKEN`, `MENU_PRICE` и `CURRENCY=UAH`. `MONO_REDIRECT_URL` и `MONO_WEBHOOK_URL` необязательны. Для Stars используются `MENU_PRICE_STARS` и `GIFT_PRICE_STARS`. Для диагностики Portmone нужны индивидуальные `PORTMONE_PAYEE_ID`, `PORTMONE_LOGIN`, `PORTMONE_PASSWORD`, а также `PORTMONE_TEST_MODE=true`. Для защиты Telegram админки укажите `ADMIN_TELEGRAM_IDS`.
 
-Публичный `/api/portmone/webhook` не подтверждает платежи по неаутентифицированному POST. Пользователь проверяет платёж кнопкой в Telegram; бот сам опрашивает Portmone. Заказ печатного постера и отправка рецептов другому человеку по email в этой версии не оформляются. Для эксплуатации с несколькими процессами потребуется постоянное хранилище FSM и очередь. Проверка с реальными платёжными учётными данными и вашей базой Neon выполняется при развёртывании.
+## Кнопочный мастер меню
+
+После `/start` клиент выбирает язык и один из двух продуктов. Для гастрономического подарка бот сразу создаёт меню на день в премиальном тёмном стиле. Клиент одним сообщением вводит всё меню, загружает фото обложки и разворота, запускает формирование, оплачивает заказ и получает два PDF-файла.
+
+Ввод меню поддерживает заголовки `Завтрак`, `Обед`, `Ужин`: они разделяют приёмы пищи и не считаются блюдами. Каждая остальная непустая строка — отдельное блюдо; нумерация, тире и маркеры допустимы. Если заголовок не указан, строка всё равно принимается как блюдо без раздела.
+Распознавание заголовков работает для русского, украинского, английского и основных европейских языков. Допускаются транслитерация и лёгкие опечатки. Названия блюд могут смешивать языки и сохраняются без перевода.
+
+Для Railway добавьте:
+
+```env
+MONO_TOKEN=секретный_токен_магазина
+MONO_REDIRECT_URL=
+MONO_WEBHOOK_URL=
+```
+
+Публичные `/portmone/callback` и `/api/portmone/webhook` не подтверждают платежи по неаутентифицированному POST. VIP-пользователь проверяет тест кнопкой в Telegram; бот сам опрашивает Portmone и сверяет магазин, номер заказа, сумму, статус, экспорт и отсутствие chargeback. Результат хранится в отдельной таблице `portmone_sandbox_payments` и не меняет коммерческий статус меню или подарка.
+
+## Тест Portmone для VIP / admin
+
+1. Получите у Portmone индивидуальные реквизиты магазина и попросите менеджера включить тестовый режим.
+2. Добавьте в Railway Variables:
+
+```env
+PORTMONE_PAYEE_ID=ваш_id
+PORTMONE_LOGIN=ваш_login
+PORTMONE_PASSWORD=ваш_пароль
+PORTMONE_TEST_MODE=true
+PORTMONE_TEST_AMOUNT_UAH=1.00
+```
+
+3. Выполните миграцию `python -m alembic upgrade head` и перезапустите приложение.
+4. Создайте меню или цифровой подарок под VIP/admin-пользователем. После бесплатной VIP-выдачи появится отдельная кнопка `🧪 Тест Portmone`.
+5. На странице Portmone используйте только тестовые данные:
+
+| Сценарий | Номер карты | Срок | CVV |
+|---|---|---|---|
+| Успех | `4444 3333 2222 1111` | любая будущая дата | любой |
+| Отказ | `4111 1111 1111 1111` | любая будущая дата | любой |
+
+После успешной оплаты вернитесь в Telegram и нажмите `🔄 Проверить тест`. Не вводите настоящую карту, пока у магазина включён тестовый режим. Перед коммерческим запуском обязательно установите `PORTMONE_TEST_MODE=false`.
+
+## WayForPay: тест двух цифровых продуктов
+
+WayForPay открывается на защищённой странице провайдера: приложение не получает
+номер карты, срок действия или CVV. Webhook считается действительным только после
+HMAC-проверки и точного совпадения магазина, заказа, суммы и валюты.
+
+Для теста на Railway добавьте:
+
+```env
+PUBLIC_BASE_URL=https://foodporn-production.up.railway.app
+WAYFORPAY_MERCHANT_DOMAIN=foodporn-production.up.railway.app
+WAYFORPAY_TEST_MODE=true
+WAYFORPAY_MENU_PRICE_UAH=5.00
+WAYFORPAY_WALLPAPER_PRICE_UAH=1.00
+```
+
+В тестовом режиме приложение использует публичный sandbox-магазин из официальной
+документации WayForPay, если `WAYFORPAY_MERCHANT_ACCOUNT` и
+`WAYFORPAY_MERCHANT_SECRET_KEY` пустые. Для реальных платежей получите собственные
+реквизиты, внесите их только в Railway Variables и установите
+`WAYFORPAY_TEST_MODE=false`.
+
+После обновления обязательно выполните:
+
+```powershell
+python -m alembic upgrade head
+python -m alembic current
+```
+
+Ожидаемый head: `20261020_0009`. Кнопка WayForPay показывается рядом с уже
+настроенными способами оплаты. VIP-пользователь получает отдельную тестовую кнопку;
+такой платёж записывается для диагностики, но не меняет бесплатный VIP-доступ.
 
 `Food_Porn` is a Python Telegram bot for `@MenuBreakfastForLove_bot`. It registers a customer, recognizes repeat visits, collects a 9 + 3 + 4 menu, accepts two customer photos, creates 16 matching food images through the OpenAI Images API, and produces two previews plus a two-sided A3 print PDF.
 
@@ -166,9 +238,9 @@ Before commercial printing, ask the chosen print shop for its required ICC profi
 
 ## Operational notes
 
-- One order calls the image API 16 times. `IMAGE_CONCURRENCY=2` limits parallel requests.
+- One menu makes one image call per non-skipped dish and one batched recipe call.
 - Successful images are cached by model, quality, size, and prompt, so repeated dishes can avoid duplicate spend.
-- Failed image requests retry three times; an unavailable item is rendered with a branded placeholder instead of breaking the whole booklet.
+- Temporary image failures retry according to `IMAGE_RETRIES`; an incomplete order is never sold as finished.
 - The included queue runs inside one Python process. Its job state is persisted in Neon and queued/generating menus resume after restart. For several bot replicas, replace it with Redis + ARQ/Celery and a distributed lock.
 - Customer photos and generated files are stored locally. A single-server MVP is fine; production replicas should use S3-compatible object storage and store object keys in Neon.
 - Telegram FSM state is in memory. For horizontal scaling, switch aiogram storage to Redis.
@@ -179,3 +251,127 @@ Before commercial printing, ask the chosen print shop for its required ICC profi
 - Uploaded files are size-limited and decoded/normalized by Pillow before storage.
 - `.env`, customer uploads, generated images, and keys are excluded from Git.
 - Add a privacy notice, consent checkbox/message, data-retention period, and delete-my-data command before public launch.
+
+## Учёт OpenAI и корректная аналитика
+
+В CRM используются два независимых источника:
+
+1. локальный журнал связывает каждый AI-вызов с пользователем, продуктом и заказом;
+2. OpenAI Organization Costs API импортирует фактически выставленную сумму.
+
+До первой сверки CRM показывает локальную оценку. После импорта в финансовый
+итог входит фактическая сумма OpenAI, чтобы один расход не посчитался дважды.
+Обычный `OPENAI_API_KEY` не даёт доступ к расходам организации. Владелец
+организации должен отдельно создать Admin API key и записать его только в
+Railway Variables как `OPENAI_ADMIN_API_KEY`.
+
+```env
+OPENAI_ADMIN_API_KEY=
+OPENAI_PROJECT_ID=
+OPENAI_COST_SYNC_ENABLED=true
+OPENAI_COST_SYNC_INTERVAL_MINUTES=60
+```
+
+`OPENAI_PROJECT_ID` настоятельно рекомендуется заполнить: без него Costs API
+вернёт расходы всей API-организации, а не только Food_Porn.
+
+После настройки владелец CRM может открыть раздел **Финансы** и нажать
+**«Сверить OpenAI»**. Повторная сверка безопасна: одинаковые строки счёта
+не дублируются. Для Railway также нужны публичный адрес и секрет ссылок:
+
+```env
+MINIAPP_URL=https://YOUR-SERVICE.up.railway.app/miniapp
+CHANNEL_LINK_SECRET=СЛУЧАЙНАЯ_СТРОКА_НЕ_КОРОЧЕ_32_БАЙТ
+```
+
+Заказы считаются по `created_at`, выручка — по `paid_at`. Черновики и бесплатные
+VIP-заказы исключены из знаменателя коммерческой конверсии. В карточке расходов
+отдельно видны локальная оценка, фактический счёт OpenAI и источник итоговой цифры.
+
+## Дополнительные мессенджеры
+
+Один HTTP-контур поддерживает официальные webhook API:
+
+| Канал | Webhook Railway | Обязательные переменные |
+|---|---|---|
+| WhatsApp Cloud API | `/channels/meta/webhook` | `META_*`, `WHATSAPP_*` |
+| Facebook Messenger | `/channels/meta/webhook` | `META_*`, `MESSENGER_*` |
+| Instagram Messaging | `/channels/meta/webhook` | `META_*`, `INSTAGRAM_*` |
+| Viber | `/channels/viber/webhook` | `VIBER_AUTH_TOKEN` |
+| Slack | `/channels/slack/events` | `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN` |
+| Discord | `/channels/discord/interactions` | `DISCORD_PUBLIC_KEY` |
+
+Каждый входящий callback проверяется подписью, дедублируется в Neon и получает
+ссылку в общую Mini App. Ссылка подписана `CHANNEL_LINK_SECRET`, имеет ограниченный
+срок действия и не содержит секретов провайдера. Доступность адаптеров можно
+проверить по `/channels/health`.
+
+Meta, Viber, Slack и Discord не выдают токены автоматически: сначала необходимо
+создать и проверить бизнес-приложения в кабинетах соответствующих платформ.
+Signal и обычный iMessage намеренно не подключены через неофициальные шлюзы.
+
+## Пакет для романтического вечера
+
+Для каждого блюда одним пакетным текстовым запросом формируются точные продукты
+на две порции, пошаговый рецепт, время, сложность, оборудование, аллергены,
+замены и структурированный список покупок по отделам магазина. Данные сохраняются
+не только в PDF, но и в Neon. В Mini App доступны выбор блюд на конкретный вечер,
+график приготовления, чек-лист покупок и пошаговый режим готовки.
+
+Готовый оплаченный подарок можно отправить сразу или запланировать email на
+выбранную дату. Фоновый worker доставляет вложения, делает до трёх попыток и
+сохраняет результат доставки в базе.
+
+После обновления кода обязательно примените миграцию:
+
+```powershell
+python -m alembic upgrade head
+python -m pytest -q
+```
+
+На Railway миграция должна выполняться один раз перед запуском новой версии.
+Если отдельной release-команды нет, откройте Railway Shell и выполните:
+
+```bash
+python -m alembic upgrade head
+python -m alembic current
+```
+
+Ожидаемая вершина после этого обновления: `20261021_0010`. Затем выполните
+Redeploy и проверьте `/channels/health`, Mini App и раздел CRM «Финансы».
+
+Для файлов меню, изображений и отложенных писем подключите Railway Volume к
+`/app/storage` и задайте `STORAGE_ROOT=/app/storage`. Без постоянного тома файлы
+могут исчезнуть при redeploy, хотя записи о заказах останутся в Neon.
+
+## Scene Studio и «живой коллаж»
+
+У оплаченного подарка и у бесплатного VIP-заказа в Mini App появляется кнопка
+**Scene Studio**. Редактор работает неразрушающе:
+
+- исходные фотографии сохраняются в приватной папке заказа;
+- для каждой сцены ведётся независимая история вариантов;
+- можно изменить весь сюжет, только одежду, только фон или только настроение;
+- сравнение A/B не меняет готовый подарок, пока клиент не нажмёт
+  **«Выбрать этот вариант»**;
+- заблокированную сцену нельзя случайно перегенерировать или заменить;
+- один новый вариант сцены использует один запрос изображения вместо повторной
+  трёхэтапной сборки всего коллажа.
+
+Из утверждённой версии без дополнительных запросов OpenAI создаются заставка
+телефона, заставка компьютера, Story 9:16, квадрат Instagram, A3 для печати и
+обложка Telegram. Кнопка **«Живой коллаж»** создаёт MP4 продолжительностью
+10–20 секунд с плавным движением камеры, целями, финальной фразой и локально
+созданной фоновой музыкой. Можно загрузить собственный голос/музыку либо включить
+AI-озвучку финальной фразы.
+
+Необязательные настройки видео:
+
+```env
+OPENAI_TTS_MODEL=gpt-4o-mini-tts
+OPENAI_TTS_VOICE=alloy
+GIFT_VIDEO_SECONDS=15
+```
+
+На Railway обязательно сохраните `STORAGE_ROOT` на подключённом Volume: редактор
+использует исходники, версии сцен, форматы и MP4 между перезапусками приложения.

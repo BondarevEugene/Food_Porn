@@ -17,6 +17,7 @@ Responsibilities:
 from __future__ import annotations
 
 import logging
+from html import escape
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
@@ -33,11 +34,19 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.bot.handlers.wallpaper import text_for
 from app.bot.helpers import current_customer
 from app.config import Settings
 from app.database import async_session_maker
 from app.database.models import Customer, ItemCategory, Menu, MenuStatus
 from app.database.repositories import MenuRepository
+from app.services.menu_wizard import (
+    DEFAULT_VISUAL_STYLE,
+    MEAL_FULL_DAY,
+    meal_label,
+    meal_slot_label,
+    parse_menu_plan,
+)
 from app.services.storage import InvalidImageError, StorageService
 from app.workers.menu_pipeline import MenuPipeline
 
@@ -46,9 +55,19 @@ router = Router(name="menu")
 
 
 class PremiumMenuStates(StatesGroup):
-    waiting_for_dish_name = State()
+    waiting_for_dish_list = State()
     waiting_for_cover = State()
     waiting_for_spread = State()
+
+
+async def begin_menu_entry(
+    state: FSMContext,
+    menu_id: int,
+    category: ItemCategory = ItemCategory.MAIN,
+) -> None:
+    """Compatibility entry used by older integrations."""
+    await state.set_state(PremiumMenuStates.waiting_for_dish_list)
+    await state.update_data(menu_id=menu_id, category=category.value)
 
 
 class MenuAction(CallbackData, prefix="menu"):
@@ -57,13 +76,62 @@ class MenuAction(CallbackData, prefix="menu"):
     category: str | None = None
 
 
+class LegacyMenuSetupAction(CallbackData, prefix="menu_setup"):
+    """Decode buttons left in chats by the previous step-by-step wizard."""
+
+    action: str
+    value: str | None = None
+
+
+async def begin_menu_setup(
+    message: Message,
+    state: FSMContext,
+    customer: Customer,
+    language: str = "ru",
+) -> None:
+    async with async_session_maker() as session:
+        repo = MenuRepository(session)
+        created = await repo.create(
+            customer,
+            meal_period=MEAL_FULL_DAY,
+            visual_style=DEFAULT_VISUAL_STYLE,
+        )
+        menu = await repo.get(created.id, full=True)
+    await state.set_state(None)
+    await state.update_data(ui_lang=language, menu_id=menu.id)
+    await message.answer(
+        format_premium_dashboard(menu),
+        reply_markup=build_dashboard_kb(menu),
+        parse_mode="HTML",
+    )
+
+
+@router.callback_query(LegacyMenuSetupAction.filter(F.action.in_(["meal", "style"])))
+async def upgrade_legacy_menu_setup(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Turn a click on an old wizard button into the new full-day draft."""
+    async with session_factory() as session:
+        customer = await current_customer(session, callback.from_user.id)
+    if customer is None:
+        await callback.answer("Сначала выполните /start", show_alert=True)
+        return
+    language = getattr(customer.language, "value", customer.language) or "ru"
+    await begin_menu_setup(callback.message, state, customer, str(language))
+    await callback.answer("Мастер обновлён: меню теперь вводится одним списком")
+
+
 def format_premium_dashboard(menu: Menu) -> str:
     """Формирует премиальный текстовый интерфейс дашборда на основе реальных данных БД."""
     status_icon = "⚫️" if menu.status == MenuStatus.DRAFT else "⚜️️"
     status_text = "Формирование" if menu.status == MenuStatus.DRAFT else str(menu.status).capitalize()
 
+    language = getattr(getattr(menu, "customer", None), "language", "ru")
+    language = getattr(language, "value", language) or "ru"
     lines = [
-        f"⚜️ <b>Гастрономический сет #{menu.id}</b>",
+        f"⚜️ <b>{meal_label(menu.meal_period, language)} · #{menu.id}</b>",
         f"Статус: {status_icon} <i>{status_text}</i>",
         ""
     ]
@@ -74,21 +142,20 @@ def format_premium_dashboard(menu: Menu) -> str:
     lines.append(f"📔 Разворот: {spread_status}")
     lines.append("")
 
-    if not menu.items:
-        lines.append("<i>Сет пока пуст. Добавьте позиции для начала работы.</i>")
-    else:
-        lines.append("<b>Утвержденные подачи:</b>")
-        icons = {
-            ItemCategory.MAIN: "🍽",
-            ItemCategory.APPETIZER: "🥢",
-            ItemCategory.SALAD: "🥗",
-            ItemCategory.SOUP: "🥣",
-            ItemCategory.DESSERT: "🍰",
-            ItemCategory.DRINK: "🍷"
-        }
-        for idx, item in enumerate(menu.items, start=1):
-            icon = icons.get(item.category, "▪️")
-            lines.append(f"  {idx}. {icon} {item.title}")
+    grouped: dict[str, list[str]] = {}
+    for item in menu.items:
+        if item.title != "—":
+            slot = item.meal_slot or "other"
+            grouped.setdefault(slot, []).append(item.title)
+    lines.append("<b>Состав меню:</b>")
+    for slot in ("breakfast", "lunch", "dinner", "other"):
+        titles = grouped.get(slot, [])
+        if titles or slot != "other":
+            lines.append(f"  • <b>{meal_slot_label(slot, language)}</b>: {len(titles)}")
+            lines.extend(
+                f"      {index}. {escape(title)}"
+                for index, title in enumerate(titles, start=1)
+            )
 
     lines.extend([
         "",
@@ -104,22 +171,18 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
 
     builder.button(
-        text="➕ Добавить блюдо",
-        callback_data=MenuAction(action="pick_category", menu_id=menu.id)
-    )
-    if menu.items:
-        builder.button(
-            text="🗑 Очистить блюда",
-            callback_data=MenuAction(action="clear_items", menu_id=menu.id)
-        )
-
-    builder.button(
-        text="🖼 Обложка",
+        text=("✅ Фото обложки" if menu.cover_photo_path else "🖼 Загрузить фото обложки"),
         callback_data=MenuAction(action="req_cover", menu_id=menu.id)
     )
     builder.button(
-        text="📔 Разворот",
+        text=("✅ Фото разворота" if menu.spread_photo_path else "📔 Загрузить фото разворота"),
         callback_data=MenuAction(action="req_spread", menu_id=menu.id)
+    )
+
+    item_count = sum(item.title != "—" for item in menu.items)
+    builder.button(
+        text=f"{'✅' if item_count else '📝'} Ввести меню · {item_count} блюд",
+        callback_data=MenuAction(action="edit_plan", menu_id=menu.id),
     )
 
     can_generate = bool(menu.items and menu.cover_photo_path and menu.spread_photo_path)
@@ -127,36 +190,28 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
     if menu.status in (MenuStatus.DRAFT, MenuStatus.FAILED, MenuStatus.QUEUED):
         if can_generate:
             builder.button(
-                text="⚫️ Утвердить и сгенерировать",
+                text="✨ Сформировать",
                 callback_data=MenuAction(action="generate", menu_id=menu.id)
             )
         else:
             builder.button(
-                text="⚠️ Заполните данные для генерации",
+                text="⚠️ Добавьте блюда и два фото",
                 callback_data="ignore"
             )
 
-    builder.adjust(2, 2, 1)
+    builder.button(text="⬅️ Назад", callback_data="prod_food_porn")
+    builder.button(text="🏠 В начало", callback_data="back_to_products")
+    builder.adjust(1)
     return builder.as_markup()
 
 
-def build_category_kb(menu_id: int) -> InlineKeyboardMarkup:
-    """Клавиатура выбора категории нового блюда."""
-    builder = InlineKeyboardBuilder()
-    categories = [
-        ("Основное блюдо", ItemCategory.MAIN),
-        ("Закуска", ItemCategory.APPETIZER),
-        ("Салат", ItemCategory.SALAD),
-        ("Суп", ItemCategory.SOUP),
-        ("Десерт", ItemCategory.DESSERT),
-        ("Напиток", ItemCategory.DRINK),
-    ]
-    for text, cat in categories:
-        builder.button(text=text, callback_data=MenuAction(action="add_item", menu_id=menu_id, category=cat.value))
-
-    builder.button(text="🔙 Назад к сету", callback_data=MenuAction(action="view", menu_id=menu_id))
-    builder.adjust(2, 2, 2, 1)
-    return builder.as_markup()
+@router.callback_query(F.data == "ignore")
+async def explain_generation_requirements(callback: CallbackQuery) -> None:
+    """Объясняет, какие данные ещё нужны для запуска генерации."""
+    await callback.answer(
+        "Добавьте хотя бы одно блюдо и загрузите фото обложки и разворота.",
+        show_alert=True,
+    )
 
 
 # --- НОВЫЕ ИНТЕРАКТИВНЫЕ ФУНКЦИИ (на уровне модуля) ---
@@ -221,31 +276,15 @@ async def notify_partner_about_meal(callback: CallbackQuery) -> None:
     await callback.answer("🎉 Повідомлення успішно надіслано вашому партнеру!", show_alert=True)
 
 
-# --- СТАНДАРТНЫЕ ХЕНДЕРЫ РОУТЕРА ---
+# --- ПОШАГОВЫЙ МАСТЕР МЕНЮ ---
 
-@router.message(Command("new"))
-async def create_new_menu(
-        message: Message,
-        state: FSMContext,
-        session_factory: async_sessionmaker[AsyncSession],
-) -> None:
-    await state.clear()
 
-    async with session_factory() as session:
-        customer = await current_customer(session, message.from_user.id)
-        if not customer:
-            await message.answer("Сначала зарегистрируйтесь командой /start.")
-            return
-
-        repo = MenuRepository(session)
-        new_menu = await repo.create(customer)
-        menu = await repo.get(new_menu.id, full=True)
-
-        text = format_premium_dashboard(menu)
-        kb = build_dashboard_kb(menu)
-
-    msg = await message.answer(text, reply_markup=kb, parse_mode="HTML")
-    await state.update_data(dashboard_message_id=msg.message_id, menu_id=menu.id)
+def _owned_by(menu: Menu | None, telegram_user_id: int) -> bool:
+    return bool(
+        menu
+        and getattr(menu, "customer", None)
+        and menu.customer.telegram_user_id == telegram_user_id
+    )
 
 
 @router.callback_query(MenuAction.filter(F.action == "view"))
@@ -259,7 +298,7 @@ async def view_dashboard(
     async with session_factory() as session:
         menu = await MenuRepository(session).get(callback_data.menu_id, full=True)
 
-    if not menu:
+    if not _owned_by(menu, callback.from_user.id):
         await callback.answer("Сет не найден.", show_alert=True)
         return
 
@@ -271,98 +310,105 @@ async def view_dashboard(
     await callback.answer()
 
 
-@router.callback_query(MenuAction.filter(F.action == "pick_category"))
-async def pick_item_category(callback: CallbackQuery, callback_data: MenuAction) -> None:
-    await callback.message.edit_text(
-        "<b>Выберите категорию подачи:</b>\n<i>От этого зависит визуальный стиль иллюстрации.</i>",
-        reply_markup=build_category_kb(callback_data.menu_id),
-        parse_mode="HTML"
-    )
-    await callback.answer()
-
-
-@router.callback_query(MenuAction.filter(F.action == "add_item"))
-async def prompt_item_name(
+@router.callback_query(MenuAction.filter(F.action.in_(["edit_plan", "edit_category"])))
+async def prompt_menu_plan(
     callback: CallbackQuery,
     callback_data: MenuAction,
-    state: FSMContext
+    state: FSMContext,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    await state.set_state(PremiumMenuStates.waiting_for_dish_name)
+    async with session_factory() as session:
+        menu = await MenuRepository(session).get(callback_data.menu_id, full=True)
+    if not _owned_by(menu, callback.from_user.id):
+        await callback.answer("Сет не найден.", show_alert=True)
+        return
+    language = getattr(menu.customer.language, "value", menu.customer.language)
+    await state.set_state(PremiumMenuStates.waiting_for_dish_list)
     await state.update_data(
         menu_id=callback_data.menu_id,
-        category=callback_data.category
+        ui_lang=language,
     )
-
     await callback.message.edit_text(
-        "🖋 <b>Введите название блюда:</b>\n<i>Например: Медальоны из телятины с трюфельным соусом</i>",
-        parse_mode="HTML"
+        text_for(
+            language,
+            "🖋 <b>Введіть усе меню одним повідомленням</b>\n\n"
+            "Заголовки <b>Сніданок, Обід, Вечеря</b> не вважаються стравами. "
+            "Кожен інший рядок — окрема страва. Маркери, тире та нумерація дозволені.\n\n"
+            "Можна змішувати мови, використовувати трансліт і допускати невеликі помилки.\n\n"
+            "<pre>Сніданок\n- Омлет\nКава\n\nОбід:\n1. Борщ\nСалат Цезар\n\nВечеря\nСтейк\nЧервоне вино</pre>",
+            "🖋 <b>Введите всё меню одним сообщением</b>\n\n"
+            "Заголовки <b>Завтрак, Обед, Ужин</b> не считаются блюдами. "
+            "Каждая другая строка — отдельное блюдо. Маркеры, тире и нумерация допустимы.\n\n"
+            "Можно смешивать языки, использовать транслит и допускать небольшие опечатки.\n\n"
+            "<pre>Завтрак\n- Омлет\nКофе\n\nОбед:\n1. Борщ\nСалат Цезарь\n\nУжин\nСтейк\nКрасное вино</pre>",
+            "🖋 <b>Send the entire menu in one message</b>\n\n"
+            "The headings <b>Breakfast, Lunch, Dinner</b> are separators, not dishes. "
+            "Every other line is one dish. Bullets, dashes, and numbering are allowed.\n\n"
+            "Languages may be mixed; transliteration and minor typos are accepted.\n\n"
+            "<pre>Breakfast\n- Omelet\nCoffee\n\nLunch:\n1. Soup\nCaesar salad\n\nDinner\nSteak\nRed wine</pre>",
+        ),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data=MenuAction(action="view", menu_id=menu.id).pack())],
+            [InlineKeyboardButton(text="🏠 В начало", callback_data="back_to_products")],
+        ]),
+        parse_mode="HTML",
     )
     await callback.answer()
 
 
-@router.message(PremiumMenuStates.waiting_for_dish_name, F.text)
-async def receive_dish_name(
+@router.message(PremiumMenuStates.waiting_for_dish_list, F.text)
+async def receive_dish_list(
     message: Message,
     state: FSMContext,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    title = message.text.strip()
     data = await state.get_data()
     menu_id = data.get("menu_id")
-    category_val = data.get("category")
-
-    if not 2 <= len(title) <= 180:
-        await message.answer("⚠️ Название должно быть от 2 до 180 символов.")
-        return
-
-    async with session_factory() as session:
-        repo = MenuRepository(session)
-        menu = await repo.get(menu_id, full=True)
-        if not menu:
-            return
-
-        position = len(menu.items) + 1
-
-        await repo.add_item(
-            menu_id=menu_id,
-            category=ItemCategory(category_val),
-            position=position,
-            title=title
+    language = data.get("ui_lang", "ru")
+    try:
+        entries = parse_menu_plan(message.text, language=language)
+    except (ValueError, TypeError) as exc:
+        await message.answer(
+            text_for(
+                language,
+                f"⚠️ Не вдалося розпізнати меню: {exc}.\nДодайте від 1 до 18 страв — кожну з нового рядка.",
+                f"⚠️ Не удалось распознать меню: {exc}.\nДобавьте от 1 до 18 блюд — каждое с новой строки.",
+                f"⚠️ Could not parse the menu: {exc}.\nAdd 1 to 18 dishes, one per line.",
+            )
         )
-
-        menu = await repo.get(menu_id, full=True)
-
-    await state.set_state(None)
-
-    msg = await message.answer(
-        format_premium_dashboard(menu),
-        reply_markup=build_dashboard_kb(menu),
-        parse_mode="HTML"
-    )
-    await state.update_data(dashboard_message_id=msg.message_id)
-
-
-@router.callback_query(MenuAction.filter(F.action == "clear_items"))
-async def clear_items(
-    callback: CallbackQuery,
-    callback_data: MenuAction,
-    session_factory: async_sessionmaker[AsyncSession],
-) -> None:
+        return
     async with session_factory() as session:
         repo = MenuRepository(session)
-        await repo.reset_items(callback_data.menu_id)
-        menu = await repo.get(callback_data.menu_id, full=True)
-
-    await callback.message.edit_text(
+        menu = await repo.get(menu_id, full=True)
+        if not _owned_by(menu, message.from_user.id):
+            await state.clear()
+            await message.answer("Сет не найден. Вернитесь в /start.")
+            return
+        await repo.replace_menu_plan(
+            menu_id=menu_id,
+            entries=[(entry.meal_slot, entry.title, entry.category) for entry in entries],
+        )
+        menu = await repo.get(menu_id, full=True)
+    await state.set_state(None)
+    await message.answer(
         format_premium_dashboard(menu),
         reply_markup=build_dashboard_kb(menu),
-        parse_mode="HTML"
+        parse_mode="HTML",
     )
-    await callback.answer("Блюда удалены")
 
 
 @router.callback_query(MenuAction.filter(F.action.in_(["req_cover", "req_spread"])))
-async def prompt_photo(callback: CallbackQuery, callback_data: MenuAction, state: FSMContext) -> None:
+async def prompt_photo(
+    callback: CallbackQuery,
+    callback_data: MenuAction,
+    state: FSMContext,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        menu = await MenuRepository(session).get(callback_data.menu_id, full=True)
+    if not _owned_by(menu, callback.from_user.id):
+        await callback.answer("Сет не найден.", show_alert=True)
+        return
     is_cover = callback_data.action == "req_cover"
     target_state = PremiumMenuStates.waiting_for_cover if is_cover else PremiumMenuStates.waiting_for_spread
     role_name = "обложки" if is_cover else "разворота"
@@ -371,8 +417,15 @@ async def prompt_photo(callback: CallbackQuery, callback_data: MenuAction, state
     await state.update_data(menu_id=callback_data.menu_id)
 
     await callback.message.edit_text(
-        f"🖼 <b>Отправьте фотографию для {role_name}:</b>\n<i>Файл должен быть изображением (не файлом/документом).</i>",
-        parse_mode="HTML"
+        f"🖼 <b>Отправьте фотографию для {role_name}</b>\n\n"
+        "Лицо должно быть хорошо видно, без сильных фильтров. "
+        "Лучше использовать вертикальный кадр, снятый не сверху.\n\n"
+        "<i>Отправьте именно фото, а не документ.</i>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data=MenuAction(action="view", menu_id=menu.id).pack())],
+            [InlineKeyboardButton(text="🏠 В начало", callback_data="back_to_products")],
+        ]),
+        parse_mode="HTML",
     )
     await callback.answer()
 
@@ -390,6 +443,13 @@ async def receive_photo(
     menu_id = data.get("menu_id")
     current_state = await state.get_state()
     role = "cover" if current_state == PremiumMenuStates.waiting_for_cover.state else "spread"
+
+    async with session_factory() as session:
+        existing = await MenuRepository(session).get(menu_id, full=True)
+    if not _owned_by(existing, message.from_user.id):
+        await state.clear()
+        await message.answer("Сет не найден. Вернитесь в /start.")
+        return
 
     try:
         path = await StorageService(settings).save_telegram_photo(
@@ -430,8 +490,17 @@ async def confirm_generation(
         repo = MenuRepository(session)
         menu = await repo.get(callback_data.menu_id, full=True)
 
-        if not menu or menu.status == MenuStatus.COMPLETED:
+        if not _owned_by(menu, callback.from_user.id):
+            await callback.answer("Сет не найден.", show_alert=True)
+            return
+        if menu.status == MenuStatus.COMPLETED:
             await callback.answer("Сет уже успешно завершен.", show_alert=True)
+            return
+        if menu.status == MenuStatus.QUEUED:
+            await callback.answer("Сет уже формируется.", show_alert=True)
+            return
+        if not menu.items or not menu.cover_photo_path or not menu.spread_photo_path:
+            await callback.answer("Добавьте блюда и загрузите два фото.", show_alert=True)
             return
 
         await repo.set_status(menu.id, MenuStatus.QUEUED)
@@ -448,20 +517,29 @@ async def confirm_generation(
     await callback.answer("Отправлено в обработку")
 
 
-@router.message(Command("history"))
-async def history_command(
+async def send_history(
         message: Message,
         session_factory: async_sessionmaker[AsyncSession],
+    *,
+    telegram_user_id: int | None = None,
 ) -> None:
+    telegram_user_id = telegram_user_id or message.from_user.id
     async with session_factory() as session:
-        customer = await current_customer(session, message.from_user.id)
+        customer = await current_customer(session, telegram_user_id)
         if not customer:
             return
 
         menus = await MenuRepository(session).recent_for_customer(customer.id, limit=10)
 
     if not menus:
-        await message.answer("📚 <b>Ваш архив пуст.</b>\n<i>Создайте первый сет командой /new</i>", parse_mode="HTML")
+        await message.answer(
+            "📚 <b>Ваш архив пуст.</b>\n<i>Создайте первый сет через главное меню.</i>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🍽 Создать меню", callback_data="prod_food_porn")],
+                [InlineKeyboardButton(text="🏠 В начало", callback_data="back_to_products")],
+            ]),
+            parse_mode="HTML",
+        )
         return
 
     builder = InlineKeyboardBuilder()
@@ -471,9 +549,31 @@ async def history_command(
         builder.button(text=btn_text, callback_data=MenuAction(action="view", menu_id=m.id))
 
     builder.adjust(1)
+    builder.row(InlineKeyboardButton(text="🏠 В начало", callback_data="back_to_products"))
 
     await message.answer(
         "📚 <b>Архив ваших гастрономических сетов:</b>\n<i>Выберите сет для просмотра или управления:</i>",
         reply_markup=builder.as_markup(),
-        parse_mode="HTML"
+        parse_mode="HTML",
     )
+
+
+@router.message(Command("history"))
+async def history_command(
+    message: Message,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await send_history(message, session_factory)
+
+
+@router.callback_query(F.data == "home_orders")
+async def history_callback(
+    callback: CallbackQuery,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await send_history(
+        callback.message,
+        session_factory,
+        telegram_user_id=callback.from_user.id,
+    )
+    await callback.answer()
