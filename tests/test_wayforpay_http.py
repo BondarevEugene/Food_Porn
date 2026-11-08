@@ -15,6 +15,8 @@ from fastapi import HTTPException
 from app.api import wayforpay as api
 from app.config import Settings
 from app.services.wayforpay import TEST_MERCHANT_ACCOUNT, TEST_MERCHANT_SECRET
+
+
 def settings():
     return Settings(
         _env_file=None,
