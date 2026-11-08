@@ -110,15 +110,16 @@ class MenuPipeline:
             return
         self._active_menu_ids.add(menu_id)
         try:
-            async with MenuProcessingLease(self.session_factory, menu_id) as acquired:
+            lease = MenuProcessingLease(self.session_factory, menu_id)
+            async with lease as acquired:
                 if not acquired:
                     logger.info("Menu %s already leased or finalized; skipping", menu_id)
                     return
-                await self._process_unlocked(menu_id)
+                await self._process_unlocked(menu_id, lease=lease)
         finally:
             self._active_menu_ids.discard(menu_id)
 
-    async def _process_unlocked(self, menu_id: int) -> None:
+    async def _process_unlocked(self, menu_id: int, *, lease: MenuProcessingLease) -> None:
         logger.info(f"Pipeline execution started for Menu ID:{menu_id}")
         async with self.session_factory() as session:
             repo = MenuRepository(session)
@@ -159,6 +160,7 @@ class MenuPipeline:
                     if ready:
                         continue
 
+                    await lease.assert_owned()
                     prompt = self.prompt_builder.build(item)
                     await repo.set_item_processing(item, prompt)
 
@@ -171,9 +173,11 @@ class MenuPipeline:
                             product_type="menu",
                             order_id=menu.id,
                         )
+                        await lease.assert_owned()
                         await repo.set_item_done(item, str(path))
                     except Exception as img_exc:
                         logger.error(f"Image generation failed for item {item.id}: {img_exc}")
+                        await lease.assert_owned()
                         await repo.set_item_failed(item, str(img_exc))
 
                 failed_titles = [item.title for item in menu.items if item.title != "—" and
@@ -188,12 +192,14 @@ class MenuPipeline:
                 cached_details, missing_titles = split_recipe_work(menu.items)
                 menu_details = dict(cached_details)
                 if missing_titles:
+                    await lease.assert_owned()
                     generated_details = await self.recipe_service.generate_menu_details(
                         missing_titles,
                         language,
                         user_id=customer_telegram_id,
                         order_id=menu.id,
                     )
+                    await lease.assert_owned()
                     for item in menu.items:
                         if item.title in missing_titles:
                             await repo.save_recipe_details(item, generated_details[item.title])
@@ -232,6 +238,7 @@ class MenuPipeline:
                     shopping_sections=shopping_sections,
                 )
                 save_evening_plan(self.settings.generated_dir / str(menu.id) / "evening_plan.json", plan)
+                await lease.assert_owned()
                 for kind, path in rendered_artifacts.as_mapping().items():
                     await repo.save_file(menu.id, kind, str(path))
                 await repo.save_file(menu.id, FileKind.RECIPE_SHEET, str(recipe_path))
@@ -243,6 +250,7 @@ class MenuPipeline:
 
                 is_uk = str(language).lower() in ("uk", "ukrainian")
 
+                await lease.assert_owned()
                 if is_vip or menu.is_paid:
                     # ВИП-режим: сразу отмечаем как оплаченное и выдаем чистые файлы без эквайринга
                     if not menu.is_paid:
