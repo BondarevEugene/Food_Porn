@@ -8,7 +8,7 @@ import os
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -44,8 +44,13 @@ async def test_postgres_lease_concurrent_claim_renew_expire_and_release():
         isolated = create_async_engine(
             url,
             pool_pre_ping=True,
-            connect_args={"ssl": "require", "server_settings": {"search_path": schema}},
+            connect_args={"ssl": "require"},
         )
+        # Poolers may reset session settings between transactions.
+        @event.listens_for(isolated.sync_engine, "begin")
+        def _set_test_schema(conn):
+            conn.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
+
         async with isolated.begin() as conn:
             await conn.run_sync(
                 lambda sync_conn: Customer.__table__.create(sync_conn, checkfirst=False)
