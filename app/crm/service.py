@@ -28,6 +28,9 @@ SETTING_RULES = {
     "menu_price_uah": (Decimal("1"), Decimal("100000"), False, None),
     "menu_price_stars": (Decimal("0"), Decimal("100000"), True, "menu_price_stars"),
     "gift_price_stars": (Decimal("0"), Decimal("100000"), True, "gift_price_stars"),
+    "video_economy_price_uah": (Decimal("0.01"), Decimal("100000"), False, "video_economy_price_uah"),
+    "video_cinematic_price_uah": (Decimal("0.01"), Decimal("100000"), False, "video_cinematic_price_uah"),
+    "video_premium_price_uah": (Decimal("0.01"), Decimal("100000"), False, "video_premium_price_uah"),
     "usd_exchange_rate": (Decimal("0.01"), Decimal("10000"), False, "usd_exchange_rate"),
     "price_electronic_uah": (Decimal("1"), Decimal("100000"), True, "price_electronic_uah"),
     "price_print_uah": (Decimal("1"), Decimal("100000"), True, "price_print_uah"),
@@ -411,7 +414,7 @@ def apply_runtime_values(values: dict) -> None:
     for key, value in values.items():
         _, _, integer, attribute = SETTING_RULES[key]
         if attribute:
-            setattr(settings, attribute, int(value) if integer else float(value))
+            setattr(settings, attribute, int(value) if integer else (Decimal(value) if attribute.startswith("video_") else float(value)))
 
 
 async def load_runtime_settings(session_factory) -> None:
