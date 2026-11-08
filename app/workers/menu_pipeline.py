@@ -58,6 +58,7 @@ class MenuPipeline:
         self.session_factory = session_factory
         self.queue: asyncio.Queue[int] = asyncio.Queue()
         self._tasks: list[asyncio.Task] = []
+        self._active_menu_ids: set[int] = set()
 
         self.image_service = ImageGenerationService(settings)
         self.prompt_builder = PromptBuilder()
@@ -102,6 +103,17 @@ class MenuPipeline:
                 logger.error(f"Critical worker failure: {exc}", exc_info=True)
 
     async def _process(self, menu_id: int) -> None:
+        """Deduplicate simultaneous attempts within this worker process."""
+        if menu_id in self._active_menu_ids:
+            logger.info("Menu %s already processing in this process; skipping duplicate", menu_id)
+            return
+        self._active_menu_ids.add(menu_id)
+        try:
+            await self._process_unlocked(menu_id)
+        finally:
+            self._active_menu_ids.discard(menu_id)
+
+    async def _process_unlocked(self, menu_id: int) -> None:
         logger.info(f"Pipeline execution started for Menu ID:{menu_id}")
         async with self.session_factory() as session:
             repo = MenuRepository(session)
