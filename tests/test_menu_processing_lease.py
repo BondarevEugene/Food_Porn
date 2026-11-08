@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.services.menu_processing_lease import MenuProcessingLease
 from app.workers.menu_pipeline import MenuPipeline
 
 
