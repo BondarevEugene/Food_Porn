@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+from datetime import UTC, datetime
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -11,8 +13,25 @@ import pytest
 from fastapi import HTTPException
 
 from app.api import wayforpay as api
+from app.config import Settings
 from app.services.wayforpay import TEST_MERCHANT_ACCOUNT, TEST_MERCHANT_SECRET
-from tests.test_wayforpay import payment, settings
+def settings():
+    return Settings(
+        _env_file=None,
+        public_base_url="https://foodporn-production.up.railway.app",
+        wayforpay_merchant_domain="foodporn-production.up.railway.app",
+        wayforpay_test_mode=True,
+    )
+
+
+def payment():
+    return SimpleNamespace(
+        order_reference="fp_menu_17_abcdef",
+        amount=Decimal("5.00"),
+        currency="UAH",
+        status="pending",
+        created_at=datetime(2026, 10, 20, tzinfo=UTC),
+    )
 
 
 def _signed_payload(attempt):
