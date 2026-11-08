@@ -1,5 +1,5 @@
 """Calendar-period boundaries and CRM finance API contracts."""
-from datetime import UTC, datetime
+from datetime import UTC
 
 import pytest
 
