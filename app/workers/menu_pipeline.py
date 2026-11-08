@@ -122,7 +122,7 @@ class MenuPipeline:
     async def _process_unlocked(self, menu_id: int, *, lease: MenuProcessingLease) -> None:
         logger.info(f"Pipeline execution started for Menu ID:{menu_id}")
         async with self.session_factory() as session:
-            repo = MenuRepository(session)
+            repo = MenuRepository(session, processing_token=lease.token, processing_menu_id=menu_id)
             menu = await repo.get(menu_id, full=True)
 
             if not menu:
