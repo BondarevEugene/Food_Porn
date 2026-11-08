@@ -32,6 +32,7 @@ from app.render.recipes import render_recipe_sheet
 from app.services.evening_plan import build_evening_plan, save_evening_plan
 from app.services.free_access import has_free_generation_access
 from app.services.image_generation import ImageGenerationService
+from app.services.menu_recipe_cache import split_recipe_work
 from app.services.menu_quality import (
     validate_customer_photos,
     validate_menu_artwork,
@@ -165,16 +166,19 @@ class MenuPipeline:
 
                 # Шаг 2: Генерация рецептов через LLM или локальный фоллбэк
                 language = getattr(menu.customer, "language", "uk") or "uk"
-                dish_titles = [item.title for item in menu.items if item.title != "—"]
-                menu_details = await self.recipe_service.generate_menu_details(
-                    dish_titles,
-                    language,
-                    user_id=customer_telegram_id,
-                    order_id=menu.id,
-                )
-                for item in menu.items:
-                    if item.title in menu_details:
-                        await repo.save_recipe_details(item, menu_details[item.title])
+                cached_details, missing_titles = split_recipe_work(menu.items)
+                menu_details = dict(cached_details)
+                if missing_titles:
+                    generated_details = await self.recipe_service.generate_menu_details(
+                        missing_titles,
+                        language,
+                        user_id=customer_telegram_id,
+                        order_id=menu.id,
+                    )
+                    for item in menu.items:
+                        if item.title in missing_titles:
+                            await repo.save_recipe_details(item, generated_details[item.title])
+                    menu_details.update(generated_details)
 
                 # Шаг 3: Агрегация списка покупок
                 shopping_list = aggregate_shopping_list(menu_details)
