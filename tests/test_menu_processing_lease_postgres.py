@@ -28,9 +28,11 @@ async def test_postgres_lease_concurrent_claim_renew_expire_and_release():
     schema = "lease_test_" + uuid4().hex[:16]
     admin = create_async_engine(url, pool_pre_ping=True)
     isolated = None
+    schema_created = False
     try:
         async with admin.begin() as conn:
             await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
+        schema_created = True
         isolated = create_async_engine(
             url,
             pool_pre_ping=True,
@@ -88,6 +90,9 @@ async def test_postgres_lease_concurrent_claim_renew_expire_and_release():
     finally:
         if isolated is not None:
             await isolated.dispose()
-        async with admin.begin() as conn:
-            await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-        await admin.dispose()
+        try:
+            if schema_created:
+                async with admin.begin() as conn:
+                    await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        finally:
+            await admin.dispose()
