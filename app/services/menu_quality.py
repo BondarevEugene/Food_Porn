@@ -9,6 +9,30 @@ from PIL import Image
 from app.database.models import GenerationStatus, Menu
 
 
+
+def validate_customer_photos(menu: Menu) -> None:
+    """Reject missing or corrupt customer photos before paid AI generation."""
+    for role, raw_path in (
+        ("cover", menu.cover_photo_path),
+        ("spread", menu.spread_photo_path),
+    ):
+        if not raw_path:
+            raise ValueError(f"Customer {role} photo is required; upload it again")
+        path = Path(raw_path)
+        if not path.is_file():
+            raise ValueError(f"Customer {role} photo is missing; upload it again")
+        try:
+            with Image.open(path) as image:
+                image.verify()
+            with Image.open(path) as image:
+                if image.width < 1 or image.height < 1:
+                    raise ValueError("Empty image")
+        except (OSError, ValueError) as exc:
+            raise ValueError(
+                f"Customer {role} photo is unreadable; upload it again"
+            ) from exc
+
+
 def validate_menu_artwork(menu: Menu, placeholder: Path) -> None:
     selected = [item for item in menu.items if item.title != "—"]
     if not selected:
