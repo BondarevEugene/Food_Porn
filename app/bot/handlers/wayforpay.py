@@ -19,6 +19,7 @@ import logging
 from pathlib import Path
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, FSInputFile
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -152,13 +153,22 @@ async def check_wayforpay(
             )
             return
 
-        if payment.product == "menu":
-            delivered = await _deliver_menu(callback, reference_id, session)
-        elif payment.product == "wallpaper":
-            delivered = await _deliver_wallpaper(
-                callback, reference_id, session, settings
+        try:
+            if payment.product == "menu":
+                delivered = await _deliver_menu(callback, reference_id, session)
+            elif payment.product == "wallpaper":
+                delivered = await _deliver_wallpaper(
+                    callback, reference_id, session, settings
+                )
+            else:
+                delivered = None
+        except TelegramAPIError:
+            logger.exception(
+                "WayForPay delivery failed for payment %s", payment.order_reference
             )
-        else:
+            delivered = False
+
+        if delivered is None:
             logger.error(
                 "Unsupported WayForPay product %r for payment %s",
                 payment.product,
@@ -172,8 +182,8 @@ async def check_wayforpay(
 
         if not delivered:
             await callback.answer(
-                "Оплату підтверджено, але файли поки недоступні. "
-                "Зверніться до підтримки.",
+                "Оплату підтверджено, але не всі файли вдалося надіслати. "
+                "Повторіть перевірку оплати пізніше або зверніться до підтримки.",
                 show_alert=True,
             )
             return
