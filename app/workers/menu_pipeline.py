@@ -33,8 +33,8 @@ from app.services.evening_plan import build_evening_plan, save_evening_plan
 from app.services.free_access import has_free_generation_access
 from app.services.image_generation import ImageGenerationService
 from app.services.menu_quality import (
-    validate_menu_artwork,
     validate_customer_photos,
+    validate_menu_artwork,
     validate_menu_files,
 )
 from app.services.payment import PaymentService
