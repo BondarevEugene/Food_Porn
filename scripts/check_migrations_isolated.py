@@ -82,10 +82,10 @@ def main() -> int:
 
     asyncio.run(_inspect_database(raw_url, expect_empty=True))
     environment = os.environ.copy()
-    environment["DATABASE_URL"] = str(
-        parsed.set(drivername="postgresql+asyncpg").difference_update_query(
-            ["sslmode", "channel_binding"]
-        )
+    environment["DATABASE_URL"] = (
+        parsed.set(drivername="postgresql+asyncpg")
+        .difference_update_query(["sslmode", "channel_binding"])
+        .render_as_string(hide_password=False)
     )
     # Alembic env.py бере адресу з Settings; змінна процесу має пріоритет над .env.
     print("Перевірено порожню тестову БД. Запускаємо Alembic upgrade head...")
