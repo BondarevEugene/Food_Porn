@@ -452,7 +452,14 @@ class MenuPipeline:
                     try:
                         await self.bot.send_message(
                             menu.customer.telegram_user_id,
-                            "Не удалось подготовить полный комплект. Оплата не выставлена; повторите создание позже.",
+                            (
+                                "Комплект подготовлен, но доставка не завершилась. "
+                                "Ваш оплаченный заказ сохранён; повторная оплата не требуется."
+                                if failure_status == MenuStatus.PARTIAL_SUCCESS
+                                else "Не удалось подготовить полный комплект. "
+                                     "Если оплата уже прошла, не оплачивайте повторно; "
+                                     "обратитесь в поддержку."
+                            ),
                         )
                     except Exception:
                         logger.exception("Could not notify customer about failed menu %s", menu_id)
