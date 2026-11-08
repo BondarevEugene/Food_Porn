@@ -85,8 +85,10 @@ class MenuPipeline:
         while True:
             try:
                 menu_id = await self.queue.get()
-                await self._process(menu_id)
-                self.queue.task_done()
+                try:
+                    await self._process(menu_id)
+                finally:
+                    self.queue.task_done()
             except asyncio.CancelledError:
                 break
             except Exception as exc:
@@ -433,7 +435,19 @@ class MenuPipeline:
 
             except Exception as proc_exc:
                 logger.error(f"Pipeline processing failed for Menu ID:{menu_id}: {proc_exc}", exc_info=True)
-                await repo.set_status(menu_id, MenuStatus.FAILED, error_message=str(proc_exc))
+                # A delivery failure must not invalidate an already paid order.
+                # Generated artifacts remain available for a separate delivery retry.
+                has_ready_files = any(
+                    Path(generated.path).is_file() for generated in menu.files
+                )
+                failure_status = (
+                    MenuStatus.PARTIAL_SUCCESS
+                    if menu.is_paid and has_ready_files
+                    else MenuStatus.FAILED
+                )
+                await repo.set_status(
+                    menu_id, failure_status, error_message=str(proc_exc)
+                )
                 if menu.source_channel == "telegram":
                     try:
                         await self.bot.send_message(
