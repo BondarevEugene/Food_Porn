@@ -465,16 +465,17 @@ class WallpaperOrderRepository:
     async def mark_paid(self, order: WallpaperOrder, payment_id: str,
                         payment_system: str = "portmone") -> bool:
         """Claim the wallpaper payment once, even across concurrent workers."""
+        order_id = order.id
         locked = (await self.session.execute(
-            select(WallpaperOrder).where(WallpaperOrder.id == order.id).with_for_update().execution_options(populate_existing=True)
+            select(WallpaperOrder).where(WallpaperOrder.id == order_id).with_for_update().execution_options(populate_existing=True)
         )).scalar_one_or_none()
         if locked is None:
             await self.session.rollback()
-            raise LookupError(f"Wallpaper order {order.id} not found")
+            raise LookupError(f"Wallpaper order {order_id} not found")
         if locked.paid:
             if locked.payment_id != payment_id or locked.payment_system != payment_system:
                 await self.session.rollback()
-                raise ValueError(f"Wallpaper order {order.id} already paid with another receipt")
+                raise ValueError(f"Wallpaper order {order_id} already paid with another receipt")
             await self.session.rollback()
             return False
         locked.paid = True
