@@ -155,6 +155,9 @@ def settings_keyboard(
         "menu_price_uah": "Меню · UAH",
         "menu_price_stars": "Меню · Stars",
         "gift_price_stars": "Подарок · Stars",
+        "video_economy_price_uah": "🎬 Эконом · UAH",
+        "video_cinematic_price_uah": "🎬 Кино · UAH",
+        "video_premium_price_uah": "🎬 Премиум · UAH",
         "usd_exchange_rate": "Курс USD / UAH",
     }
     buttons = [
@@ -206,7 +209,7 @@ def settings_text(data: dict, *, owner: bool, paid_test_active: bool = False) ->
         + escape(", ".join(f"@{name.lstrip('@')}" for name in data["vip"]) or "нет")
         + "\n\nЦены Stars используются для новых счетов. Уже выставленные счета сохраняют свою цену."
         "\nДля подарков цена UAH рассчитывается по фактической стоимости API + 5%."
-        + access_note
+        + "\nЦены видеоисторий управляются отдельно и пока не активируют оплату видео."\n        + access_note
     )
 
 
