@@ -32,6 +32,7 @@ from app.render.recipes import render_recipe_sheet
 from app.services.evening_plan import build_evening_plan, save_evening_plan
 from app.services.free_access import has_free_generation_access
 from app.services.image_generation import ImageGenerationService
+from app.services.menu_photo_recovery import restore_missing_menu_photos
 from app.services.menu_recipe_cache import split_recipe_work
 from app.services.menu_quality import (
     validate_customer_photos,
@@ -113,7 +114,8 @@ class MenuPipeline:
             try:
                 if self.settings.use_mock_images:
                     raise RuntimeError("USE_MOCK_IMAGES=true: настоящие фотографии отключены. Установите false в .env")
-                # Fail before generating dish images or recipes if uploads vanished.
+                # Restore missing uploads before any billable AI operation.
+                await restore_missing_menu_photos(menu, self.bot, self.settings, repo)
                 validate_customer_photos(menu)
                 customer_telegram_id = menu.customer.telegram_user_id
                 is_telegram = menu.source_channel == "telegram"
