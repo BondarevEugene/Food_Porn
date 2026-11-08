@@ -33,12 +33,12 @@ from app.services.evening_plan import build_evening_plan, save_evening_plan
 from app.services.free_access import has_free_generation_access
 from app.services.image_generation import ImageGenerationService
 from app.services.menu_photo_recovery import restore_missing_menu_photos
-from app.services.menu_recipe_cache import split_recipe_work
 from app.services.menu_quality import (
     validate_customer_photos,
     validate_menu_artwork,
     validate_menu_files,
 )
+from app.services.menu_recipe_cache import split_recipe_work
 from app.services.payment import PaymentService
 from app.services.portmone_sandbox import send_portmone_sandbox_offer
 from app.services.prompt_builder import PromptBuilder
