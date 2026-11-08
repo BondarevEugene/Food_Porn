@@ -276,60 +276,174 @@ def safe_provider_payload(payload: dict[str, Any]) -> dict[str, Any]:
     }
     return {key: payload[key] for key in allowed if key in payload}
 
+async def wayforpay_entitlement_is_active(
+    session: AsyncSession,
+    payment: WayForPayPayment,
+) -> bool:
+    """Return True only when this exact WayForPay attempt owns the order."""
+    if payment.status != "approved":
+        return False
+
+    if not payment.grants_entitlement:
+        return True
+
+    try:
+        reference_id = int(payment.reference_id)
+    except (TypeError, ValueError):
+        return False
+
+    if payment.product == "menu":
+        menu = await session.get(Menu, reference_id)
+        if menu is None:
+            return False
+
+        await session.refresh(menu, ["customer"])
+
+        return (
+            menu.customer.telegram_user_id == payment.telegram_user_id
+            and menu.is_paid
+            and menu.payment_system == "wayforpay"
+            and menu.payment_id == payment.order_reference
+        )
+
+    if payment.product == "wallpaper":
+        order = await session.get(WallpaperOrder, reference_id)
+        if order is None:
+            return False
+
+        return (
+            order.telegram_user_id == payment.telegram_user_id
+            and order.paid
+            and order.payment_system == "wayforpay"
+            and order.payment_id == payment.order_reference
+        )
+
+    return False
 
 async def apply_verified_payment(
     session: AsyncSession,
     payment: WayForPayPayment,
     payload: dict[str, Any],
 ) -> bool:
-    """Persist a verified response and grant the matching entitlement once."""
+    """
+    Persist a verified provider response.
+
+    True means this exact WayForPay attempt owns the entitlement.
+    False means the provider did not approve the payment or the order
+    was already paid by another payment attempt/provider.
+    """
+    if payment.product not in PRODUCTS:
+        raise WayForPayError("Unsupported WayForPay product")
+
     transaction_status = str(payload.get("transactionStatus", ""))
     payment.transaction_status = transaction_status[:40]
     payment.reason_code = str(payload.get("reasonCode", ""))[:40] or None
     payment.provider_payload = safe_provider_payload(payload)
+
     if transaction_status != "Approved":
         if payment.status != "approved":
             payment.status = "failed"
-            payment.error_message = str(payload.get("reason", transaction_status))[:1000]
+            payment.error_message = str(
+                payload.get("reason", transaction_status)
+            )[:1000]
+
         await session.commit()
         return False
 
+    if not payment.grants_entitlement:
+        payment.status = "approved"
+        payment.provider_payment_id = str(
+            payload.get("authCode") or payment.order_reference
+        )[:120]
+        payment.error_message = None
+        payment.paid_at = payment.paid_at or datetime.now(UTC)
+
+        await session.commit()
+        return True
+
+    try:
+        reference_id = int(payment.reference_id)
+    except (TypeError, ValueError) as exc:
+        raise WayForPayError("Invalid payment reference") from exc
+
+    # Lock the actual product row before deciding who owns its entitlement.
+    if payment.product == "menu":
+        product = await session.get(
+            Menu, reference_id, with_for_update=True
+        )
+        if product is None:
+            raise WayForPayError("Menu no longer exists")
+
+        await session.refresh(product, ["customer"])
+
+        if product.customer.telegram_user_id != payment.telegram_user_id:
+            raise WayForPayError("Payment owner mismatch")
+
+        already_paid = product.is_paid
+        existing_provider = product.payment_system
+        existing_payment_id = product.payment_id
+
+    elif payment.product == "wallpaper":
+        product = await session.get(
+            WallpaperOrder, reference_id, with_for_update=True
+        )
+        if product is None:
+            raise WayForPayError("Gift order no longer exists")
+
+        if product.telegram_user_id != payment.telegram_user_id:
+            raise WayForPayError("Gift order owner mismatch")
+
+        already_paid = product.paid
+        existing_provider = product.payment_system
+        existing_payment_id = product.payment_id
+
+    else:
+        # Defensive guard. Never route unknown products to wallpaper.
+        raise WayForPayError("Unsupported WayForPay product")
+
+    # Record the real provider result even when another payment already
+    # Record the real provider result, even if another payment owns the order.
     payment.status = "approved"
     payment.provider_payment_id = str(
         payload.get("authCode") or payment.order_reference
     )[:120]
-    payment.error_message = None
     payment.paid_at = payment.paid_at or datetime.now(UTC)
 
-    if not payment.grants_entitlement:
-        await session.commit()
-        return True
-
-    if payment.product == "menu":
-        menu = await session.get(Menu, int(payment.reference_id), with_for_update=True)
-        if menu is None:
-            raise WayForPayError("Menu no longer exists")
-        await session.refresh(menu, ["customer"])
-        if menu.customer.telegram_user_id != payment.telegram_user_id:
-            raise WayForPayError("Payment owner mismatch")
-        if not menu.is_paid:
-            menu.is_paid = True
-            menu.payment_id = payment.order_reference
-            menu.payment_system = "wayforpay"
-            menu.price_amount = payment.amount
-            menu.paid_at = datetime.now(UTC)
-            menu.status = MenuStatus.PAID
-    else:
-        order = await session.get(
-            WallpaperOrder, int(payment.reference_id), with_for_update=True
+    if already_paid:
+        same_attempt = (
+            existing_provider == "wayforpay"
+            and existing_payment_id == payment.order_reference
         )
-        if order is None or order.telegram_user_id != payment.telegram_user_id:
-            raise WayForPayError("Gift order mismatch")
-        if not order.paid:
-            order.paid = True
-            order.payment_id = payment.order_reference
-            order.payment_system = "wayforpay"
-            order.amount = payment.amount
-            order.paid_at = datetime.now(UTC)
+
+        if same_attempt:
+            payment.error_message = None
+        else:
+            payment.error_message = (
+                "duplicate_payment: provider approved this transaction, "
+                f"but order is already paid via "
+                f"{existing_provider or 'unknown'}; "
+                "manual reconciliation/refund may be required"
+            )
+
+        await session.commit()
+        return same_attempt
+
+    payment.error_message = None
+
+    # The product is not paid yet. This WayForPay attempt grants it.
+    if payment.product == "menu":
+        product.is_paid = True
+        product.payment_id = payment.order_reference
+        product.payment_system = "wayforpay"
+        product.price_amount = payment.amount
+        product.paid_at = datetime.now(UTC)
+        product.status = MenuStatus.PAID
+    else:
+        product.paid = True
+        product.payment_id = payment.order_reference
+        product.payment_system = "wayforpay"
+        product.amount = payment.amount
+        product.paid_at = datetime.now(UTC)
+
     await session.commit()
     return True

@@ -65,7 +65,11 @@ from app.services.wallpaper_studio import (
     archive_source_photos,
     current_scene_preview,
 )
-from app.services.wayforpay import WayForPayService, apply_verified_payment
+from app.services.wayforpay import (
+    WayForPayService,
+    apply_verified_payment,
+    wayforpay_entitlement_is_active,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/miniapp")
@@ -133,23 +137,40 @@ async def _wayforpay_checkout(
     }
 
 
-async def _wayforpay_is_paid(product: str, reference_id: int, owner_id: int) -> bool:
+async def _wayforpay_is_paid(
+    product: str,
+    reference_id: int,
+    owner_id: int,
+) -> bool:
+    if product not in {"menu", "wallpaper"}:
+        return False
+
     service = WayForPayService(get_settings())
     if not service.ready:
         return False
+
     async with async_session_maker() as session:
         repository = WayForPayPaymentRepository(session)
-        attempt = await repository.latest_for_product(product, str(reference_id), owner_id)
+        attempt = await repository.latest_for_product(
+            product, str(reference_id), owner_id
+        )
+
         if attempt is None:
             return False
-        if attempt.status == "approved":
-            return True
-        try:
-            payload = await service.check_status(attempt)
-            return await apply_verified_payment(session, attempt, payload)
-        except Exception:
-            logger.exception("Mini App WayForPay check failed for %s #%s", product, reference_id)
-            return False
+
+        if attempt.status != "approved":
+            try:
+                payload = await service.check_status(attempt)
+                await apply_verified_payment(session, attempt, payload)
+            except Exception:
+                logger.exception(
+                    "Mini App WayForPay check failed for %s #%s",
+                    product,
+                    reference_id,
+                )
+                return False
+
+        return await wayforpay_entitlement_is_active(session, attempt)
 
 
 def _public_job(job: dict) -> dict:

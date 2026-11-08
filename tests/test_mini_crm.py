@@ -67,7 +67,7 @@ async def crm(tmp_path, monkeypatch):
         admin_username="owner",
         admin_password=SecretStr("password-for-test"),
     )
-    for module in (router, security, api, start, admin):
+    for module in (router, api, start, admin):
         monkeypatch.setattr(module, "async_session_maker", factory)
     for module in (router, security, service, api, start, admin, webadmin, auth):
         monkeypatch.setattr(module, "get_settings", lambda: settings)
@@ -230,10 +230,9 @@ async def test_crm_rejects_unsigned_and_non_admin(crm, path):
     ).status_code == 403
 
 
-async def test_vip_can_read_crm_and_legacy_admin_but_not_change_access(crm):
+async def test_vip_cannot_read_crm_or_change_access(crm):
     header = signed(12, "vipperson")
-    assert (await crm.client.get("/crm/api/dashboard", headers=header)).status_code == 200
-    assert (await crm.client.get("/miniapp/api/admin", headers=header)).status_code == 200
+    assert (await crm.client.get("/crm/api/dashboard", headers=header)).status_code == 403
     result = await crm.client.put("/crm/api/vip", headers=header, json={"names": ["newadmin"]})
     assert result.status_code == 403
     assert (
@@ -244,6 +243,10 @@ async def test_vip_can_read_crm_and_legacy_admin_but_not_change_access(crm):
         )
     ).status_code == 403
 
+
+
+async def test_owner_can_read_crm_dashboard(crm):
+    assert (await crm.client.get("/crm/api/dashboard", headers=signed(42))).status_code == 200
 
 async def test_dashboard_separates_vip_stars_cash_and_unclassified(crm):
     await seed(crm)

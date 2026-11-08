@@ -15,6 +15,34 @@ from app.services.gift_pricing import checkout_price_uah, image_cost_usd
 from app.services.goal_story import GoalScenePlanner
 from app.services.replicate_vision_board import ImageSafetyError
 
+
+@pytest.fixture(autouse=True)
+def isolate_gift_planner_database(monkeypatch):
+    from app.services import goal_story
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    async def fake_log_openai_response(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        goal_story,
+        "async_session_maker",
+        lambda: FakeSession(),
+    )
+
+    monkeypatch.setattr(
+        goal_story,
+        "log_openai_response",
+        fake_log_openai_response,
+    )
+
+
 GOALS = ["Здоровье", "Путешествие", "Свой дом", "Успешный бизнес", "Любовь"]
 
 

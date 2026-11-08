@@ -70,11 +70,20 @@ async def _payload(request: Request) -> dict[str, Any]:
 
 async def _product_is_paid(payment: WayForPayPayment) -> bool:
     async with async_session_maker() as session:
+        try:
+            reference_id = int(payment.reference_id)
+        except (TypeError, ValueError):
+            return False
+
         if payment.product == "menu":
-            record = await session.get(Menu, int(payment.reference_id))
+            record = await session.get(Menu, reference_id)
             return bool(record and record.is_paid)
-        record = await session.get(WallpaperOrder, int(payment.reference_id))
-        return bool(record and record.paid)
+
+        if payment.product == "wallpaper":
+            record = await session.get(WallpaperOrder, reference_id)
+            return bool(record and record.paid)
+
+        return False
 
 
 @router.get("/checkout/{checkout_token}", response_class=HTMLResponse)

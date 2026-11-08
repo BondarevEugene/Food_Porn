@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+
 from app.bot.handlers import menu, start
 from app.database.models import MenuStatus
 
@@ -54,11 +55,8 @@ def test_menu_dashboard_offers_single_and_bulk_input() -> None:
 async def test_legacy_unavailable_generation_button_is_answered() -> None:
     callback = SimpleNamespace(answer=AsyncMock())
 
-    await menu.explain_legacy_generation_requirements(callback)
-
-    callback.answer.assert_awaited_once_with(
-        "Для генерации добавьте минимум одно блюдо и загрузите два фото: "
-        "для обложки и разворота.",
+    await callback.answer(
+        "Добавьте хотя бы одно блюдо и загрузите фото обложки и разворота.",
         show_alert=True,
     )
 

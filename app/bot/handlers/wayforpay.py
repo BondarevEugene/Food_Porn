@@ -30,7 +30,10 @@ from app.database.repositories import (
     WayForPayPaymentRepository,
 )
 from app.services.print_bundle import create_print_bundle
-from app.services.wayforpay import WayForPayService, apply_verified_payment
+from app.services.wayforpay import (
+    WayForPayService,
+    apply_verified_payment,
+)
 
 logger = logging.getLogger(__name__)
 router = Router(name="wayforpay")
@@ -46,10 +49,10 @@ async def _deliver_menu(callback: CallbackQuery, menu_id: int, session: AsyncSes
     if pdf is None or recipe is None or not pdf.is_file() or not recipe.is_file():
         return False
     await callback.message.answer_document(
-        FSInputFile(str(pdf)), caption="Ваш готовый электронный буклет 💛"
+        FSInputFile(str(pdf)), caption="Р’Р°С€ РіРѕС‚РѕРІС‹Р№ СЌР»РµРєС‚СЂРѕРЅРЅС‹Р№ Р±СѓРєР»РµС‚ рџ’›"
     )
     await callback.message.answer_document(
-        FSInputFile(str(recipe)), caption="Рецепты и список покупок"
+        FSInputFile(str(recipe)), caption="Р РµС†РµРїС‚С‹ Рё СЃРїРёСЃРѕРє РїРѕРєСѓРїРѕРє"
     )
     return True
 
@@ -63,8 +66,8 @@ async def _deliver_wallpaper(
     mobile, desktop = Path(order.mobile_path), Path(order.desktop_path)
     if not mobile.is_file() or not desktop.is_file():
         return False
-    await callback.message.answer_document(FSInputFile(str(mobile)), caption="Заставка для телефона 💛")
-    await callback.message.answer_document(FSInputFile(str(desktop)), caption="Заставка для компьютера 💛")
+    await callback.message.answer_document(FSInputFile(str(mobile)), caption="Р—Р°СЃС‚Р°РІРєР° РґР»СЏ С‚РµР»РµС„РѕРЅР° рџ’›")
+    await callback.message.answer_document(FSInputFile(str(desktop)), caption="Р—Р°СЃС‚Р°РІРєР° РґР»СЏ РєРѕРјРїСЊСЋС‚РµСЂР° рџ’›")
     try:
         archive = await asyncio.to_thread(
             create_print_bundle,
@@ -76,7 +79,7 @@ async def _deliver_wallpaper(
             dpi=settings.print_dpi,
         )
         await callback.message.answer_document(
-            FSInputFile(str(archive)), caption="Архив для типографии"
+            FSInputFile(str(archive)), caption="РђСЂС…РёРІ РґР»СЏ С‚РёРїРѕРіСЂР°С„РёРё"
         )
     except Exception:
         logger.exception("Could not create WayForPay print bundle for order %s", order.id)
@@ -92,45 +95,72 @@ async def check_wayforpay(
     try:
         payment_id = int((callback.data or "").removeprefix("check_wayforpay:"))
     except ValueError:
-        await callback.answer("Некорректный номер платежа.", show_alert=True)
+        await callback.answer("РќРµРєРѕСЂСЂРµРєС‚РЅС‹Р№ РЅРѕРјРµСЂ РїР»Р°С‚РµР¶Р°.", show_alert=True)
         return
 
     async with session_factory() as session:
         repository = WayForPayPaymentRepository(session)
         payment = await repository.get_for_user(payment_id, callback.from_user.id)
         if payment is None:
-            await callback.answer("Счёт WayForPay не найден.", show_alert=True)
+            await callback.answer("РЎС‡С‘С‚ WayForPay РЅРµ РЅР°Р№РґРµРЅ.", show_alert=True)
             return
         if payment.status != "approved":
             try:
                 payload = await WayForPayService(settings).check_status(payment)
-                if not await apply_verified_payment(session, payment, payload):
+
+                # False can mean either provider rejection or an already
+                # paid order. Inspect the persisted provider status separately.
+                await apply_verified_payment(session, payment, payload)
+
+                if payment.status != "approved":
                     await callback.answer(
-                        "WayForPay пока не подтвердил оплату.", show_alert=True
+                        "WayForPay РїРѕРєР° РЅРµ РїРѕРґС‚РІРµСЂРґРёР» РѕРїР»Р°С‚Сѓ.",
+                        show_alert=True,
                     )
                     return
+
             except Exception:
-                logger.exception("WayForPay status check failed for %s", payment.order_reference)
+                logger.exception(
+                    "WayForPay status check failed for %s",
+                    payment.order_reference,
+                )
                 await callback.answer(
-                    "Проверка WayForPay временно недоступна. Повторите немного позже.",
+                    "РџСЂРѕРІРµСЂРєР° WayForPay РІСЂРµРјРµРЅРЅРѕ РЅРµРґРѕСЃС‚СѓРїРЅР°. "
+                    "РџРѕРІС‚РѕСЂРёС‚Рµ РЅРµРјРЅРѕРіРѕ РїРѕР·Р¶Рµ.",
                     show_alert=True,
                 )
                 return
-
-        if not payment.grants_entitlement:
-            delivered = True
-            await callback.message.answer("🧪 Тестовый платёж WayForPay подтверждён.")
-        else:
-            numeric_reference = int(payment.reference_id)
-            delivered = (
-                await _deliver_menu(callback, numeric_reference, session)
-                if payment.product == "menu"
-                else await _deliver_wallpaper(callback, numeric_reference, session, settings)
-            )
-        if not delivered:
             await callback.answer(
-                "Оплата подтверждена, но файлы пока недоступны. Напишите в поддержку.",
+                "РџР»Р°С‚С‘Р¶ WayForPay РїРѕРґС‚РІРµСЂР¶РґС‘РЅ, РЅРѕ Р·Р°РєР°Р· СѓР¶Рµ РѕРїР»Р°С‡РµРЅ "
+                "РґСЂСѓРіРёРј СЃРїРѕСЃРѕР±РѕРј. РџРѕРІС‚РѕСЂРЅРѕ РѕРїР»Р°С‡РёРІР°С‚СЊ РЅРµ РЅСѓР¶РЅРѕ. "
+                "Р•СЃР»Рё РґРµРЅСЊРіРё СЃРїРёСЃР°РЅС‹ РґРІР°Р¶РґС‹, РѕР±СЂР°С‚РёС‚РµСЃСЊ РІ РїРѕРґРґРµСЂР¶РєСѓ.",
                 show_alert=True,
             )
             return
-    await callback.answer("Оплата WayForPay подтверждена!")
+
+        if not payment.grants_entitlement:
+            await callback.message.answer(
+                "Тестовый платёж WayForPay подтверждён."
+            )
+        elif payment.product == "menu":
+            await _deliver_menu(
+                callback, int(payment.reference_id), session
+            )
+        elif payment.product == "wallpaper":
+            await _deliver_wallpaper(
+                callback,
+                int(payment.reference_id),
+                session,
+                settings,
+            )
+        else:
+            logger.error(
+                "Unsupported WayForPay product %r for payment %s",
+                payment.product,
+                payment.order_reference,
+            )
+            await callback.answer(
+                "РќРµРёР·РІРµСЃС‚РЅС‹Р№ С‚РёРї Р·Р°РєР°Р·Р°. РћР±СЂР°С‚РёС‚РµСЃСЊ РІ РїРѕРґРґРµСЂР¶РєСѓ.",
+                show_alert=True,
+            )
+            return

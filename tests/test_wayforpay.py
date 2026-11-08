@@ -72,6 +72,10 @@ def payment(**kwargs):
         "transaction_status": None,
         "reason_code": None,
         "provider_payload": None,
+        "product": "menu",
+        "reference_id": "17",
+        "telegram_user_id": 12345,
+        "payment_id": None,
     }
     data.update(kwargs)
     return SimpleNamespace(**data)
@@ -144,11 +148,17 @@ def test_callback_requires_signature_order_amount_currency_and_order() -> None:
 async def test_vip_test_payment_is_recorded_without_changing_entitlement() -> None:
     attempt = payment(grants_entitlement=False)
     session = SimpleNamespace(commit=AsyncMock())
+
     assert await apply_verified_payment(
         session,
         attempt,
-        {"transactionStatus": "Approved", "authCode": "TEST-OK", "reasonCode": "1100"},
+        {
+            "transactionStatus": "Approved",
+            "authCode": "TEST-OK",
+            "reasonCode": "1100",
+        },
     )
+
     assert attempt.status == "approved"
     session.commit.assert_awaited_once()
 
@@ -197,3 +207,163 @@ def test_menu_pipeline_passes_only_supported_wayforpay_arguments() -> None:
     for call in calls:
         keywords = {keyword.arg for keyword in call.keywords if keyword.arg}
         assert keywords <= supported
+
+@pytest.mark.asyncio
+async def test_wayforpay_grants_unpaid_menu_once() -> None:
+    menu = SimpleNamespace(
+        is_paid=False,
+        payment_system=None,
+        payment_id=None,
+        customer=SimpleNamespace(telegram_user_id=12345),
+        price_amount=None,
+        paid_at=None,
+        status="waiting_for_payment",
+    )
+    session = SimpleNamespace(
+        get=AsyncMock(return_value=menu),
+        refresh=AsyncMock(),
+        commit=AsyncMock(),
+    )
+    attempt = payment()
+
+    result = await apply_verified_payment(
+        session,
+        attempt,
+        {
+            "transactionStatus": "Approved",
+            "authCode": "WFP-001",
+            "reasonCode": "1100",
+        },
+    )
+
+    assert result is True
+    assert menu.is_paid is True
+    assert menu.payment_system == "wayforpay"
+    assert menu.payment_id == attempt.order_reference
+    assert attempt.status == "approved"
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_wayforpay_does_not_override_stars_menu_payment() -> None:
+    menu = SimpleNamespace(
+        is_paid=True,
+        payment_system="telegram_stars",
+        payment_id="STARS-001",
+        customer=SimpleNamespace(telegram_user_id=12345),
+        price_amount=None,
+        paid_at=None,
+        status="paid",
+    )
+    session = SimpleNamespace(
+        get=AsyncMock(return_value=menu),
+        refresh=AsyncMock(),
+        commit=AsyncMock(),
+    )
+    attempt = payment()
+
+    result = await apply_verified_payment(
+        session,
+        attempt,
+        {
+            "transactionStatus": "Approved",
+            "authCode": "WFP-002",
+            "reasonCode": "1100",
+        },
+    )
+
+    assert result is False
+    assert attempt.status == "approved"
+    assert menu.payment_system == "telegram_stars"
+    assert menu.payment_id == "STARS-001"
+    assert attempt.error_message is not None
+    assert "duplicate_payment" in attempt.error_message
+    assert "telegram_stars" in attempt.error_message
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_wayforpay_same_attempt_is_idempotent() -> None:
+    attempt = payment()
+
+    menu = SimpleNamespace(
+        is_paid=True,
+        payment_system="wayforpay",
+        payment_id=attempt.order_reference,
+        customer=SimpleNamespace(telegram_user_id=12345),
+        price_amount=attempt.amount,
+        paid_at=datetime.now(UTC),
+        status="paid",
+    )
+    session = SimpleNamespace(
+        get=AsyncMock(return_value=menu),
+        refresh=AsyncMock(),
+        commit=AsyncMock(),
+    )
+
+    result = await apply_verified_payment(
+        session,
+        attempt,
+        {
+            "transactionStatus": "Approved",
+            "authCode": "WFP-001",
+            "reasonCode": "1100",
+        },
+    )
+    assert attempt.error_message is None
+    assert result is True
+    assert menu.payment_id == attempt.order_reference
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_wayforpay_rejects_unknown_product() -> None:
+    attempt = payment(product="unknown")
+    session = SimpleNamespace(commit=AsyncMock())
+
+    with pytest.raises(WayForPayError, match="Unsupported"):
+        await apply_verified_payment(
+            session,
+            attempt,
+            {"transactionStatus": "Approved"},
+        )
+
+    assert attempt.status == "pending"
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_wayforpay_does_not_override_stars_wallpaper_payment() -> None:
+    attempt = payment(product="wallpaper", reference_id="29")
+
+    order = SimpleNamespace(
+        paid=True,
+        payment_system="telegram_stars",
+        payment_id="STARS-002",
+        telegram_user_id=12345,
+        amount=Decimal("1.00"),
+        paid_at=datetime.now(UTC),
+    )
+    session = SimpleNamespace(
+        get=AsyncMock(return_value=order),
+        commit=AsyncMock(),
+    )
+
+    result = await apply_verified_payment(
+        session,
+        attempt,
+        {
+            "transactionStatus": "Approved",
+            "authCode": "WFP-003",
+            "reasonCode": "1100",
+        },
+    )
+
+    assert result is False
+    assert attempt.status == "approved"
+    assert order.payment_system == "telegram_stars"
+    assert order.payment_id == "STARS-002"
+    assert attempt.error_message is not None
+    assert "duplicate_payment" in attempt.error_message
+    assert "telegram_stars" in attempt.error_message
+    session.commit.assert_awaited_once()

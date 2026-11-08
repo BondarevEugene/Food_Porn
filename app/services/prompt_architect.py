@@ -1,81 +1,108 @@
 """
-==========================================================
 FOOD_PORN & OLD MONEY MANIFESTATIONS
 Module: Structured JSON Prompt Architect
-==========================================================
 """
 
+import json
 
 
 class PromptArchitect:
-    """
-    Трансформирует пользовательские цели и фото в структурированный
-    JSON-сценарий vision board, а затем компилирует его в мега-промпт для AI.
-    """
+    """Build a structured vision-board specification and compile it into a prompt."""
 
     @staticmethod
-    def build_structured_blueprint(goals: list[str], photo_count: int) -> dict:
+    def build_structured_blueprint(
+        goals: list[str],
+        photo_count: int,
+    ) -> dict:
+        """Create the structured specification for the vision-board image."""
         goals_text = "; ".join(goals)
 
-        blueprint = {
-            "project": "Seamless Luxury Vision Board Collage - Single Character Consistency",
+        return {
+            "project": ("Seamless Luxury Vision Board Collage - Single Character Consistency"),
             "canvas": {
                 "aspect_ratio": "9:16",
-                "style": "photorealistic seamless double-exposure composite, soft ethereal blending, light leaks, "
-                         "warm bokeh particles, gold aura glow",
+                "style": (
+                    "photorealistic seamless double-exposure composite, "
+                    "soft ethereal blending, light leaks, warm bokeh particles, "
+                    "gold aura glow"
+                ),
                 "color_palette": {
                     "primary": ["#D4AF37", "#F5E6D3", "#2C1E14"],
-                    "tone": "warm golden amber, luxury aesthetic"
+                    "tone": "warm golden amber, luxury aesthetic",
                 },
-                "typography_style": "elegant classical serif, gold and ivory color, subtle drop shadow, atmospheric "
-                                    "placement"
+                "typography_style": (
+                    "elegant classical serif, gold and ivory color, "
+                    "subtle drop shadow, atmospheric placement"
+                ),
             },
             "character_consistency_rule": {
                 "main_subject_id": "SUBJECT_01",
-                "instruction": f"Maintain 100% facial identity, body proportions, and features of SUBJECT_01 across all {photo_count} photo blocks based on the provided reference collage.",
+                "instruction": (
+                    "Maintain consistent facial identity, body proportions, "
+                    f"and features of SUBJECT_01 across all {photo_count} "
+                    "photo blocks, based on the provided reference images."
+                ),
                 "character_profile": {
-                    "facial_identity": "Same person across all blocks (face anchor from reference)",
-                    "style": "Elegant, luxury, polished Old Money aesthetic"
-                }
+                    "facial_identity": (
+                        "Same person across all blocks; use the reference "
+                        "images to preserve identity."
+                    ),
+                    "style": "Elegant, luxury, polished Old Money aesthetic",
+                },
             },
             "central_element": {
                 "type": "main_portrait",
                 "subject": "SUBJECT_01",
-                "pose_and_framing": "Close-up front-facing portrait, warm inviting smile, subtle luxury attire, "
-                                    "soft golden lighting",
-                "integration_effect": "Seamless feathered soft edges blending into the background fog"
+                "pose_and_framing": (
+                    "Close-up front-facing portrait, warm inviting smile, "
+                    "subtle luxury attire, soft golden lighting"
+                ),
+                "integration_effect": (
+                    "Seamless feathered soft edges blending into the background fog"
+                ),
             },
             "user_custom_goals_integration": {
                 "extracted_goals": goals,
-                "instruction": f"Seamlessly integrate visual representations of these specific user goals into the "
-                               f"collage layout: {goals_text}"
+                "instruction": (
+                    "Seamlessly integrate visual representations of these "
+                    f"specific user goals into the collage layout: {goals_text}"
+                ),
             },
             "blending_instructions": {
-                "transitions": "Fully seamless double-exposure style transitions between all panels, no hard photo "
-                               "borders",
-                "lighting": "Unified golden glow, subtle lens flares, and soft bokeh light spots across the whole "
-                            "canvas"
-            }
+                "transitions": (
+                    "Fully seamless double-exposure transitions between "
+                    "all panels, without hard photo borders"
+                ),
+                "lighting": (
+                    "Unified golden glow, subtle lens flares, and soft "
+                    "bokeh light spots across the whole canvas"
+                ),
+            },
         }
-        return blueprint
 
     @classmethod
-    def compile_to_prompt(cls, goals: list[str], photo_count: int) -> str:
-        """
-        Компилирует структурированный шаблон в мощный финальный промпт для модели генерации.
-        """
+    def compile_to_prompt(
+        cls,
+        goals: list[str],
+        photo_count: int,
+    ) -> str:
+        """Compile the structured specification into an image-generation prompt."""
         blueprint = cls.build_structured_blueprint(goals, photo_count)
-
-        # Превращаем структуру в плотный, понятный для LLM/Image-модели промпт с сохранением структуры
-        prompt = (
-            f"Create a high-end luxury fine art vision board collage with strict 9:16 vertical layout, "
-            f"photorealistic seamless double-exposure composite, soft ethereal blending, light leaks, warm bokeh "
-            f"particles, gold aura glow."
-            f"Color palette: warm golden amber, #D4AF37 gold, #F5E6D3 ivory, #2C1E14 deep brown. "
-            f"Character consistency: maintain 100% facial identity of SUBJECT_01 from the reference image across all "
-            f"blocks."
-            f"Incorporate these specific user manifestation goals seamlessly: {', '.join(goals)}. "
-            f"Add elegant classical serif gold typography for affirmations where appropriate. "
-            f"Unified cinematic Vogue editorial lighting, absolute masterpiece."
+        blueprint_json = json.dumps(
+            blueprint,
+            ensure_ascii=False,
+            indent=2,
         )
-        return prompt
+
+        return (
+            "Create a high-end luxury fine-art vision board collage. "
+            "Use the following structured specification as the creative brief. "
+            "Preserve the user's goals, reference-person identity, composition, "
+            "lighting, typography, and blending instructions. "
+            "Render a seamless, photorealistic vertical 9:16 composition. "
+            "Do not add hard panel borders or place decorative text over "
+            "the subject's face. Treat the JSON as instructions for the image, "
+            "not as text to render into the image.\n\n"
+            "STRUCTURED CREATIVE BRIEF:\n"
+            f"{blueprint_json}"
+        )
