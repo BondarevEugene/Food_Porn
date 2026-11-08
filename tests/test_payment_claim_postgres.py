@@ -59,14 +59,14 @@ async def test_concurrent_payment_claims_postgres(product):
                     "VALUES (987654321, 'Payment test', '000', 'Test', 'Test', 'UK', 'telegram') RETURNING id"
                 ))).scalar_one()
                 order_id = (await conn.execute(text(
-                    "INSERT INTO menus (customer_id, status, is_paid, source_channel, locked_scene_indexes, visual_style) "
-                    "VALUES (:id, 'waiting_for_payment', false, 'telegram', '[]', 'dark') RETURNING id"
+                    "INSERT INTO menus (customer_id, status, is_paid, source_channel) "
+                    "VALUES (:id, 'waiting_for_payment', false, 'telegram') RETURNING id"
                 ), {"id": customer_id})).scalar_one()
             else:
                 await conn.run_sync(lambda c: WallpaperOrder.__table__.create(c, checkfirst=False))
                 order_id = (await conn.execute(text(
-                    "INSERT INTO wallpaper_orders (telegram_user_id, amount, mobile_path, desktop_path, paid, source_channel) "
-                    "VALUES (987654321, 10.00, 'mobile.png', 'desktop.png', false, 'telegram') RETURNING id"
+                    "INSERT INTO wallpaper_orders (telegram_user_id, amount, mobile_path, desktop_path, paid, source_channel, locked_scene_indexes, visual_style) "
+                    "VALUES (987654321, 10.00, 'mobile.png', 'desktop.png', false, 'telegram', '[]', 'dark') RETURNING id"
                 ))).scalar_one()
 
         factory = async_sessionmaker(isolated, expire_on_commit=False)
