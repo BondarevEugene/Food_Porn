@@ -33,6 +33,7 @@ from app.services.evening_plan import build_evening_plan, save_evening_plan
 from app.services.free_access import has_free_generation_access
 from app.services.image_generation import ImageGenerationService
 from app.services.menu_photo_recovery import restore_missing_menu_photos
+from app.services.menu_processing_lease import MenuProcessingLease
 from app.services.menu_quality import (
     validate_customer_photos,
     validate_menu_artwork,
@@ -109,7 +110,11 @@ class MenuPipeline:
             return
         self._active_menu_ids.add(menu_id)
         try:
-            await self._process_unlocked(menu_id)
+            async with MenuProcessingLease(self.session_factory, menu_id) as acquired:
+                if not acquired:
+                    logger.info("Menu %s already leased or finalized; skipping", menu_id)
+                    return
+                await self._process_unlocked(menu_id)
         finally:
             self._active_menu_ids.discard(menu_id)
 
