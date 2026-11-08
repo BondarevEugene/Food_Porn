@@ -106,8 +106,29 @@ class CustomerRepository:
 
 
 class MenuRepository:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, *, processing_token: str | None = None, processing_menu_id: int | None = None) -> None:
         self.session = session
+        self.processing_token = processing_token
+        self.processing_menu_id = processing_menu_id
+
+    async def _commit(self) -> None:
+        """Serialize menu writes against lease takeover in the same transaction."""
+        if self.processing_token is not None:
+            if self.processing_menu_id is None:
+                raise ValueError("processing_menu_id required with processing_token")
+            row = await self.session.execute(
+                select(Menu.processing_token, Menu.processing_lease_until)
+                .where(Menu.id == self.processing_menu_id)
+                .with_for_update()
+            )
+            current = row.one_or_none()
+            now = await self.session.scalar(select(func.now()))
+            if (current is None or current.processing_token != self.processing_token
+                    or current.processing_lease_until is None
+                    or current.processing_lease_until <= now):
+                await self.session.rollback()
+                raise RuntimeError(f"Processing lease lost for menu {self.processing_menu_id}")
+        await self.session.commit()
 
     async def create(
         self,
@@ -125,7 +146,7 @@ class MenuRepository:
             visual_style=visual_style,
         )
         self.session.add(menu)
-        await self.session.commit()
+        await self._commit()
         await self.session.refresh(menu)
         return menu
 
@@ -167,13 +188,13 @@ class MenuRepository:
             generation_status=GenerationStatus.DONE if skipped else GenerationStatus.PENDING,
         )
         self.session.add(item)
-        await self.session.commit()
+        await self._commit()
         await self.session.refresh(item)
         return item
 
     async def reset_items(self, menu_id: int) -> None:
         await self.session.execute(delete(MenuItem).where(MenuItem.menu_id == menu_id))
-        await self.session.commit()
+        await self._commit()
 
     async def replace_category_items(
         self,
@@ -195,7 +216,7 @@ class MenuRepository:
             )
             for position, title in enumerate(titles, start=1)
         )
-        await self.session.commit()
+        await self._commit()
         self.session.expire_all()
 
     async def replace_menu_plan(
@@ -217,7 +238,7 @@ class MenuRepository:
             )
             for position, (meal_slot, title, category) in enumerate(entries, start=1)
         )
-        await self.session.commit()
+        await self._commit()
         self.session.expire_all()
 
     async def set_photos(
@@ -235,7 +256,7 @@ class MenuRepository:
             menu.cover_telegram_file_id = cover_file_id
         if spread_file_id is not None:
             menu.spread_telegram_file_id = spread_file_id
-        await self.session.commit()
+        await self._commit()
 
     async def set_status(
             self, menu_id: int, status: MenuStatus, error_message: str | None = None
@@ -245,24 +266,24 @@ class MenuRepository:
             raise LookupError(f"Menu {menu_id} not found")
         menu.status = status
         menu.error_message = error_message
-        await self.session.commit()
+        await self._commit()
 
     async def set_item_processing(self, item: MenuItem, prompt: str) -> None:
         item.image_prompt = prompt
         item.generation_status = GenerationStatus.PROCESSING
         item.generation_error = None
-        await self.session.commit()
+        await self._commit()
 
     async def set_item_done(self, item: MenuItem, path: str) -> None:
         item.image_path = path
         item.generation_status = GenerationStatus.DONE
         item.generation_error = None
-        await self.session.commit()
+        await self._commit()
 
     async def set_item_failed(self, item: MenuItem, error: str) -> None:
         item.generation_status = GenerationStatus.FAILED
         item.generation_error = error[:2000]
-        await self.session.commit()
+        await self._commit()
 
     async def save_recipe_details(self, item: MenuItem, details: dict) -> None:
         """Persist the cooking pack so it survives file cleanup and restarts."""
@@ -278,7 +299,7 @@ class MenuRepository:
         item.shopping_items = [
             value for value in details.get("shopping_items") or [] if isinstance(value, dict)
         ]
-        await self.session.commit()
+        await self._commit()
 
     async def save_file(self, menu_id: int, kind: FileKind | str, path: str) -> GeneratedFile:
         """Безопасное сохранение файла с автоконвертацией типов."""
@@ -301,7 +322,7 @@ class MenuRepository:
             self.session.add(generated)
         else:
             generated.path = path
-        await self.session.commit()
+        await self._commit()
         await self.session.refresh(generated)
         return generated
 
@@ -339,7 +360,7 @@ class MenuRepository:
             menu.payment_id = payment_id
         if payment_system is not None:
             menu.payment_system = payment_system
-        await self.session.commit()
+        await self._commit()
 
     async def mark_as_paid(self, menu_id: int, payment_id: str, payment_system: str) -> None:
         menu = await self.get(menu_id)
@@ -350,14 +371,14 @@ class MenuRepository:
         menu.payment_system = payment_system
         menu.paid_at = menu.paid_at or datetime.now(UTC)
         menu.status = MenuStatus.PAID
-        await self.session.commit()
+        await self._commit()
 
     async def mark_sent_to_printshop(self, menu_id: int) -> None:
         menu = await self.get(menu_id)
         if menu is None:
             raise LookupError(f"Menu {menu_id} not found")
         menu.status = MenuStatus.SENT_TO_PRINTSHOP
-        await self.session.commit()
+        await self._commit()
 
 
 
