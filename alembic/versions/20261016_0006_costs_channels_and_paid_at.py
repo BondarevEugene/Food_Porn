@@ -14,6 +14,7 @@ Create Date: 2026-10-16
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 from alembic import op
 
@@ -62,6 +63,25 @@ def upgrade() -> None:
     op.execute(
         "UPDATE wallpaper_orders SET paid_at = updated_at WHERE paid = true AND paid_at IS NULL"
     )
+
+    # У старих інсталяціях таблиця могла існувати до Alembic,
+    # але чиста БД не має її у попередніх ревізіях.
+    if not inspect(op.get_bind()).has_table("ai_generation_logs"):
+        op.create_table(
+            "ai_generation_logs",
+            sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+            sa.Column("user_id", sa.BigInteger(), nullable=False),
+            sa.Column("model_name", sa.String(length=100), nullable=False),
+            sa.Column("prompt_tokens", sa.BigInteger(), nullable=False, server_default="0"),
+            sa.Column("completion_tokens", sa.BigInteger(), nullable=False, server_default="0"),
+            sa.Column("cost_usd", sa.Numeric(10, 6), nullable=False, server_default="0"),
+            sa.Column("exchange_rate", sa.Numeric(10, 4), nullable=False, server_default="41"),
+            sa.Column("cost_uah", sa.Numeric(10, 4), nullable=False, server_default="0"),
+            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        )
+        op.create_index("ix_ai_generation_logs_user_id", "ai_generation_logs", ["user_id"])
+        op.create_index("ix_ai_generation_logs_model_name", "ai_generation_logs", ["model_name"])
 
     op.add_column(
         "ai_generation_logs",
