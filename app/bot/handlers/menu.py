@@ -229,7 +229,7 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
                 ),
             )
 
-    if menu.is_paid and menu.status in (
+    if getattr(menu, "is_paid", False) and menu.status in (
         MenuStatus.PAID,
         MenuStatus.PARTIAL_SUCCESS,
         MenuStatus.COMPLETED,
