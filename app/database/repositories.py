@@ -466,7 +466,7 @@ class WallpaperOrderRepository:
                         payment_system: str = "portmone") -> bool:
         """Claim the wallpaper payment once, even across concurrent workers."""
         locked = (await self.session.execute(
-            select(WallpaperOrder).where(WallpaperOrder.id == order.id).with_for_update()
+            select(WallpaperOrder).where(WallpaperOrder.id == order.id).with_for_update().execution_options(populate_existing=True)
         )).scalar_one_or_none()
         if locked is None:
             await self.session.rollback()
