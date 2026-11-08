@@ -8,8 +8,20 @@ import pytest
 from app.workers.menu_pipeline import MenuPipeline
 
 
+class FakeLease:
+    def __init__(self, *args):
+        pass
+
+    async def __aenter__(self):
+        return True
+
+    async def __aexit__(self, *args):
+        pass
+
+
 @pytest.mark.asyncio
-async def test_duplicate_menu_is_not_processed_concurrently() -> None:
+async def test_duplicate_menu_is_not_processed_concurrently(monkeypatch) -> None:
+    monkeypatch.setattr("app.workers.menu_pipeline.MenuProcessingLease", FakeLease)
     pipeline = object.__new__(MenuPipeline)
     pipeline._active_menu_ids = set()
     entered = asyncio.Event()
@@ -30,7 +42,8 @@ async def test_duplicate_menu_is_not_processed_concurrently() -> None:
 
 
 @pytest.mark.asyncio
-async def test_failed_processing_releases_menu_id() -> None:
+async def test_failed_processing_releases_menu_id(monkeypatch) -> None:
+    monkeypatch.setattr("app.workers.menu_pipeline.MenuProcessingLease", FakeLease)
     pipeline = object.__new__(MenuPipeline)
     pipeline._active_menu_ids = set()
     pipeline._process_unlocked = AsyncMock(side_effect=RuntimeError("failed"))
@@ -40,7 +53,8 @@ async def test_failed_processing_releases_menu_id() -> None:
 
 
 @pytest.mark.asyncio
-async def test_distinct_menus_can_run_concurrently() -> None:
+async def test_distinct_menus_can_run_concurrently(monkeypatch) -> None:
+    monkeypatch.setattr("app.workers.menu_pipeline.MenuProcessingLease", FakeLease)
     pipeline = object.__new__(MenuPipeline)
     pipeline._active_menu_ids = set()
     entered = set()
