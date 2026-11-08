@@ -5,11 +5,10 @@ whose database name includes 'test'. Creates and drops only a random schema.
 """
 import asyncio
 import os
-from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -44,8 +43,13 @@ async def test_concurrent_payment_claims_postgres(product):
         created = True
         isolated = create_async_engine(
             url, pool_pre_ping=True,
-            connect_args={"ssl": "require", "server_settings": {"search_path": schema}},
+            connect_args={"ssl": "require"},
         )
+        # Poolers may reset session settings between transactions.
+        @event.listens_for(isolated.sync_engine, "begin")
+        def _set_test_schema(conn):
+            conn.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
+
         async with isolated.begin() as conn:
             if product == "menu":
                 await conn.run_sync(lambda c: Customer.__table__.create(c, checkfirst=False))
@@ -55,8 +59,8 @@ async def test_concurrent_payment_claims_postgres(product):
                     "VALUES (987654321, 'Payment test', '000', 'Test', 'Test', 'UK', 'telegram') RETURNING id"
                 ))).scalar_one()
                 order_id = (await conn.execute(text(
-                    "INSERT INTO menus (customer_id, status, is_paid, source_channel) "
-                    "VALUES (:id, 'waiting_for_payment', false, 'telegram') RETURNING id"
+                    "INSERT INTO menus (customer_id, status, is_paid, source_channel, locked_scene_indexes, visual_style) "
+                    "VALUES (:id, 'waiting_for_payment', false, 'telegram', '[]', 'dark') RETURNING id"
                 ), {"id": customer_id})).scalar_one()
             else:
                 await conn.run_sync(lambda c: WallpaperOrder.__table__.create(c, checkfirst=False))
@@ -86,7 +90,7 @@ async def test_concurrent_payment_claims_postgres(product):
             if product == "menu":
                 row = await session.get(Menu, order_id)
                 assert row.is_paid is True
-                assert row.status.value == "paid"
+                assert str(row.status) == "paid"
             else:
                 row = await session.get(WallpaperOrder, order_id)
                 assert row.paid is True
