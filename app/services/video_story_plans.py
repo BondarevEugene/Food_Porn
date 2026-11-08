@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import StrEnum
 
 
@@ -41,3 +42,24 @@ def video_plan_label(tier: VideoTier, language: str = "uk") -> str:
         VideoTier.PREMIUM: ("Преміум", "Премиум", "Premium"),
     }
     return labels[tier][{"uk": 0, "ru": 1, "en": 2}.get(language, 0)]
+
+
+@dataclass(frozen=True, slots=True)
+class VideoPrice:
+    """An administrator-controlled tariff price; never derive a payment from UI text."""
+    tier: VideoTier
+    amount: Decimal
+    currency: str
+    enabled: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.amount.is_finite() or self.amount <= 0 or self.amount.as_tuple().exponent < -2:
+            raise ValueError("Video price must be a positive amount with at most two decimal places")
+        if self.currency not in {"UAH", "USD", "EUR"}:
+            raise ValueError("Unsupported video price currency")
+
+
+def make_video_price(tier: str | VideoTier, amount: Decimal | str, currency: str = "UAH",
+                     enabled: bool = True) -> VideoPrice:
+    """Validate prices at the boundary before persisting them in the tariff catalog."""
+    return VideoPrice(VideoTier(tier), Decimal(str(amount)), currency, enabled)
