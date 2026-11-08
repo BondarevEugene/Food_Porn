@@ -28,7 +28,7 @@ async def test_duplicate_menu_is_not_processed_concurrently(monkeypatch) -> None
     entered = asyncio.Event()
     release = asyncio.Event()
 
-    async def process(menu_id: int) -> None:
+    async def process(menu_id: int, *, lease) -> None:
         entered.set()
         await release.wait()
 
@@ -63,7 +63,7 @@ async def test_distinct_menus_can_run_concurrently(monkeypatch) -> None:
     entered = set()
     release = asyncio.Event()
 
-    async def process(menu_id: int) -> None:
+    async def process(menu_id: int, *, lease) -> None:
         entered.add(menu_id)
         if len(entered) == 2:
             release.set()
