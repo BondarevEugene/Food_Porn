@@ -26,6 +26,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
     CallbackQuery,
+    FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
@@ -40,6 +41,7 @@ from app.config import Settings
 from app.database import async_session_maker
 from app.database.models import Customer, ItemCategory, Menu, MenuStatus
 from app.database.repositories import MenuRepository
+from app.services.menu_delivery import MenuDeliveryUnavailable, paid_menu_documents
 from app.services.menu_wizard import (
     DEFAULT_VISUAL_STYLE,
     MEAL_FULL_DAY,
@@ -227,10 +229,68 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
                 ),
             )
 
+    if menu.is_paid and menu.status in (
+        MenuStatus.PAID,
+        MenuStatus.PARTIAL_SUCCESS,
+        MenuStatus.COMPLETED,
+        MenuStatus.FAILED,
+    ):
+        builder.button(
+            text="📩 Получить готовые файлы повторно",
+            callback_data=MenuAction(action="resend", menu_id=menu.id),
+        )
+
     builder.button(text="⬅️ Назад", callback_data="prod_food_porn")
     builder.button(text="🏠 В начало", callback_data="back_to_products")
     builder.adjust(1)
     return builder.as_markup()
+
+
+@router.callback_query(MenuAction.filter(F.action == "resend"))
+async def resend_paid_menu(
+    callback: CallbackQuery,
+    callback_data: MenuAction,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Resend saved PDFs; never re-enter the AI pipeline or payment flow."""
+    async with session_factory() as session:
+        menu = await MenuRepository(session).get(callback_data.menu_id, full=True)
+
+    if not _owned_by(menu, callback.from_user.id):
+        await callback.answer("Заказ не найден.", show_alert=True)
+        return
+
+    try:
+        booklet, recipes = paid_menu_documents(menu)
+    except MenuDeliveryUnavailable:
+        await callback.answer(
+            "Готовые файлы недоступны. Обратитесь в поддержку; повторно оплачивать не нужно.",
+            show_alert=True,
+        )
+        return
+
+    await callback.answer("Отправляем сохранённые файлы.")
+    try:
+        await callback.bot.send_document(
+            chat_id=callback.from_user.id,
+            document=FSInputFile(str(booklet)),
+            request_timeout=180,
+        )
+        await callback.bot.send_document(
+            chat_id=callback.from_user.id,
+            document=FSInputFile(str(recipes)),
+            request_timeout=180,
+        )
+    except Exception:
+        logger.exception("Paid menu resend failed for order %s", menu.id)
+        await callback.message.answer(
+            "Не удалось доставить файлы. Заказ и оплата сохранены; попробуйте позже."
+        )
+        return
+
+    async with session_factory() as session:
+        await MenuRepository(session).set_status(menu.id, MenuStatus.COMPLETED)
+    await callback.message.answer("Оба документа повторно отправлены. 💛")
 
 
 @router.callback_query(MenuAction.filter(F.action == "requirements"))
