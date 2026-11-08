@@ -24,11 +24,18 @@ async def test_concurrent_payment_claims_postgres(product):
     if not url:
         pytest.skip("FOOD_PORN_TEST_DATABASE_URL is required")
     parsed = make_url(url)
-    if parsed.get_backend_name() != "postgresql" or "test" not in (parsed.database or "").lower():
+    if parsed.get_backend_name() != "postgresql" or parsed.database != "food_porn_test":
         pytest.fail("Refusing to use a database without 'test' in its PostgreSQL database name")
 
+    # Neon URLs may use a synchronous-style scheme and libpq query parameters.
+    # asyncpg needs its explicit driver and SSL configuration.
+    url = parsed.set(drivername="postgresql+asyncpg").difference_update_query(
+        ["sslmode", "channel_binding"]
+    )
+    connection_options = {"ssl": "require"}
+
     schema = "payment_test_" + uuid4().hex[:16]
-    admin = create_async_engine(url, pool_pre_ping=True)
+    admin = create_async_engine(url, pool_pre_ping=True, connect_args=connection_options)
     isolated = None
     created = False
     try:
@@ -37,7 +44,7 @@ async def test_concurrent_payment_claims_postgres(product):
         created = True
         isolated = create_async_engine(
             url, pool_pre_ping=True,
-            connect_args={"server_settings": {"search_path": schema}},
+            connect_args={"ssl": "require", "server_settings": {"search_path": schema}},
         )
         async with isolated.begin() as conn:
             if product == "menu":
