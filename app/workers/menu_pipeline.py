@@ -235,9 +235,14 @@ class MenuPipeline:
                                 chat_id=chat_id,
                                 document=FSInputFile(str(production_pdf_path)),
                                 caption=caption_prod,
-                                parse_mode="HTML"
+                                parse_mode="HTML",
+                                request_timeout=180,
                             )
-                        await self.bot.send_document(chat_id=chat_id, document=FSInputFile(str(recipe_path)))
+                        await self.bot.send_document(
+                            chat_id=chat_id,
+                            document=FSInputFile(str(recipe_path)),
+                            request_timeout=180,
+                        )
 
                         await self.bot.send_message(chat_id=chat_id, text=shopping_text, parse_mode="HTML")
 
