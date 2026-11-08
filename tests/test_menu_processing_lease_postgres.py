@@ -23,11 +23,18 @@ async def test_postgres_lease_concurrent_claim_renew_expire_and_release():
     if not url:
         pytest.skip("Set FOOD_PORN_TEST_DATABASE_URL to an isolated PostgreSQL test database")
     parsed = make_url(url)
-    if parsed.get_backend_name() != "postgresql" or "test" not in (parsed.database or "").lower():
+    if parsed.get_backend_name() != "postgresql" or parsed.database != "food_porn_test":
         pytest.fail("Refusing to run: test DB must be PostgreSQL and database name must contain 'test'")
 
+    # Neon URLs may use a synchronous-style scheme and libpq query parameters.
+    # asyncpg needs its explicit driver and SSL configuration.
+    url = parsed.set(drivername="postgresql+asyncpg").difference_update_query(
+        ["sslmode", "channel_binding"]
+    )
+    connection_options = {"ssl": "require"}
+
     schema = "lease_test_" + uuid4().hex[:16]
-    admin = create_async_engine(url, pool_pre_ping=True)
+    admin = create_async_engine(url, pool_pre_ping=True, connect_args=connection_options)
     isolated = None
     schema_created = False
     try:
@@ -37,7 +44,7 @@ async def test_postgres_lease_concurrent_claim_renew_expire_and_release():
         isolated = create_async_engine(
             url,
             pool_pre_ping=True,
-            connect_args={"server_settings": {"search_path": schema}},
+            connect_args={"ssl": "require", "server_settings": {"search_path": schema}},
         )
         async with isolated.begin() as conn:
             await conn.run_sync(
