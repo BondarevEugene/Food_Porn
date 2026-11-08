@@ -122,7 +122,7 @@ def get_admin_main_keyboard() -> InlineKeyboardMarkup:
     rows.extend(
         [
             [
-                InlineKeyboardButton(text="📊 Обзор", callback_data="admin_stats"),
+                InlineKeyboardButton(text="📊 Аналитика", callback_data="admin_stats"),
                 InlineKeyboardButton(text="👥 Клиенты", callback_data="admin_customers"),
             ],
             [
@@ -131,7 +131,7 @@ def get_admin_main_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="📣 Реклама", callback_data="admin_ads"),
-                InlineKeyboardButton(text="⚙️ Цены и VIP", callback_data="admin_settings"),
+                InlineKeyboardButton(text="⚙️ Настройки и VIP", callback_data="admin_settings"),
             ],
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="back_to_main")],
         ]
@@ -259,12 +259,67 @@ async def admin_panel_command(message: Message, state: FSMContext):
     )
 
 
-@router.callback_query(F.data.in_({"admin_home", "admin_stats", "admin_finance"}))
+@router.callback_query(F.data.in_({"admin_home", "admin_stats"}))
 async def admin_home_callback(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.clear()
     await callback.message.edit_text(
         await summary_text(), reply_markup=get_admin_main_keyboard(), parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "admin_finance")
+async def admin_finance_callback(callback: CallbackQuery, state: FSMContext):
+    """A dedicated finance screen, not a duplicate of the dashboard."""
+    from datetime import UTC, datetime
+    from decimal import Decimal
+
+    from sqlalchemy import func, select
+
+    from app.crm.models import Expense
+
+    await callback.answer()
+    await state.clear()
+    now = datetime.now(UTC)
+    start = datetime(now.year, now.month, 1, tzinfo=UTC)
+    async with async_session_maker() as session:
+        orders = service.order_queries()
+        revenue = (await session.execute(select(
+            func.coalesce(func.sum(orders.c.amount), 0),
+        ).where(
+            orders.c.payment_kind == "cash",
+            orders.c.paid_at >= start,
+            orders.c.paid_at <= now,
+        ))).scalar_one()
+        stars = await session.scalar(select(
+            func.coalesce(func.sum(orders.c.stars), 0),
+        ).where(
+            orders.c.payment_kind == "stars",
+            orders.c.paid_at >= start,
+            orders.c.paid_at <= now,
+        ))
+        expenses = (await session.execute(
+            select(Expense.currency, func.sum(Expense.amount))
+            .where(
+                Expense.voided.is_(False),
+                Expense.occurred_on >= start.date(),
+                Expense.occurred_on <= now.date(),
+            ).group_by(Expense.currency)
+        )).all()
+    by_currency = {currency: Decimal(amount or 0) for currency, amount in expenses}
+    manual_uah = by_currency.get("UAH", Decimal(0))
+    text = (
+        f"💳 <b>Финансы · {now:%m.%Y}</b>\n"
+        "Текущий календарный месяц · UTC\n\n"
+        f"💰 Подтверждённые поступления: <b>{Decimal(revenue):.2f} UAH</b>\n"
+        f"⭐ Telegram Stars: <b>{int(stars or 0)}</b>\n"
+        f"📉 Учтённые расходы: <b>{manual_uah:.2f} UAH</b>\n"
+        f"📌 Разница до AI-расходов: <b>{Decimal(revenue) - manual_uah:.2f} UAH</b>\n\n"
+        "AI-затраты и расходы в других валютах здесь не конвертируются. "
+        "Полная себестоимость и детализация доступны в Mini CRM."
+    )
+    await callback.message.edit_text(
+        text, reply_markup=get_admin_main_keyboard(), parse_mode="HTML"
     )
 
 
