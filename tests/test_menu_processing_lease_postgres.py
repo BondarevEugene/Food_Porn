@@ -43,17 +43,18 @@ async def test_postgres_lease_concurrent_claim_renew_expire_and_release():
             await conn.run_sync(
                 lambda sync_conn: Menu.__table__.create(sync_conn, checkfirst=False)
             )
-            await conn.execute(
+            customer_id = (await conn.execute(
                 text(
                     "INSERT INTO customers "
                     "(telegram_user_id, name, phone, country, city, language, source_channel) "
-                    "VALUES (987654321, 'Lease test', '000', 'Test', 'Test', 'UK', 'telegram')"
+                    "VALUES (987654321, 'Lease test', '000', 'Test', 'Test', 'UK', 'telegram') RETURNING id"
                 )
-            )
+            )).scalar_one()
             menu_id = (
                 await conn.execute(
                     text("INSERT INTO menus (customer_id, status, is_paid, source_channel) "
-                         "VALUES (1, 'queued', false, 'telegram') RETURNING id")
+                         "VALUES (:customer_id, 'queued', false, 'telegram') RETURNING id"),
+                    {"customer_id": customer_id},
                 )
             ).scalar_one()
 
