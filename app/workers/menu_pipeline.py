@@ -470,6 +470,11 @@ class MenuPipeline:
                 logger.info(f"Pipeline successfully finished for Menu ID:{menu_id}")
 
             except Exception as proc_exc:
+                try:
+                    await lease.assert_owned()
+                except RuntimeError:
+                    logger.warning("Menu %s lease lost; refusing stale failure status update", menu_id)
+                    return
                 logger.error(f"Pipeline processing failed for Menu ID:{menu_id}: {proc_exc}", exc_info=True)
                 # A delivery failure must not invalidate an already paid order.
                 # Generated artifacts remain available for a separate delivery retry.
