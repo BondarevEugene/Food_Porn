@@ -1,4 +1,5 @@
 """Fail closed when a purchased menu is missing real, distinct artwork."""
+
 from __future__ import annotations
 
 from hashlib import sha256
