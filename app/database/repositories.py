@@ -362,16 +362,29 @@ class MenuRepository:
             menu.payment_system = payment_system
         await self._commit()
 
-    async def mark_as_paid(self, menu_id: int, payment_id: str, payment_system: str) -> None:
-        menu = await self.get(menu_id)
+    async def mark_as_paid(self, menu_id: int, payment_id: str, payment_system: str) -> bool:
+        """Claim payment exactly once; reject conflicting receipts under a row lock."""
+        menu = (await self.session.execute(
+            select(Menu).where(Menu.id == menu_id).with_for_update()
+        )).scalar_one_or_none()
         if menu is None:
             raise LookupError(f"Menu {menu_id} not found")
+        if menu.is_paid:
+            if menu.payment_id != payment_id or menu.payment_system != payment_system:
+                await self.session.rollback()
+                raise ValueError(f"Menu {menu_id} already paid with another receipt")
+            await self.session.rollback()
+            return False
+        if menu.status != MenuStatus.WAITING_FOR_PAYMENT:
+            await self.session.rollback()
+            raise ValueError(f"Menu {menu_id} has no payable invoice")
         menu.is_paid = True
         menu.payment_id = payment_id
         menu.payment_system = payment_system
         menu.paid_at = menu.paid_at or datetime.now(UTC)
         menu.status = MenuStatus.PAID
         await self._commit()
+        return True
 
     async def mark_sent_to_printshop(self, menu_id: int) -> None:
         menu = await self.get(menu_id)
@@ -450,12 +463,26 @@ class WallpaperOrderRepository:
         return result.scalar_one_or_none()
 
     async def mark_paid(self, order: WallpaperOrder, payment_id: str,
-                        payment_system: str = "portmone") -> None:
-        order.paid = True
-        order.payment_id = payment_id
-        order.payment_system = payment_system
-        order.paid_at = order.paid_at or datetime.now(UTC)
+                        payment_system: str = "portmone") -> bool:
+        """Claim the wallpaper payment once, even across concurrent workers."""
+        locked = (await self.session.execute(
+            select(WallpaperOrder).where(WallpaperOrder.id == order.id).with_for_update()
+        )).scalar_one_or_none()
+        if locked is None:
+            await self.session.rollback()
+            raise LookupError(f"Wallpaper order {order.id} not found")
+        if locked.paid:
+            if locked.payment_id != payment_id or locked.payment_system != payment_system:
+                await self.session.rollback()
+                raise ValueError(f"Wallpaper order {order.id} already paid with another receipt")
+            await self.session.rollback()
+            return False
+        locked.paid = True
+        locked.payment_id = payment_id
+        locked.payment_system = payment_system
+        locked.paid_at = locked.paid_at or datetime.now(UTC)
         await self.session.commit()
+        return True
 
 
 class WallpaperStudioRepository:
