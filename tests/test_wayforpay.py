@@ -480,3 +480,94 @@ async def test_wayforpay_missing_files_reports_delivery_failure(monkeypatch) -> 
 
     assert callback.answer.await_args.kwargs["show_alert"] is True
     assert "файли" in callback.answer.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_wayforpay_telegram_delivery_failure_can_retry(monkeypatch) -> None:
+    """Помилка Telegram не скасовує оплату; повторний запит доставляє файли."""
+    from aiogram.exceptions import TelegramNetworkError
+
+    from app.bot.handlers import wayforpay as handler
+
+    attempt = payment(status="approved")
+    callback = SimpleNamespace(
+        data="check_wayforpay:7",
+        from_user=SimpleNamespace(id=12345),
+        message=SimpleNamespace(answer=AsyncMock()),
+        answer=AsyncMock(),
+    )
+    factory = Mock()
+    factory.return_value.__aenter__ = AsyncMock(return_value=SimpleNamespace())
+    factory.return_value.__aexit__ = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        handler.WayForPayPaymentRepository,
+        "get_for_user",
+        AsyncMock(return_value=attempt),
+    )
+    entitlement = AsyncMock(return_value=True)
+    monkeypatch.setattr(handler, "wayforpay_entitlement_is_active", entitlement)
+    deliver = AsyncMock(
+        side_effect=[
+            TelegramNetworkError(method=Mock(), message="Temporary network failure"),
+            True,
+        ]
+    )
+    monkeypatch.setattr(handler, "_deliver_menu", deliver)
+
+    await handler.check_wayforpay(callback, settings(), factory)
+    assert attempt.status == "approved"
+    assert callback.answer.await_args.kwargs["show_alert"] is True
+    assert "Повторіть" in callback.answer.await_args.args[0]
+
+    callback.answer.reset_mock()
+    await handler.check_wayforpay(callback, settings(), factory)
+    assert attempt.status == "approved"
+    assert deliver.await_count == 2
+    assert entitlement.await_count == 2
+    assert callback.answer.await_args.kwargs.get("show_alert", False) is False
+
+
+@pytest.mark.asyncio
+async def test_wayforpay_second_menu_document_failure_is_retryable(
+    monkeypatch, tmp_path
+) -> None:
+    """Часткова доставка не змінює оплату та дозволяє повторну відправку."""
+    from aiogram.exceptions import TelegramNetworkError
+
+    from app.bot.handlers import wayforpay as handler
+    from app.database.models import FileKind
+
+    pdf = tmp_path / "menu.pdf"
+    recipe = tmp_path / "recipe.pdf"
+    pdf.write_bytes(b"pdf")
+    recipe.write_bytes(b"recipe")
+    menu = SimpleNamespace(
+        is_paid=True,
+        customer=SimpleNamespace(telegram_user_id=12345),
+        files=[
+            SimpleNamespace(kind=FileKind.PRINT_PDF, path=str(pdf)),
+            SimpleNamespace(kind=FileKind.RECIPE_SHEET, path=str(recipe)),
+        ],
+    )
+    monkeypatch.setattr(
+        handler.MenuRepository, "get", AsyncMock(return_value=menu)
+    )
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=12345),
+        message=SimpleNamespace(
+            answer_document=AsyncMock(
+                side_effect=[
+                    None,
+                    TelegramNetworkError(method=Mock(), message="Temporary network failure"),
+                    None,
+                    None,
+                ]
+            )
+        ),
+    )
+    with pytest.raises(TelegramNetworkError):
+        await handler._deliver_menu(callback, 17, SimpleNamespace())
+
+    assert menu.is_paid is True
+    assert await handler._deliver_menu(callback, 17, SimpleNamespace()) is True
+    assert callback.message.answer_document.await_count == 4
