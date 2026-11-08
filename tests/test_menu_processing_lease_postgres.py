@@ -12,7 +12,8 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.database.models import Customer, Menu
+from app.database.models import Customer, Menu, MenuStatus
+from app.database.repositories import MenuRepository
 from app.services.menu_processing_lease import MenuProcessingLease
 
 
@@ -82,6 +83,13 @@ async def test_postgres_lease_concurrent_claim_renew_expire_and_release():
             await session.commit()
         assert await loser.acquire() is True
         assert await owner.renew() is False
+        async with factory() as stale_session:
+            stale_repo = MenuRepository(stale_session, processing_token=owner.token, processing_menu_id=menu_id)
+            with pytest.raises(RuntimeError, match="Processing lease lost"):
+                await stale_repo.set_status(menu_id, MenuStatus.FAILED)
+        async with factory() as current_session:
+            current_repo = MenuRepository(current_session, processing_token=loser.token, processing_menu_id=menu_id)
+            await current_repo.set_status(menu_id, MenuStatus.IMAGES_READY)
         await owner.release()
         assert await loser.renew() is True
         await loser.release()
