@@ -231,6 +231,10 @@ class MenuRepository:
             menu.cover_photo_path = cover
         if spread is not None:
             menu.spread_photo_path = spread
+        if cover_file_id is not None:
+            menu.cover_telegram_file_id = cover_file_id
+        if spread_file_id is not None:
+            menu.spread_telegram_file_id = spread_file_id
         await self.session.commit()
 
     async def set_status(
