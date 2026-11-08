@@ -220,7 +220,10 @@ class MenuRepository:
         await self.session.commit()
         self.session.expire_all()
 
-    async def set_photos(self, menu_id: int, *, cover: str | None = None, spread: str | None = None) -> None:
+    async def set_photos(
+        self, menu_id: int, *, cover: str | None = None, spread: str | None = None,
+        cover_file_id: str | None = None, spread_file_id: str | None = None,
+    ) -> None:
         menu = await self.get(menu_id)
         if menu is None:
             raise LookupError(f"Menu {menu_id} not found")
