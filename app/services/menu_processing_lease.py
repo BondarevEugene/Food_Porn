@@ -11,7 +11,7 @@ import logging
 from datetime import timedelta
 from uuid import uuid4
 
-from sqlalchemy import func, or_, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.database.models import Menu, MenuStatus
@@ -49,6 +49,19 @@ class MenuProcessingLease:
             result = await session.execute(stmt)
             await session.commit()
             return result.rowcount == 1
+
+    async def assert_owned(self) -> None:
+        """Fail closed when another worker has acquired this menu."""
+        async with self.session_factory() as session:
+            owned = await session.scalar(
+                select(Menu.id).where(
+                    Menu.id == self.menu_id,
+                    Menu.processing_token == self.token,
+                    Menu.processing_lease_until > func.now(),
+                )
+            )
+        if owned is None:
+            raise RuntimeError(f"Processing lease lost for menu {self.menu_id}")
 
     async def renew(self) -> bool:
         async with self.session_factory() as session:
