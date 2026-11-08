@@ -168,6 +168,7 @@ def settings_keyboard(
             )
         ]
         for key, label in labels.items()
+        if key in data["values"]
     ]
     if owner:
         buttons.extend(
