@@ -12,6 +12,7 @@ import subprocess
 import sys
 
 from sqlalchemy import text
+from sqlalchemy.exc import ArgumentError
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -66,14 +67,26 @@ def main() -> int:
     if not raw_url:
         print("Встановіть FOOD_PORN_MIGRATIONS_TEST_DATABASE_URL для нової тестової БД.")
         return 2
-    parsed = make_url(raw_url)
+    try:
+        parsed = make_url(raw_url)
+    except ArgumentError:
+        print(
+            "Некоректний URL. Очікується формат "
+            "postgresql://USER:PASSWORD@HOST/food_porn_migrations_test?sslmode=require. "
+            "Не публікуйте пароль у повідомленнях або журналах."
+        )
+        return 2
     if parsed.get_backend_name() != "postgresql" or parsed.database != EXPECTED_DATABASE:
         print("Відмовлено: назва БД має бути рівно food_porn_migrations_test.")
         return 2
 
     asyncio.run(_inspect_database(raw_url, expect_empty=True))
     environment = os.environ.copy()
-    environment["DATABASE_URL"] = raw_url
+    environment["DATABASE_URL"] = str(
+        parsed.set(drivername="postgresql+asyncpg").difference_update_query(
+            ["sslmode", "channel_binding"]
+        )
+    )
     # Alembic env.py бере адресу з Settings; змінна процесу має пріоритет над .env.
     print("Перевірено порожню тестову БД. Запускаємо Alembic upgrade head...")
     result = subprocess.run(
