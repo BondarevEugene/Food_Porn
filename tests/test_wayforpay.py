@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -391,8 +391,9 @@ async def test_wayforpay_new_approved_payment_delivery(
         answer=AsyncMock(),
     )
     session = SimpleNamespace()
-    factory = AsyncMock()
-    factory.return_value.__aenter__.return_value = session
+    factory = Mock()
+    factory.return_value.__aenter__ = AsyncMock(return_value=session)
+    factory.return_value.__aexit__ = AsyncMock(return_value=None)
 
     monkeypatch.setattr(
         handler.WayForPayPaymentRepository,
@@ -430,8 +431,9 @@ async def test_wayforpay_repeated_approval_checks_entitlement(monkeypatch) -> No
         message=SimpleNamespace(answer=AsyncMock()),
         answer=AsyncMock(),
     )
-    factory = AsyncMock()
-    factory.return_value.__aenter__.return_value = SimpleNamespace()
+    factory = Mock()
+    factory.return_value.__aenter__ = AsyncMock(return_value=SimpleNamespace())
+    factory.return_value.__aexit__ = AsyncMock(return_value=None)
     monkeypatch.setattr(
         handler.WayForPayPaymentRepository,
         "get_for_user",
@@ -461,8 +463,9 @@ async def test_wayforpay_missing_files_reports_delivery_failure(monkeypatch) -> 
         message=SimpleNamespace(answer=AsyncMock()),
         answer=AsyncMock(),
     )
-    factory = AsyncMock()
-    factory.return_value.__aenter__.return_value = SimpleNamespace()
+    factory = Mock()
+    factory.return_value.__aenter__ = AsyncMock(return_value=SimpleNamespace())
+    factory.return_value.__aexit__ = AsyncMock(return_value=None)
     monkeypatch.setattr(
         handler.WayForPayPaymentRepository,
         "get_for_user",
