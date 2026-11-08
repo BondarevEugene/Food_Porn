@@ -367,3 +367,113 @@ async def test_wayforpay_does_not_override_stars_wallpaper_payment() -> None:
     assert "duplicate_payment" in attempt.error_message
     assert "telegram_stars" in attempt.error_message
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("provider_owns_order", "expected_delivery", "expected_alert"),
+    [
+        (True, True, False),
+        (False, False, True),
+    ],
+)
+async def test_wayforpay_new_approved_payment_delivery(
+    monkeypatch, provider_owns_order, expected_delivery, expected_alert
+) -> None:
+    """Перевірка нової оплати: доставка лише власнику замовлення."""
+    from app.bot.handlers import wayforpay as handler
+
+    attempt = payment()
+    callback = SimpleNamespace(
+        data="check_wayforpay:7",
+        from_user=SimpleNamespace(id=12345),
+        message=SimpleNamespace(answer=AsyncMock()),
+        answer=AsyncMock(),
+    )
+    session = SimpleNamespace()
+    factory = AsyncMock()
+    factory.return_value.__aenter__.return_value = session
+
+    monkeypatch.setattr(
+        handler.WayForPayPaymentRepository,
+        "get_for_user",
+        AsyncMock(return_value=attempt),
+    )
+    monkeypatch.setattr(
+        handler.WayForPayService, "check_status",
+        AsyncMock(return_value={"transactionStatus": "Approved"}),
+    )
+
+    async def approve(session_arg, payment_arg, payload):
+        payment_arg.status = "approved"
+        return provider_owns_order
+
+    monkeypatch.setattr(handler, "apply_verified_payment", approve)
+    deliver = AsyncMock(return_value=True)
+    monkeypatch.setattr(handler, "_deliver_menu", deliver)
+
+    await handler.check_wayforpay(callback, settings(), factory)
+
+    assert deliver.await_count == int(expected_delivery)
+    assert callback.answer.await_args.kwargs.get("show_alert", False) == expected_alert
+
+
+@pytest.mark.asyncio
+async def test_wayforpay_repeated_approval_checks_entitlement(monkeypatch) -> None:
+    """Повторний запит не повинен видавати файли чужої спроби оплати."""
+    from app.bot.handlers import wayforpay as handler
+
+    attempt = payment(status="approved")
+    callback = SimpleNamespace(
+        data="check_wayforpay:7",
+        from_user=SimpleNamespace(id=12345),
+        message=SimpleNamespace(answer=AsyncMock()),
+        answer=AsyncMock(),
+    )
+    factory = AsyncMock()
+    factory.return_value.__aenter__.return_value = SimpleNamespace()
+    monkeypatch.setattr(
+        handler.WayForPayPaymentRepository,
+        "get_for_user",
+        AsyncMock(return_value=attempt),
+    )
+    entitlement = AsyncMock(return_value=False)
+    deliver = AsyncMock(return_value=True)
+    monkeypatch.setattr(handler, "wayforpay_entitlement_is_active", entitlement)
+    monkeypatch.setattr(handler, "_deliver_menu", deliver)
+
+    await handler.check_wayforpay(callback, settings(), factory)
+
+    entitlement.assert_awaited_once()
+    deliver.assert_not_awaited()
+    assert callback.answer.await_args.kwargs["show_alert"] is True
+
+
+@pytest.mark.asyncio
+async def test_wayforpay_missing_files_reports_delivery_failure(monkeypatch) -> None:
+    """Підтверджена оплата без готових файлів не вважається доставкою."""
+    from app.bot.handlers import wayforpay as handler
+
+    attempt = payment(status="approved")
+    callback = SimpleNamespace(
+        data="check_wayforpay:7",
+        from_user=SimpleNamespace(id=12345),
+        message=SimpleNamespace(answer=AsyncMock()),
+        answer=AsyncMock(),
+    )
+    factory = AsyncMock()
+    factory.return_value.__aenter__.return_value = SimpleNamespace()
+    monkeypatch.setattr(
+        handler.WayForPayPaymentRepository,
+        "get_for_user",
+        AsyncMock(return_value=attempt),
+    )
+    monkeypatch.setattr(
+        handler, "wayforpay_entitlement_is_active", AsyncMock(return_value=True)
+    )
+    monkeypatch.setattr(handler, "_deliver_menu", AsyncMock(return_value=False))
+
+    await handler.check_wayforpay(callback, settings(), factory)
+
+    assert callback.answer.await_args.kwargs["show_alert"] is True
+    assert "файли" in callback.answer.await_args.args[0]
