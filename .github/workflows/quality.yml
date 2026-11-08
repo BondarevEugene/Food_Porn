@@ -29,7 +29,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pytest pytest-asyncio ruff
+          python -m pip install -r requirements.txt pytest pytest-asyncio ruff aiosqlite
 
       - name: Ruff
         run: python -m ruff check app src tests alembic main.py
