@@ -10,7 +10,6 @@ from PIL import Image
 from app.database.models import GenerationStatus, Menu
 
 
-
 def validate_customer_photos(menu: Menu) -> None:
     """Reject missing or corrupt customer photos before paid AI generation."""
     for role, raw_path in (
