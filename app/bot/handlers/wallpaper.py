@@ -36,8 +36,8 @@ from app.services.portmone_sandbox import send_portmone_sandbox_offer
 from app.services.print_bundle import create_print_bundle
 from app.services.replicate_vision_board import ImageSafetyError, ReplicateVisionBoardRenderer
 from app.services.stars import OrderRef, create_invoice
-from app.services.wallpaper_studio import archive_source_photos
 from app.services.video_story_plans import VideoTier, get_video_plan, video_plan_label
+from app.services.wallpaper_studio import archive_source_photos
 from app.services.wayforpay import WayForPayService
 
 router = Router(name="wallpaper")
