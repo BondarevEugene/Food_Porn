@@ -8,7 +8,6 @@ Module: Bot Routers Registry
 from aiogram import Dispatcher
 
 
-
 def setup_routers(dp: Dispatcher) -> None:
     """Реєструє всі роутери додатку в головному диспетчері."""
     from app.bot.handlers.admin import router as admin_router
