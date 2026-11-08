@@ -582,7 +582,11 @@ async def receive_photo(
 
     async with session_factory() as session:
         repo = MenuRepository(session)
-        kwargs = {"cover": str(path)} if role == "cover" else {"spread": str(path)}
+        kwargs = (
+            {"cover": str(path), "cover_file_id": message.photo[-1].file_id}
+            if role == "cover"
+            else {"spread": str(path), "spread_file_id": message.photo[-1].file_id}
+        )
         await repo.set_photos(menu_id, **kwargs)
         menu = await repo.get(menu_id, full=True)
 
