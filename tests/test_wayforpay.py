@@ -571,3 +571,103 @@ async def test_wayforpay_second_menu_document_failure_is_retryable(
     assert menu.is_paid is True
     assert await handler._deliver_menu(callback, 17, SimpleNamespace()) is True
     assert callback.message.answer_document.await_count == 4
+
+
+@pytest.mark.asyncio
+async def test_wayforpay_repeated_approved_webhook_keeps_original_entitlement() -> None:
+    """Повторне підтвердження не змінює власника та ідентифікатор оплати."""
+    attempt = payment()
+    menu = SimpleNamespace(
+        is_paid=False,
+        payment_system=None,
+        payment_id=None,
+        customer=SimpleNamespace(telegram_user_id=12345),
+        price_amount=None,
+        paid_at=None,
+        status="waiting_for_payment",
+    )
+    session = SimpleNamespace(
+        get=AsyncMock(return_value=menu),
+        refresh=AsyncMock(),
+        commit=AsyncMock(),
+    )
+    payload = {
+        "transactionStatus": "Approved",
+        "authCode": "WFP-REPEAT-001",
+        "reasonCode": "1100",
+    }
+
+    assert await apply_verified_payment(session, attempt, payload) is True
+    first_paid_at = attempt.paid_at
+    first_order_paid_at = menu.paid_at
+    assert await apply_verified_payment(session, attempt, payload) is True
+
+    assert attempt.status == "approved"
+    assert attempt.paid_at == first_paid_at
+    assert menu.paid_at == first_order_paid_at
+    assert menu.payment_system == "wayforpay"
+    assert menu.payment_id == attempt.order_reference
+    assert attempt.error_message is None
+    assert session.commit.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("product", ["menu", "wallpaper"])
+async def test_wayforpay_two_approved_attempts_preserve_first_owner(product) -> None:
+    """Друга підтверджена транзакція зберігається для фінансової звірки."""
+    first = payment(product=product, reference_id="17")
+    second = payment(
+        id=8,
+        product=product,
+        reference_id="17",
+        order_reference="fp_second_17_abcdef",
+    )
+    if product == "menu":
+        order = SimpleNamespace(
+            is_paid=False,
+            payment_system=None,
+            payment_id=None,
+            customer=SimpleNamespace(telegram_user_id=12345),
+            price_amount=None,
+            paid_at=None,
+            status="waiting_for_payment",
+        )
+    else:
+        order = SimpleNamespace(
+            paid=False,
+            payment_system=None,
+            payment_id=None,
+            telegram_user_id=12345,
+            amount=None,
+            paid_at=None,
+        )
+    session = SimpleNamespace(
+        get=AsyncMock(return_value=order),
+        refresh=AsyncMock(),
+        commit=AsyncMock(),
+    )
+    payload = {"transactionStatus": "Approved", "authCode": "WFP-DUPLICATE"}
+
+    assert await apply_verified_payment(session, first, payload) is True
+    assert await apply_verified_payment(session, second, payload) is False
+    assert first.status == "approved"
+    assert second.status == "approved"
+    assert order.payment_system == "wayforpay"
+    assert order.payment_id == first.order_reference
+    assert "duplicate_payment" in second.error_message
+    assert session.commit.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_wayforpay_late_failed_notification_does_not_revoke_approval() -> None:
+    """Запізніле негативне повідомлення не скасовує підтверджений платіж."""
+    attempt = payment(status="approved")
+    session = SimpleNamespace(commit=AsyncMock())
+    result = await apply_verified_payment(
+        session,
+        attempt,
+        {"transactionStatus": "Declined", "reasonCode": "1101"},
+    )
+    assert result is False
+    assert attempt.status == "approved"
+    session.commit.assert_awaited_once()
