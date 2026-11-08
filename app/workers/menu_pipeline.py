@@ -11,6 +11,7 @@ Responsibilities:
     - Deliver preview artwork and payment invoices or VIP clean files via Telegram
 ==========================================================
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -31,7 +32,11 @@ from app.render.recipes import render_recipe_sheet
 from app.services.evening_plan import build_evening_plan, save_evening_plan
 from app.services.free_access import has_free_generation_access
 from app.services.image_generation import ImageGenerationService
-from app.services.menu_quality import validate_customer_photos, validate_menu_artwork, validate_menu_files
+from app.services.menu_quality import (
+    validate_customer_photos,
+    validate_menu_artwork,
+    validate_menu_files,
+)
 from app.services.payment import PaymentService
 from app.services.portmone_sandbox import send_portmone_sandbox_offer
 from app.services.prompt_builder import PromptBuilder
