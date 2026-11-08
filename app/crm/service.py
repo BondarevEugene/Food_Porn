@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import String, case, cast, func, literal, or_, select, union, union_all
