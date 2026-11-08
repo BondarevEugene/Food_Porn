@@ -113,6 +113,8 @@ class Menu(TimestampMixin, Base):
     visual_style: Mapped[str | None] = mapped_column(String(60), nullable=True)
     cover_photo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     spread_photo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cover_telegram_file_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    spread_telegram_file_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Поля для эквайринга и коммерческого цикла
