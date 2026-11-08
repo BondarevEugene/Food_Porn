@@ -51,7 +51,7 @@ async def test_lease_release_only_after_processing(monkeypatch) -> None:
     pipeline.session_factory = object()
     pipeline._active_menu_ids = set()
 
-    async def process(menu_id):
+    async def process(menu_id, *, lease):
         events.append("generated")
 
     pipeline._process_unlocked = AsyncMock(side_effect=process)
