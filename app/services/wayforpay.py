@@ -29,7 +29,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
-from app.database.models import Menu, MenuStatus, WallpaperOrder, WayForPayPayment
+from app.database.models import Menu, MenuStatus, VideoStoryOrder, WallpaperOrder, WayForPayPayment
 from app.database.repositories import WayForPayPaymentRepository
 
 WAYFORPAY_CHECKOUT_URL = "https://secure.wayforpay.com/pay"
@@ -39,7 +39,7 @@ WAYFORPAY_API_URL = "https://api.wayforpay.com/api"
 # It is deliberately not a production credential.
 TEST_MERCHANT_ACCOUNT = "test_merch_n1"
 TEST_MERCHANT_SECRET = "flk3409refn54t54t*FNJRET"
-PRODUCTS = frozenset({"menu", "wallpaper"})
+PRODUCTS = frozenset({"menu", "wallpaper", "video_story"})
 
 
 class WayForPayError(RuntimeError):
@@ -119,6 +119,10 @@ class WayForPayService:
             return _money(self.settings.wayforpay_menu_price_uah)
         if product == "wallpaper":
             return _money(self.settings.wayforpay_wallpaper_price_uah)
+        if product == "video_story":
+            if self.settings.wayforpay_video_story_price_uah is None:
+                raise WayForPayError("Video story price is not configured")
+            return _money(self.settings.wayforpay_video_story_price_uah)
         raise WayForPayError("Unsupported WayForPay product")
 
     def checkout_url(self, payment: WayForPayPayment) -> str:
@@ -318,6 +322,17 @@ async def wayforpay_entitlement_is_active(
             and order.payment_id == payment.order_reference
         )
 
+    if payment.product == "video_story":
+        order = await session.get(VideoStoryOrder, reference_id)
+        return bool(
+            order
+            and order.telegram_user_id == payment.telegram_user_id
+            and order.status in {"paid", "queued", "processing", "ready"}
+            and order.payment_system == "wayforpay"
+            and order.payment_reference == payment.order_reference
+            and order.paid_at is not None
+        )
+
     return False
 
 async def apply_verified_payment(
@@ -397,6 +412,20 @@ async def apply_verified_payment(
         existing_provider = product.payment_system
         existing_payment_id = product.payment_id
 
+    elif payment.product == "video_story":
+        product = await session.get(VideoStoryOrder, reference_id, with_for_update=True)
+        if product is None:
+            raise WayForPayError("Video story order no longer exists")
+        if product.telegram_user_id != payment.telegram_user_id:
+            raise WayForPayError("Video story owner mismatch")
+        if product.status == "refunded":
+            raise WayForPayError("Refunded video story cannot be activated")
+        if product.amount != payment.amount or product.currency != payment.currency:
+            raise WayForPayError("Video story payment amount mismatch")
+        already_paid = product.status in {"paid", "queued", "processing", "ready"}
+        existing_provider = product.payment_system
+        existing_payment_id = product.payment_reference
+
     else:
         # Defensive guard. Never route unknown products to wallpaper.
         raise WayForPayError("Unsupported WayForPay product")
@@ -438,6 +467,11 @@ async def apply_verified_payment(
         product.price_amount = payment.amount
         product.paid_at = datetime.now(UTC)
         product.status = MenuStatus.PAID
+    elif payment.product == "video_story":
+        product.status = "paid"
+        product.payment_reference = payment.order_reference
+        product.payment_system = "wayforpay"
+        product.paid_at = datetime.now(UTC)
     else:
         product.paid = True
         product.payment_id = payment.order_reference
