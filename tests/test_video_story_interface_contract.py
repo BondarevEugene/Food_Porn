@@ -35,7 +35,7 @@ def test_video_has_owner_only_download_and_no_legacy_collage_export():
 
 def test_stars_only_pricing_does_not_require_wayforpay():
     assert 'settings.wayforpay_video_story_price_uah or Decimal("0.00")' in API
-    assert 'if provider != "stars":' in API
+    assert 'if provider != "stars" and order.amount <= 0:' in API
 
 
 def test_video_payment_options_are_server_filtered():
