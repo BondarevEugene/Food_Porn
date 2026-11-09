@@ -34,6 +34,7 @@ from app.database.models import (
     ShareLink,
     WallpaperExport,
     WallpaperOrder,
+    VideoStoryOrder,
     WallpaperSceneVersion,
 )
 from app.database.repositories import (
@@ -142,7 +143,7 @@ async def _wayforpay_is_paid(
     reference_id: int,
     owner_id: int,
 ) -> bool:
-    if product not in {"menu", "wallpaper"}:
+    if product not in {"menu", "wallpaper", "video_story"}:
         return False
 
     service = WayForPayService(get_settings())
@@ -898,6 +899,19 @@ async def create_wallpaper_scene_variant(
     order_id: int, scene_index: int, payload: dict,
     user: Annotated[dict, Depends(current_user)],
 ) -> dict:
+    async with async_session_maker() as session:
+        video_order = await session.scalar(
+            select(VideoStoryOrder).where(
+                VideoStoryOrder.wallpaper_order_id == order_id,
+                VideoStoryOrder.telegram_user_id == user["id"],
+                VideoStoryOrder.status.in_(("paid", "queued", "processing", "ready")),
+                VideoStoryOrder.paid_at.is_not(None),
+            ).order_by(VideoStoryOrder.id.desc())
+        )
+    if video_order is None:
+        raise HTTPException(403, "A separately paid video story order is required")
+    if music is not None or voice is not None or ai_voice:
+        raise HTTPException(422, "Custom audio uploads and voice are not enabled for video stories")
     if order_id in _studio_jobs:
         raise HTTPException(409, "Another Scene Studio operation is still running")
     edit_mode = str(payload.get("mode", "scene"))
@@ -1097,6 +1111,18 @@ async def wallpaper_export_file(
                 WallpaperExport.order_id == order.id, WallpaperExport.kind == kind
             )
         )
+    if kind == "video":
+        async with async_session_maker() as session:
+            entitlement = await session.scalar(
+                select(VideoStoryOrder.id).where(
+                    VideoStoryOrder.wallpaper_order_id == order_id,
+                    VideoStoryOrder.telegram_user_id == user["id"],
+                    VideoStoryOrder.status.in_(("paid", "queued", "processing", "ready")),
+                    VideoStoryOrder.paid_at.is_not(None),
+                ).limit(1)
+            )
+        if entitlement is None:
+            raise HTTPException(403, "Video story payment required")
     current_revision = WallpaperExportService(order).source_revision
     if export is None or export.source_revision != current_revision or not Path(export.path).is_file():
         raise HTTPException(409, "Create this format for the current revision first")
