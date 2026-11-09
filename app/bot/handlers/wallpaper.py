@@ -107,44 +107,65 @@ def finish_photos_keyboard(lang: str) -> InlineKeyboardMarkup:
     ])
 
 
-@router.callback_query(F.data == "gift_video_plans")
-async def show_gift_video_plans(callback: CallbackQuery, state: FSMContext, settings: Settings) -> None:
-    count = len(upload_paths(settings, callback.from_user.id))
-    if count < 1:
-        await callback.answer("Спочатку завантажте фотографії / Сначала загрузите фотографии", show_alert=True)
+def video_story_entry_keyboard(settings: Settings, lang: str) -> InlineKeyboardMarkup | None:
+    """Use the paid Scene Studio flow; Telegram has no standalone video checkout."""
+    if not settings.miniapp_url:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text=text_for(lang, "🎬 Відкрити Scene Studio", "🎬 Открыть Scene Studio",
+                          "🎬 Open Scene Studio"),
+            url=settings.miniapp_url,
+        ),
+    ]])
+
+
+async def send_video_story_entry(callback: CallbackQuery, state: FSMContext,
+                                 settings: Settings) -> None:
+    """Previously uploaded photos are archived with the collage, not kept in uploads."""
+    data = await state.get_data()
+    lang = data.get("ui_lang") or data.get("lang") or language_for(callback.from_user)
+    if not settings.miniapp_url:
+        await callback.answer(text_for(
+            lang, "Майстерня тимчасово недоступна. Спробуйте пізніше.",
+            "Мастерская временно недоступна. Попробуйте позже.",
+            "Scene Studio is temporarily unavailable. Please try later.",
+        ), show_alert=True)
         return
-    lang = (await state.get_data()).get("lang", "uk")
-    rows = [[InlineKeyboardButton(
-        text=f"{video_plan_label(tier, lang)} · {get_video_plan(tier).seconds} с",
-        callback_data=f"gift_video_tier:{tier.value}",
-    )] for tier in VideoTier]
     await callback.message.answer(
-        text_for(lang, "🎬 Оберіть формат відеоісторії:", "🎬 Выберите формат видеоистории:",
-                 "🎬 Choose a video-story format:"),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        text_for(
+            lang,
+            "🎬 Ваші готові колажі та збережені фото доступні в Scene Studio. "
+            "Відкрийте оплачений колаж, оберіть відеоісторію та її окрему оплату. "
+            "Повторно завантажувати фото не потрібно.",
+            "🎬 Ваши готовые коллажи и сохранённые фото доступны в Scene Studio. "
+            "Откройте оплаченный коллаж и выберите видеоисторию с отдельной оплатой. "
+            "Повторно загружать фото не нужно.",
+            "🎬 Your completed collages and saved photos are in Scene Studio. "
+            "Open your paid collage and select the separately paid video story. "
+            "No need to upload photos again.",
+        ),
+        reply_markup=video_story_entry_keyboard(settings, lang),
     )
     await callback.answer()
 
 
+@router.callback_query(F.data == "gift_video_plans")
+async def show_gift_video_plans(callback: CallbackQuery, state: FSMContext,
+                                settings: Settings) -> None:
+    await send_video_story_entry(callback, state, settings)
+
+
 @router.callback_query(F.data.startswith("gift_video_tier:"))
-async def choose_gift_video_tier(callback: CallbackQuery, state: FSMContext, settings: Settings) -> None:
-    if len(upload_paths(settings, callback.from_user.id)) < 1:
-        await callback.answer("Спочатку завантажте фотографії / Сначала загрузите фотографии", show_alert=True)
-        return
+async def choose_gift_video_tier(callback: CallbackQuery, state: FSMContext,
+                                 settings: Settings) -> None:
+    """Support old inline tariff buttons without promising unavailable 30/60s renders."""
     try:
-        tier = VideoTier((callback.data or "").removeprefix("gift_video_tier:"))
+        VideoTier((callback.data or "").removeprefix("gift_video_tier:"))
     except ValueError:
         await callback.answer("Невідомий тариф / Неизвестный тариф", show_alert=True)
         return
-    lang = (await state.get_data()).get("lang", "uk")
-    await state.update_data(video_story_tier=tier.value)
-    await callback.message.answer(text_for(
-        lang,
-        f"🎬 {video_plan_label(tier, lang)} · {get_video_plan(tier).seconds} с. Оплата та генерація будуть доступні після підключення відеосервісу. Кошти не списуються.",
-        f"🎬 {video_plan_label(tier, lang)} · {get_video_plan(tier).seconds} с. Оплата и генерация станут доступны после подключения видеосервиса. Деньги не списываются.",
-        f"🎬 {video_plan_label(tier, lang)} · {get_video_plan(tier).seconds}s. Checkout and generation will be available once the video service is connected. No charge is made.",
-    ))
-    await callback.answer()
+    await send_video_story_entry(callback, state, settings)
 
 
 @router.callback_query(F.data.in_({"gift_safety_one_photo", "gift_safety_five_photos", "gift_safety_goals"}))
