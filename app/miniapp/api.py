@@ -1032,6 +1032,91 @@ async def _save_audio_upload(upload: UploadFile | None, destination: Path, limit
     return destination
 
 
+@router.post("/api/wallpapers/{order_id}/video-story/orders")
+async def create_video_story_order(
+    order_id: int,
+    user: Annotated[dict, Depends(current_user)],
+) -> dict:
+    """Окреме замовлення відео, не пов'язане з оплатою колажу."""
+    settings = get_settings()
+    service = WayForPayService(settings)
+    if not service.ready or settings.wayforpay_video_story_price_uah is None:
+        raise HTTPException(503, "Video story checkout is not configured")
+    price = service.price_for("video_story")
+    async with async_session_maker() as session:
+        wallpaper = await session.get(WallpaperOrder, order_id)
+        if wallpaper is None or wallpaper.telegram_user_id != user["id"]:
+            raise HTTPException(404, "Gift order not found")
+        if not wallpaper.paid:
+            raise HTTPException(403, "Pay for the wish collage first")
+        existing = await session.scalar(
+            select(VideoStoryOrder).where(
+                VideoStoryOrder.wallpaper_order_id == order_id,
+                VideoStoryOrder.telegram_user_id == user["id"],
+                VideoStoryOrder.status != "refunded",
+            ).order_by(VideoStoryOrder.id.desc()).limit(1)
+        )
+        if existing is None:
+            existing = VideoStoryOrder(
+                wallpaper_order_id=order_id,
+                telegram_user_id=user["id"],
+                amount=price,
+                currency="UAH",
+            )
+            session.add(existing)
+            await session.commit()
+            await session.refresh(existing)
+        return {
+            "order_id": existing.id,
+            "wallpaper_order_id": order_id,
+            "status": existing.status,
+            "amount": str(existing.amount),
+            "currency": existing.currency,
+            "paid": existing.status in {"paid", "queued", "processing", "ready"},
+        }
+
+
+@router.post("/api/video-stories/{video_order_id}/checkout")
+async def video_story_checkout(
+    video_order_id: int,
+    user: Annotated[dict, Depends(current_user)],
+) -> dict:
+    async with async_session_maker() as session:
+        order = await session.get(VideoStoryOrder, video_order_id)
+        if order is None or order.telegram_user_id != user["id"]:
+            raise HTTPException(404, "Video story order not found")
+        if order.status != "waiting_for_payment":
+            raise HTTPException(409, "Video story is not awaiting payment")
+        settings = get_settings()
+        if settings.wayforpay_video_story_price_uah is None:
+            raise HTTPException(503, "Video story price is not configured")
+        if order.amount != settings.wayforpay_video_story_price_uah:
+            raise HTTPException(409, "Video story price changed; contact support")
+    return await _wayforpay_checkout(
+        product="video_story",
+        reference_id=video_order_id,
+        owner_id=user["id"],
+        description=f"Food Porn video story #{video_order_id}",
+    )
+
+
+@router.post("/api/video-stories/{video_order_id}/verify")
+async def verify_video_story_payment(
+    video_order_id: int,
+    user: Annotated[dict, Depends(current_user)],
+) -> dict:
+    async with async_session_maker() as session:
+        order = await session.get(VideoStoryOrder, video_order_id)
+        if order is None or order.telegram_user_id != user["id"]:
+            raise HTTPException(404, "Video story order not found")
+        if order.status == "refunded":
+            return {"paid": False, "status": "refunded"}
+        if order.status in {"paid", "queued", "processing", "ready"} and order.paid_at:
+            return {"paid": True, "status": order.status}
+    verified = await _wayforpay_is_paid("video_story", video_order_id, user["id"])
+    return {"paid": verified, "status": "paid" if verified else "waiting_for_payment"}
+
+
 @router.post("/api/wallpapers/{order_id}/video")
 async def create_wallpaper_video(
     order_id: int,
