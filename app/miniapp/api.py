@@ -45,7 +45,6 @@ from app.database.repositories import (
     WayForPayPaymentRepository,
 )
 from app.database.session import async_session_maker
-from app.services.video_retention import prune_video_archive
 from app.miniapp.auth import current_user
 from app.services.admin_access import has_admin_access
 from app.services.dish_input import normalize_dish_payload
@@ -60,6 +59,7 @@ from app.services.replicate_vision_board import ImageSafetyError, ReplicateVisio
 from app.services.settings_service import get_setting, get_vip_users, set_setting
 from app.services.stars import OrderRef, create_invoice
 from app.services.storage import InvalidImageError, StorageService
+from app.services.video_retention import prune_video_archive
 from app.services.wallpaper_studio import (
     EDIT_MODES,
     WallpaperExportService,
