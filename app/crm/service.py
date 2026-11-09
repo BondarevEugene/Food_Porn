@@ -28,6 +28,8 @@ SETTING_RULES = {
     "menu_price_uah": (Decimal("1"), Decimal("100000"), False, None),
     "menu_price_stars": (Decimal("0"), Decimal("100000"), True, "menu_price_stars"),
     "gift_price_stars": (Decimal("0"), Decimal("100000"), True, "gift_price_stars"),
+    "wayforpay_video_story_price_uah": (Decimal("0.01"), Decimal("100000"), False, "wayforpay_video_story_price_uah"),
+    "video_story_price_stars": (Decimal("0"), Decimal("100000"), True, "video_story_price_stars"),
     "video_economy_price_uah": (Decimal("0.01"), Decimal("100000"), False, "video_economy_price_uah"),
     "video_cinematic_price_uah": (Decimal("0.01"), Decimal("100000"), False, "video_cinematic_price_uah"),
     "video_premium_price_uah": (Decimal("0.01"), Decimal("100000"), False, "video_premium_price_uah"),
