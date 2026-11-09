@@ -57,7 +57,7 @@ class VideoOrderContract(BaseModel):
             raise ValueError("Verified payment evidence is required")
         return self
 
-    def transition(self, next_status: VideoOrderStatus) -> "VideoOrderContract":
+    def transition(self, next_status: VideoOrderStatus) -> VideoOrderContract:
         if next_status == self.status:
             return self
         if next_status not in _ALLOWED_TRANSITIONS[self.status]:
