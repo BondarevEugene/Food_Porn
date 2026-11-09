@@ -263,10 +263,9 @@ async def test_album_accepts_one_to_seven_photos(tmp_path, monkeypatch, count):
             answer=AsyncMock())
         await wallpaper.collect_five_photos(message, state, settings, None)
     assert len(wallpaper.upload_paths(settings, 42)) == count
-    if count < 7:
-        assert state.state == WallpaperStates.waiting_for_five_photos
-        callback = SimpleNamespace(from_user=SimpleNamespace(id=42), message=fake_message(), answer=AsyncMock())
-        await wallpaper.finish_gift_photos(callback, state, settings, None)
+    assert state.state == WallpaperStates.waiting_for_five_photos
+    callback = SimpleNamespace(from_user=SimpleNamespace(id=42), message=fake_message(), answer=AsyncMock())
+    await wallpaper.finish_gift_photos(callback, state, settings, None)
     assert state.state == WallpaperStates.waiting_for_goals
 
 
