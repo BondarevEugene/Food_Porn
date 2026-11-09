@@ -256,6 +256,7 @@ class VideoStoryOrder(TimestampMixin, Base):
     paid_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )
+    stars_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     music_mode: Mapped[str] = mapped_column(
         String(20), nullable=False, default="auto",
     )
