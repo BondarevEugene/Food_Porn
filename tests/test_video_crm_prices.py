@@ -30,3 +30,21 @@ def test_independent_video_prices_do_not_overwrite_other_tiers():
         "video_cinematic_price_uah": "499.00",
         "video_premium_price_uah": "999.00",
     }
+
+
+def test_runtime_video_uah_tariff_preserves_decimal(monkeypatch):
+    from app.crm import service
+
+    class RuntimeSettings:
+        wayforpay_video_story_price_uah = None
+        video_story_price_stars = 0
+
+    settings = RuntimeSettings()
+    monkeypatch.setattr(service, "get_settings", lambda: settings)
+    service.apply_runtime_values({
+        "wayforpay_video_story_price_uah": "249.50",
+        "video_story_price_stars": "150",
+    })
+    assert settings.wayforpay_video_story_price_uah == Decimal("249.50")
+    assert isinstance(settings.wayforpay_video_story_price_uah, Decimal)
+    assert settings.video_story_price_stars == 150
