@@ -17,7 +17,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
 EXPECTED_DATABASE = "food_porn_migrations_test"
-EXPECTED_HEAD = "20261108_0012"
+EXPECTED_HEAD = "20261109_0013"
 
 
 async def _inspect_database(raw_url: str, *, expect_empty: bool) -> None:
