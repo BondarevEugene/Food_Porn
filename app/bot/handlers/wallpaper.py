@@ -20,6 +20,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
     ReplyKeyboardRemove,
+    WebAppInfo,
 )
 from PIL import Image, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -115,7 +116,7 @@ def video_story_entry_keyboard(settings: Settings, lang: str) -> InlineKeyboardM
         InlineKeyboardButton(
             text=text_for(lang, "🎬 Відкрити Scene Studio", "🎬 Открыть Scene Studio",
                           "🎬 Open Scene Studio"),
-            url=settings.miniapp_url,
+            web_app=WebAppInfo(url=settings.miniapp_url),
         ),
     ]])
 
@@ -379,6 +380,29 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
                                                f"Saved {count} photos 💛 Now send 5 to 9 goals, one per line."))
 
 
+@router.callback_query(F.data == "gift_photos_done")
+async def finish_gift_photos_outside_upload(callback: CallbackQuery, state: FSMContext,
+                                            settings: Settings) -> None:
+    """Old inline buttons may outlive FSM state or a Railway restart."""
+    count = len(upload_paths(settings, callback.from_user.id))
+    lang = (await state.get_data()).get("lang") or language_for(callback.from_user)
+    if count:
+        await callback.message.answer(text_for(
+            lang,
+            f"Знайдено {count} фото. Для продовження після перезапуску надішліть /resume.",
+            f"Найдено {count} фото. Чтобы продолжить после перезапуска, отправьте /resume.",
+            f"Found {count} photos. Send /resume to continue after a restart.",
+        ))
+    else:
+        await callback.message.answer(text_for(
+            lang,
+            "Фото не знайдені. Почніть нову карту бажань через /start.",
+            "Фотографии не найдены. Начните новую карту желаний через /start.",
+            "No photos found. Start a new wish collage with /start.",
+        ))
+    await callback.answer()
+
+
 @router.message(WallpaperStates.waiting_for_photo, F.photo | F.document)
 async def collect_photo(message: Message, state: FSMContext, settings: Settings,
                         session_factory: async_sessionmaker[AsyncSession]) -> None:
@@ -467,22 +491,18 @@ async def collect_five_photos(message: Message, state: FSMContext, settings: Set
             except ValueError:
                 pass
         goals_ready = bool((await state.get_data()).get("goals"))
-        if count + 1 == MAX_GIFT_PHOTOS:
-            await state.set_state(WallpaperStates.generating if goals_ready else WallpaperStates.waiting_for_goals)
-        else:
-            await message.answer(text_for(
-                lang, f"Фото {count + 1}/{MAX_GIFT_PHOTOS} отримав 💛 Надішліть ще або натисніть «Готово».",
-                f"Фото {count + 1}/{MAX_GIFT_PHOTOS} получил 💛 Пришлите ещё или нажмите «Готово».",
-                f"Photo {count + 1}/{MAX_GIFT_PHOTOS} received 💛 Send another or tap Done.",
-            ), reply_markup=finish_photos_keyboard(lang))
-    if count + 1 == MAX_GIFT_PHOTOS:
-        if goals_ready:
-            await generate_wallpapers(message, state, settings, session_factory)
-        else:
-            await message.answer(text_for(lang,
-                                          "Усі 7 фото отримав 💛 Тепер напишіть від 5 до 9 цілей одним повідомленням — кожну з нового рядка.",
-                                          "Все 7 фото получил 💛 Теперь напишите от 5 до 9 целей одним сообщением — каждую с новой строки.",
-                                          "I have all 7 photos 💛 Now send 5 to 9 goals in one message, one per line."))
+        await message.answer(text_for(
+            lang,
+            f"Фото {count + 1}/{MAX_GIFT_PHOTOS} отримав 💛 "
+            + ("Ліміт досягнуто. Натисніть «Готово»." if count + 1 == MAX_GIFT_PHOTOS
+               else "Надішліть ще або натисніть «Готово»."),
+            f"Фото {count + 1}/{MAX_GIFT_PHOTOS} получил 💛 "
+            + ("Лимит достигнут. Нажмите «Готово»." if count + 1 == MAX_GIFT_PHOTOS
+               else "Пришлите ещё или нажмите «Готово»."),
+            f"Photo {count + 1}/{MAX_GIFT_PHOTOS} received 💛 "
+            + ("Limit reached. Tap Done." if count + 1 == MAX_GIFT_PHOTOS
+               else "Send another or tap Done."),
+        ), reply_markup=finish_photos_keyboard(lang))
 
 
 @router.message(WallpaperStates.waiting_for_five_photos)
