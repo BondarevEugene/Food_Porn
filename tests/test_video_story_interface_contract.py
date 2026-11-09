@@ -36,3 +36,17 @@ def test_video_has_owner_only_download_and_no_legacy_collage_export():
 def test_stars_only_pricing_does_not_require_wayforpay():
     assert 'settings.wayforpay_video_story_price_uah or Decimal("0.00")' in API
     assert 'if provider != "stars":' in API
+
+
+def test_video_payment_options_are_server_filtered():
+    assert '@router.get("/api/video-stories/payment-options")' in API
+    assert 'WayForPayService(settings).ready' in API
+    assert 'PaymentService(settings).portmone_ready' in API
+    assert 'settings.video_story_price_stars > 0' in API
+    assert "state.videoProviders = methods.providers || []" in JS
+    assert "(state.videoProviders || []).map(item =>" in JS
+
+
+def test_stars_checkout_refreshes_order_from_server():
+    assert "tg.openInvoice(url, async status =>" in JS
+    assert "video-story/orders/latest" in JS
