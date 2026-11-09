@@ -138,11 +138,14 @@ class WayForPayService:
         reference_id: str | int,
         description: str,
         grants_entitlement: bool = True,
+        amount_override: Decimal | None = None,
     ) -> tuple[WayForPayPayment, str]:
         if product not in PRODUCTS:
             raise WayForPayError("Unsupported WayForPay product")
         self.credentials()
-        amount = self.price_for(product)
+        amount = _money(amount_override) if amount_override is not None else self.price_for(product)
+        if amount <= 0:
+            raise WayForPayError("Checkout amount must be positive")
         repository = WayForPayPaymentRepository(session)
         existing = await repository.latest_for_product(
             product, str(reference_id), telegram_user_id
