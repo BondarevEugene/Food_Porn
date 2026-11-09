@@ -50,3 +50,20 @@ def test_video_payment_options_are_server_filtered():
 def test_stars_checkout_refreshes_order_from_server():
     assert "tg.openInvoice(url, async status =>" in JS
     assert "video-story/orders/latest" in JS
+
+
+def test_video_tariff_admin_is_owner_only_and_audited():
+    crm = (ROOT / "app/crm/service.py").read_text(encoding="utf-8")
+    assert '@router.post("/api/admin/video-story-prices")' in API
+    assert 'if user["id"] not in settings.admin_telegram_ids:' in API
+    assert '"wayforpay_video_story_price_uah": (' in crm
+    assert '"video_story_price_stars": (' in crm
+    assert 'await crm_save_settings(session, values,' in API
+    assert "save-video-prices" in JS
+
+
+def test_checkout_uses_order_price_snapshot():
+    wayforpay = (ROOT / "app/services/wayforpay.py").read_text(encoding="utf-8")
+    assert "amount_override=order.amount" in API
+    assert "amount_override: Decimal | None = None" in wayforpay
+    assert "order.stars_amount != settings.video_story_price_stars" not in API
