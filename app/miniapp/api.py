@@ -1159,8 +1159,8 @@ async def video_story_checkout(
     if provider == "stars":
         if user.get("source_channel", "telegram") != "telegram":
             raise HTTPException(403, "Stars are only available in Telegram")
-        if not order.stars_amount or order.stars_amount != settings.video_story_price_stars:
-            raise HTTPException(409, "Stars price is not configured or has changed")
+        if not order.stars_amount or order.stars_amount <= 0:
+            raise HTTPException(409, "This order has no Stars price")
         bot = getattr(request.app.state, "bot", None)
         if bot is None:
             raise HTTPException(503, "Telegram bot is unavailable")
