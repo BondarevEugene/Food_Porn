@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
@@ -34,6 +35,50 @@ def valid_photo_pairing(assignments: object, photo_count: int, goal_count: int =
     used = set(assignments)
     return (used == set(range(photo_count)) if photo_count <= goal_count
             else len(used) == goal_count)
+
+
+
+logger = logging.getLogger(__name__)
+
+
+def repair_photo_pairing(assignments: object, photo_count: int, goal_count: int) -> tuple[int, ...]:
+    """Keep valid AI choices, then cover unused reference photos deterministically."""
+    if not 1 <= photo_count <= 7 or not 5 <= goal_count <= 9:
+        raise ValueError("Unsupported photo or goal count")
+    raw = assignments if isinstance(assignments, (list, tuple)) else ()
+    repaired = [
+        value if type(value) is int and 0 <= value < photo_count else index % photo_count
+        for index, value in enumerate(list(raw)[:goal_count])
+    ]
+    repaired.extend(index % photo_count for index in range(len(repaired), goal_count))
+    if photo_count <= goal_count:
+        missing = [index for index in range(photo_count) if index not in repaired]
+        for missing_photo in missing:
+            counts = {index: repaired.count(index) for index in range(photo_count)}
+            replace_at = next(
+                (index for index in range(goal_count - 1, -1, -1)
+                 if counts[repaired[index]] > 1),
+                None,
+            )
+            if replace_at is None:
+                raise ValueError("Cannot cover every reference photo")
+            repaired[replace_at] = missing_photo
+    return tuple(repaired)
+
+
+def normalize_scene_directions(scenes: object, goal_count: int) -> tuple[str, ...]:
+    """Preserve usable AI directions; substitute neutral photographic guidance."""
+    raw = scenes if isinstance(scenes, (list, tuple)) else ()
+    fallback = (
+        "Create a realistic photographic scene reflecting this customer's goal; "
+        "use the assigned reference photo naturally, with coherent lighting, "
+        "authentic detail and no visible text."
+    )
+    return tuple(
+        scene.strip() if isinstance(scene, str) and scene.strip() and len(scene.strip()) <= 220
+        else fallback
+        for scene in (list(raw)[:goal_count] + [None] * goal_count)[:goal_count]
+    )
 
 
 class GoalScenePlanner:
@@ -114,16 +159,26 @@ class GoalScenePlanner:
                     {"role": "user", "content": user_content},
                 ],
             )
-            parsed = json.loads(result.choices[0].message.content or "")
-            assignments = parsed.get("assignments")
-            scenes = parsed.get("scenes")
+            try:
+                parsed = json.loads(result.choices[0].message.content or "")
+                if not isinstance(parsed, dict):
+                    parsed = {}
+            except (ValueError, IndexError, AttributeError, TypeError):
+                parsed = {}
+            raw_assignments = parsed.get("assignments")
+            raw_scenes = parsed.get("scenes")
+            assignments = repair_photo_pairing(raw_assignments, len(photos), len(goals))
+            scenes = normalize_scene_directions(raw_scenes, len(goals))
             if not valid_photo_pairing(assignments, len(photos), len(goals)):
-                raise ValueError("AI did not provide a valid photo/goal pairing")
-            if not isinstance(scenes, list) or len(scenes) != len(goals) or any(
-                not isinstance(scene, str) or not scene.strip() or len(scene) > 220
-                for scene in scenes
-            ):
-                raise ValueError("AI did not provide a scene direction for each goal")
+                raise ValueError("Could not repair photo/goal pairing")
+            if raw_assignments != list(assignments) or raw_scenes != list(scenes):
+                logger.warning(
+                    "AI scene plan normalized: photo_count=%d goal_count=%d "
+                    "pairing_repaired=%s directions_repaired=%s",
+                    len(photos), len(goals),
+                    raw_assignments != list(assignments),
+                    raw_scenes != list(scenes),
+                )
             cost = estimate_text_cost(result, self.settings)
             try:
                 async with async_session_maker() as session:
