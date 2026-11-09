@@ -1040,8 +1040,8 @@ async def create_video_story_order(
     """Окреме замовлення відео, не пов'язане з оплатою колажу."""
     settings = get_settings()
     service = WayForPayService(settings)
-    if not service.ready or settings.wayforpay_video_story_price_uah is None:
-        raise HTTPException(503, "Video story checkout is not configured")
+    if settings.wayforpay_video_story_price_uah is None:
+        raise HTTPException(503, "Video story price is not configured")
     price = service.price_for("video_story")
     async with async_session_maker() as session:
         wallpaper = await session.get(WallpaperOrder, order_id)
@@ -1062,6 +1062,7 @@ async def create_video_story_order(
                 telegram_user_id=user["id"],
                 amount=price,
                 currency="UAH",
+                stars_amount=settings.video_story_price_stars or None,
             )
             session.add(existing)
             await session.commit()
@@ -1080,6 +1081,7 @@ async def create_video_story_order(
 async def video_story_checkout(
     video_order_id: int,
     user: Annotated[dict, Depends(current_user)],
+    request: Request,
     provider: str = "wayforpay",
 ) -> dict:
     async with async_session_maker() as session:
@@ -1093,6 +1095,16 @@ async def video_story_checkout(
             raise HTTPException(503, "Video story price is not configured")
         if order.amount != settings.wayforpay_video_story_price_uah:
             raise HTTPException(409, "Video story price changed; contact support")
+    if provider == "stars":
+        if user.get("source_channel", "telegram") != "telegram":
+            raise HTTPException(403, "Stars are only available in Telegram")
+        if not order.stars_amount or order.stars_amount != settings.video_story_price_stars:
+            raise HTTPException(409, "Stars price is not configured or has changed")
+        bot = getattr(request.app.state, "bot", None)
+        if bot is None:
+            raise HTTPException(503, "Telegram bot is unavailable")
+        url = await create_invoice(bot, OrderRef("video_story", order.id, user["id"], order.stars_amount))
+        return {"url": url, "stars": order.stars_amount, "provider": "stars"}
     if provider == "portmone":
         payment = PaymentService(get_settings())
         if not payment.portmone_ready:
