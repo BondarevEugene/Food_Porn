@@ -67,3 +67,16 @@ def test_checkout_uses_order_price_snapshot():
     assert "amount_override=order.amount" in API
     assert "amount_override: Decimal | None = None" in wayforpay
     assert "order.stars_amount != settings.video_story_price_stars" not in API
+
+
+def test_video_payment_options_use_order_snapshot_and_owner_check():
+    assert "video_order_id: int | None = None" in API
+    assert 'order = await session.get(VideoStoryOrder, video_order_id)' in API
+    assert 'order is None or order.telegram_user_id != user["id"]' in API
+    assert "uah = order.amount if order is not None" in API
+    assert 'str(order.stars_amount if order is not None else settings.video_story_price_stars)' in API
+    assert "'?video_order_id=' + encodeURIComponent(state.videoStory.order_id)" in JS
+
+
+def test_refunded_video_order_does_not_hide_active_order():
+    assert 'VideoStoryOrder.status != "refunded"' in API
