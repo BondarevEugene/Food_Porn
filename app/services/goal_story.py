@@ -51,18 +51,20 @@ def repair_photo_pairing(assignments: object, photo_count: int, goal_count: int)
         for index, value in enumerate(list(raw)[:goal_count])
     ]
     repaired.extend(index % photo_count for index in range(len(repaired), goal_count))
-    if photo_count <= goal_count:
-        missing = [index for index in range(photo_count) if index not in repaired]
-        for missing_photo in missing:
-            counts = {index: repaired.count(index) for index in range(photo_count)}
-            replace_at = next(
-                (index for index in range(goal_count - 1, -1, -1)
-                 if counts[repaired[index]] > 1),
-                None,
-            )
-            if replace_at is None:
-                raise ValueError("Cannot cover every reference photo")
-            repaired[replace_at] = missing_photo
+    required_unique = min(photo_count, goal_count)
+    missing = [index for index in range(photo_count) if index not in repaired]
+    for missing_photo in missing:
+        if len(set(repaired)) >= required_unique:
+            break
+        counts = {index: repaired.count(index) for index in range(photo_count)}
+        replace_at = next(
+            (index for index in range(goal_count - 1, -1, -1)
+             if counts[repaired[index]] > 1),
+            None,
+        )
+        if replace_at is None:
+            raise ValueError("Cannot cover reference photos")
+        repaired[replace_at] = missing_photo
     return tuple(repaired)
 
 
