@@ -128,7 +128,7 @@ async def test_planner_matches_unordered_photos_to_customer_goals(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_planner_rejects_invented_pairing_and_missing_goals(tmp_path):
+async def test_planner_repairs_incomplete_pairing_but_rejects_missing_goals(tmp_path):
     photos = [tmp_path / f"{i}.jpg" for i in range(5)]
     for p in photos:
         make_photo(p)
@@ -143,8 +143,9 @@ async def test_planner_rejects_invented_pairing_and_missing_goals(tmp_path):
         chat=SimpleNamespace(completions=Completions())))
     with pytest.raises(ValueError):
         await planner.plan(photos=photos, goals=GOALS[:4])
-    with pytest.raises(ValueError, match="pairing"):
-        await planner.plan(photos=photos, goals=GOALS)
+    plan = await planner.plan(photos=photos, goals=GOALS)
+    assert len(plan.assignments) == len(GOALS)
+    assert set(plan.assignments) == set(range(len(photos)))
     with pytest.raises(ValueError):
         wallpaper.parse_five_goals("One\nTwo\nThree\nFour")
     assert wallpaper.parse_five_goals("\n".join(f"{i}. {goal}" for i, goal in enumerate(GOALS, 1))) == GOALS
