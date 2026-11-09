@@ -1075,7 +1075,8 @@ async def create_video_story_order(
             "status": existing.status,
             "amount": str(existing.amount),
             "currency": existing.currency,
-            "paid": existing.status in {"paid", "queued", "processing", "ready"},
+            "stars_amount": existing.stars_amount,
+            "paid": existing.paid_at is not None and existing.status in {"paid", "queued", "processing", "ready"},
         }
 
 
@@ -1083,12 +1084,19 @@ async def create_video_story_order(
 async def video_story_payment_options(
     user: Annotated[dict, Depends(current_user)],
     request: Request,
+    video_order_id: int | None = None,
 ) -> dict:
-    """Expose only currently configured checkout providers and their prices."""
+    """Expose enabled providers with the existing order's immutable price."""
     settings = get_settings()
+    order = None
+    if video_order_id is not None:
+        async with async_session_maker() as session:
+            order = await session.get(VideoStoryOrder, video_order_id)
+            if order is None or order.telegram_user_id != user["id"]:
+                raise HTTPException(404, "Video story order not found")
     options = []
-    uah = settings.wayforpay_video_story_price_uah
-    if uah is not None and uah > 0:
+    uah = order.amount if order is not None else settings.wayforpay_video_story_price_uah
+    if uah is not None and uah > 0 and (order is None or order.status == "waiting_for_payment"):
         if WayForPayService(settings).ready:
             options.append({
                 "provider": "wayforpay", "amount": str(uah), "currency": "UAH",
@@ -1098,12 +1106,13 @@ async def video_story_payment_options(
                 "provider": "portmone", "amount": str(uah), "currency": "UAH",
             })
     if (
-        settings.video_story_price_stars > 0
+        (order.stars_amount if order is not None else settings.video_story_price_stars) > 0
+        and (order is None or order.status == "waiting_for_payment")
         and user.get("source_channel", "telegram") == "telegram"
         and getattr(request.app.state, "bot", None) is not None
     ):
         options.append({
-            "provider": "stars", "amount": str(settings.video_story_price_stars),
+            "provider": "stars", "amount": str(order.stars_amount if order is not None else settings.video_story_price_stars),
             "currency": "XTR",
         })
     return {"providers": options}
@@ -1123,6 +1132,7 @@ async def latest_video_story_order(
             select(VideoStoryOrder).where(
                 VideoStoryOrder.wallpaper_order_id == order_id,
                 VideoStoryOrder.telegram_user_id == user["id"],
+                VideoStoryOrder.status != "refunded",
             ).order_by(VideoStoryOrder.id.desc()).limit(1)
         )
         if video is None:
