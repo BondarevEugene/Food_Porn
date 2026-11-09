@@ -1039,10 +1039,10 @@ async def create_video_story_order(
 ) -> dict:
     """Окреме замовлення відео, не пов'язане з оплатою колажу."""
     settings = get_settings()
-    service = WayForPayService(settings)
-    if settings.wayforpay_video_story_price_uah is None:
+    # Stars-only deployments must not depend on WayForPay configuration.
+    if settings.wayforpay_video_story_price_uah is None and not settings.video_story_price_stars:
         raise HTTPException(503, "Video story price is not configured")
-    price = service.price_for("video_story")
+    price = settings.wayforpay_video_story_price_uah or Decimal("0.00")
     async with async_session_maker() as session:
         wallpaper = await session.get(WallpaperOrder, order_id)
         if wallpaper is None or wallpaper.telegram_user_id != user["id"]:
@@ -1077,6 +1077,37 @@ async def create_video_story_order(
         }
 
 
+@router.get("/api/wallpapers/{order_id}/video-story/orders/latest")
+async def latest_video_story_order(
+    order_id: int,
+    user: Annotated[dict, Depends(current_user)],
+) -> dict:
+    """Restore the owner's latest video order without creating or charging again."""
+    async with async_session_maker() as session:
+        wallpaper = await session.get(WallpaperOrder, order_id)
+        if wallpaper is None or wallpaper.telegram_user_id != user["id"]:
+            raise HTTPException(404, "Gift order not found")
+        video = await session.scalar(
+            select(VideoStoryOrder).where(
+                VideoStoryOrder.wallpaper_order_id == order_id,
+                VideoStoryOrder.telegram_user_id == user["id"],
+            ).order_by(VideoStoryOrder.id.desc()).limit(1)
+        )
+        if video is None:
+            return {"order": None}
+        return {"order": {
+            "order_id": video.id,
+            "wallpaper_order_id": order_id,
+            "status": video.status,
+            "amount": str(video.amount),
+            "currency": video.currency,
+            "stars_amount": video.stars_amount,
+            "paid": video.paid_at is not None and video.status in (
+                "paid", "queued", "processing", "ready",
+            ),
+        }}
+
+
 @router.post("/api/video-stories/{video_order_id}/checkout")
 async def video_story_checkout(
     video_order_id: int,
@@ -1091,10 +1122,11 @@ async def video_story_checkout(
         if order.status != "waiting_for_payment":
             raise HTTPException(409, "Video story is not awaiting payment")
         settings = get_settings()
-        if settings.wayforpay_video_story_price_uah is None:
-            raise HTTPException(503, "Video story price is not configured")
-        if order.amount != settings.wayforpay_video_story_price_uah:
-            raise HTTPException(409, "Video story price changed; contact support")
+        if provider != "stars":
+            if settings.wayforpay_video_story_price_uah is None or order.amount <= 0:
+                raise HTTPException(503, "UAH video story checkout is not configured")
+            if order.amount != settings.wayforpay_video_story_price_uah:
+                raise HTTPException(409, "Video story price changed; contact support")
     if provider == "stars":
         if user.get("source_channel", "telegram") != "telegram":
             raise HTTPException(403, "Stars are only available in Telegram")
