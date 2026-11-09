@@ -1153,7 +1153,6 @@ async def video_story_checkout(
             raise HTTPException(404, "Video story order not found")
         if order.status != "waiting_for_payment":
             raise HTTPException(409, "Video story is not awaiting payment")
-        settings = get_settings()
         if provider != "stars" and order.amount <= 0:
             raise HTTPException(409, "This order has no UAH price; create a new order")
     if provider == "stars":
