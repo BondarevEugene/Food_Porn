@@ -32,9 +32,9 @@ from app.database.models import (
     MenuStatus,
     ScheduledDelivery,
     ShareLink,
+    VideoStoryOrder,
     WallpaperExport,
     WallpaperOrder,
-    VideoStoryOrder,
     WallpaperSceneVersion,
 )
 from app.database.repositories import (
@@ -899,19 +899,6 @@ async def create_wallpaper_scene_variant(
     order_id: int, scene_index: int, payload: dict,
     user: Annotated[dict, Depends(current_user)],
 ) -> dict:
-    async with async_session_maker() as session:
-        video_order = await session.scalar(
-            select(VideoStoryOrder).where(
-                VideoStoryOrder.wallpaper_order_id == order_id,
-                VideoStoryOrder.telegram_user_id == user["id"],
-                VideoStoryOrder.status.in_(("paid", "queued", "processing", "ready")),
-                VideoStoryOrder.paid_at.is_not(None),
-            ).order_by(VideoStoryOrder.id.desc())
-        )
-    if video_order is None:
-        raise HTTPException(403, "A separately paid video story order is required")
-    if music is not None or voice is not None or ai_voice:
-        raise HTTPException(422, "Custom audio uploads and voice are not enabled for video stories")
     if order_id in _studio_jobs:
         raise HTTPException(409, "Another Scene Studio operation is still running")
     edit_mode = str(payload.get("mode", "scene"))
@@ -1058,6 +1045,19 @@ async def create_wallpaper_video(
     order = await _own_wallpaper(order_id, user["id"])
     if not order.paid:
         raise HTTPException(403)
+    async with async_session_maker() as session:
+        video_order = await session.scalar(
+            select(VideoStoryOrder).where(
+                VideoStoryOrder.wallpaper_order_id == order_id,
+                VideoStoryOrder.telegram_user_id == user["id"],
+                VideoStoryOrder.status.in_(("paid", "queued", "processing", "ready")),
+                VideoStoryOrder.paid_at.is_not(None),
+            ).order_by(VideoStoryOrder.id.desc())
+        )
+    if video_order is None:
+        raise HTTPException(403, "A separately paid video story order is required")
+    if music is not None or voice is not None or ai_voice:
+        raise HTTPException(422, "Custom audio uploads and voice are not enabled for video stories")
     if order_id in _studio_jobs:
         raise HTTPException(409, "Another Scene Studio operation is still running")
     _studio_jobs.add(order_id)
