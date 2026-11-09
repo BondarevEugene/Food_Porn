@@ -1077,6 +1077,36 @@ async def create_video_story_order(
         }
 
 
+@router.get("/api/video-stories/payment-options")
+async def video_story_payment_options(
+    user: Annotated[dict, Depends(current_user)],
+    request: Request,
+) -> dict:
+    """Expose only currently configured checkout providers and their prices."""
+    settings = get_settings()
+    options = []
+    uah = settings.wayforpay_video_story_price_uah
+    if uah is not None and uah > 0:
+        if WayForPayService(settings).ready:
+            options.append({
+                "provider": "wayforpay", "amount": str(uah), "currency": "UAH",
+            })
+        if PaymentService(settings).portmone_ready:
+            options.append({
+                "provider": "portmone", "amount": str(uah), "currency": "UAH",
+            })
+    if (
+        settings.video_story_price_stars > 0
+        and user.get("source_channel", "telegram") == "telegram"
+        and getattr(request.app.state, "bot", None) is not None
+    ):
+        options.append({
+            "provider": "stars", "amount": str(settings.video_story_price_stars),
+            "currency": "XTR",
+        })
+    return {"providers": options}
+
+
 @router.get("/api/wallpapers/{order_id}/video-story/orders/latest")
 async def latest_video_story_order(
     order_id: int,
