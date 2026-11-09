@@ -512,7 +512,7 @@
         break;
       case 'admin': {
         const a = state.admin;
-        body = `<div class="page">${goHomeButton()}<h1>${t('admin')}</h1><a class="primary" style="display:block;padding:16px;margin-bottom:18px;text-align:center;border-radius:14px" href="/crm${esc(window.location.hash)}">✦ Mini CRM · Клиенты, финансы, реклама →</a><div class="admin-grid">${[['♧','customers'],['◈','menus'],['✧','gifts'],['✓','paid_gifts']].map(([icon,key]) => `<div class="stat-card"><span>${icon}</span><strong>${a?.[key] ?? '–'}</strong><small>${t(key === 'paid_gifts' ? 'paid' : key)}</small></div>`).join('')}</div><section class="panel"><div class="panel-title">${t('details')}</div><p>Telegram Stars: ${a?.stars_ready ? '✓' : '—'} · ${esc(a?.stars_revenue || 0)} ⭐</p><p>Portmone: ${a?.payment_ready ? '✓' : '—'} · ${esc(a?.revenue || '0')} UAH</p><label class="field">Menu price, UAH</label><input id="menu-price" class="input" type="number" min="1" max="100000" step="0.01" value="${esc(a?.menu_price)}">${button(t('save'), 'save-price')}<hr class="divider"><label class="field">${t('vip')}</label><textarea id="vip" ${a?.owner ? '' : 'readonly'} placeholder="username, username">${esc((a?.vip || []).join(', '))}</textarea>${a?.owner ? button(t('save'), 'save-vip', 'primary') : ''}</section></div>`;
+        body = `<div class="page">${goHomeButton()}<h1>${t('admin')}</h1><a class="primary" style="display:block;padding:16px;margin-bottom:18px;text-align:center;border-radius:14px" href="/crm${esc(window.location.hash)}">✦ Mini CRM · Клиенты, финансы, реклама →</a><div class="admin-grid">${[['♧','customers'],['◈','menus'],['✧','gifts'],['✓','paid_gifts']].map(([icon,key]) => `<div class="stat-card"><span>${icon}</span><strong>${a?.[key] ?? '–'}</strong><small>${t(key === 'paid_gifts' ? 'paid' : key)}</small></div>`).join('')}</div><section class="panel"><div class="panel-title">${t('details')}</div><p>Telegram Stars: ${a?.stars_ready ? '✓' : '—'} · ${esc(a?.stars_revenue || 0)} ⭐</p><p>Portmone: ${a?.payment_ready ? '✓' : '—'} · ${esc(a?.revenue || '0')} UAH</p><label class="field">Menu price, UAH</label><input id="menu-price" class="input" type="number" min="1" max="100000" step="0.01" value="${esc(a?.menu_price)}">${button(t('save'), 'save-price')}<hr class="divider"><div class="panel-title">🎬 Video story tariffs</div><label class="field">Video story price, UAH</label><input id="video-story-price-uah" class="input" type="number" min="0.01" max="100000" step="0.01" value="${esc(a?.video_story_price_uah || '')}" ${a?.owner ? '' : 'readonly'}><label class="field">Video story price, Telegram Stars</label><input id="video-story-price-stars" class="input" type="number" min="0" max="100000" step="1" value="${esc(a?.video_story_price_stars ?? 0)}" ${a?.owner ? '' : 'readonly'}>${a?.owner ? button(t('save'), 'save-video-prices', 'primary') : ''}<hr class="divider"><label class="field">${t('vip')}</label><textarea id="vip" ${a?.owner ? '' : 'readonly'} placeholder="username, username">${esc((a?.vip || []).join(', '))}</textarea>${a?.owner ? button(t('save'), 'save-vip', 'primary') : ''}</section></div>`;
         break;
       }
     }
@@ -847,6 +847,14 @@
       }
       if (action === 'save-price') {
         await api('/admin/menu-price', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({price:document.querySelector('#menu-price').value})});
+        state.admin = await api('/admin'); render(); return;
+      }
+      if (action === 'save-video-prices') {
+        const uah = document.querySelector('#video-story-price-uah').value.trim();
+        const stars = document.querySelector('#video-story-price-stars').value.trim();
+        const payload = {price_stars:stars};
+        if (uah) payload.price_uah = uah;
+        await api('/admin/video-story-prices', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
         state.admin = await api('/admin'); render(); return;
       }
       if (action === 'save-vip') {
