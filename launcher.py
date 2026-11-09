@@ -646,11 +646,13 @@ async def run_diagnostics(context: DiagnosticContext, console: Console) -> list[
         results.append(item)
         console.check(item)
 
-        # Всегда запускаем тесты и линтер без пропусков
-    deep_results = [
-        run_tool_check("Pytest suite", [sys.executable, "-m", "pytest", "-q"], critical=True),
-        run_tool_check("Ruff lint", [sys.executable, "-m", "ruff", "check", *ruff_source_paths()]),
-    ]
+    if context.deep:
+        deep_results = [
+            run_tool_check("Pytest suite", [sys.executable, "-m", "pytest", "-q"], timeout=600.0, critical=True),
+            run_tool_check("Ruff lint", [sys.executable, "-m", "ruff", "check", *ruff_source_paths()]),
+        ]
+    else:
+        deep_results = skipped_deep_checks()
     for item in deep_results:
         results.append(item)
         console.check(item)

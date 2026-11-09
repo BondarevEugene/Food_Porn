@@ -126,3 +126,18 @@ async def test_miniapp_assets_are_served_without_old_cached_javascript():
         assert (await client.get("/miniapp/static/kitchen-cloche.svg")).status_code == 200
         assert (await client.get("/miniapp/static/fonts/atelier-serif-bold.woff")).status_code == 200
         assert (await client.get("/miniapp/static/fonts/other.woff")).status_code == 404
+
+
+def test_telegram_signature_field_does_not_break_valid_hash():
+    """Telegram Ed25519 signature is not part of the bot-token HMAC."""
+    from urllib.parse import parse_qsl
+
+    raw = signed_data()
+    fields = dict(parse_qsl(raw))
+    fields["signature"] = "telegram-ed25519-signature"
+    assert verify_init_data(urlencode(fields), "123:test", now=100010)["id"] == 11
+
+    fields["user"] = json.dumps({"id": 12})
+    with pytest.raises(HTTPException) as exc:
+        verify_init_data(urlencode(fields), "123:test", now=100010)
+    assert exc.value.status_code == 401

@@ -1,4 +1,4 @@
-﻿"""Regression tests for the customer goal-story wallpaper flow.
+"""Regression tests for the customer goal-story wallpaper flow.
 
 The tests use fake image API responses and temporary files. They must not
 call OpenAI, Replicate, PostgreSQL or external services.

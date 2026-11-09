@@ -98,6 +98,10 @@ class Settings(BaseSettings):
     currency: str = "UAH"
     menu_price_stars: int = Field(default=0, ge=0, le=100000)
     gift_price_stars: int = Field(default=0, ge=0, le=100000)
+    video_story_price_stars: int = Field(default=0, ge=0, le=100000)
+    video_economy_price_uah: Decimal = Field(default=Decimal("199.00"), gt=0, le=100000)
+    video_cinematic_price_uah: Decimal = Field(default=Decimal("499.00"), gt=0, le=100000)
+    video_premium_price_uah: Decimal = Field(default=Decimal("999.00"), gt=0, le=100000)
 
     # Портмоне платіжний шлюз
     portmone_gateway_url: str = Field(default="https://docs.portmone.com.ua/docs/uk/PaymentGatewayUa/")
@@ -122,6 +126,8 @@ class Settings(BaseSettings):
     wayforpay_test_mode: bool = False
     wayforpay_menu_price_uah: Decimal = Field(default=Decimal("5.00"), gt=0, le=100000)
     wayforpay_wallpaper_price_uah: Decimal = Field(default=Decimal("1.00"), gt=0, le=100000)
+    # Відео не продаємо, доки власник явно не встановить ціну.
+    wayforpay_video_story_price_uah: Decimal | None = Field(default=None, gt=0, le=100000)
 
     # --- Настройки типографии ---
     printshop_email: str = ""

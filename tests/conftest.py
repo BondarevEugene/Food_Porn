@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 from sqlalchemy import event
 
 from app.database.session import engine

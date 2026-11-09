@@ -22,7 +22,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.config import get_settings
-from app.database.models import Menu, WallpaperOrder, WayForPayPayment
+from app.database.models import Menu, VideoStoryOrder, WallpaperOrder, WayForPayPayment
 from app.database.repositories import WayForPayPaymentRepository
 from app.database.session import async_session_maker
 from app.services.wayforpay import (
@@ -82,6 +82,16 @@ async def _product_is_paid(payment: WayForPayPayment) -> bool:
         if payment.product == "wallpaper":
             record = await session.get(WallpaperOrder, reference_id)
             return bool(record and record.paid)
+
+        if payment.product == "video_story":
+            record = await session.get(VideoStoryOrder, reference_id)
+            return bool(
+                record
+                and record.telegram_user_id == payment.telegram_user_id
+                and record.status in {"paid", "queued", "processing", "ready"}
+                and record.payment_system == "wayforpay"
+                and record.payment_reference == payment.order_reference
+            )
 
         return False
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from aiogram import Bot
@@ -9,7 +10,7 @@ from aiogram.types import LabeledPrice
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.database.models import FileKind, Menu, MenuStatus, WallpaperOrder
+from app.database.models import FileKind, Menu, MenuStatus, VideoStoryOrder, WallpaperOrder
 
 
 @dataclass(frozen=True)
@@ -27,7 +28,7 @@ class OrderRef:
 def parse_payload(payload: str) -> OrderRef | None:
     try:
         prefix, kind, order_id, owner_id, stars = payload.split(":")
-        if prefix != "fp" or kind not in {"menu", "wallpaper"}:
+        if prefix != "fp" or kind not in {"menu", "wallpaper", "video_story"}:
             return None
         result = OrderRef(kind, int(order_id), int(owner_id), int(stars))
         if min(result.order_id, result.owner_id, result.stars) < 1 or result.payload != payload:
@@ -40,7 +41,7 @@ def parse_payload(payload: str) -> OrderRef | None:
 async def create_invoice(bot: Bot, ref: OrderRef) -> str:
     if ref.stars < 1:
         raise ValueError("The Star price has not been configured")
-    title = "Гастрономічний подарунок" if ref.kind == "menu" else "Історія п’яти бажань"
+    title = {"menu": "Гастрономічний подарунок", "wallpaper": "Історія п’яти бажань", "video_story": "Відеоісторія бажань"}[ref.kind]
     return await bot.create_invoice_link(
         title=title,
         description="Повний цифровий набір: готові зображення і файли для друку",
@@ -64,6 +65,13 @@ async def payment_is_available(
             return (menu.customer.telegram_user_id == ref.owner_id
                     and all(kind in files and Path(files[kind]).is_file()
                             for kind in (FileKind.PRINT_PDF, FileKind.RECIPE_SHEET)))
+        if ref.kind == "video_story":
+            video = await session.get(VideoStoryOrder, ref.order_id)
+            if (video is None or video.telegram_user_id != ref.owner_id
+                    or video.stars_amount != ref.stars or video.status != "waiting_for_payment"):
+                return False
+            collage = await session.get(WallpaperOrder, video.wallpaper_order_id)
+            return bool(collage and collage.telegram_user_id == ref.owner_id and collage.paid)
         order = await session.get(WallpaperOrder, ref.order_id)
         if order is None:
             return False
@@ -97,6 +105,24 @@ async def record_payment(
             menu.payment_id = charge_id
             menu.payment_system = "telegram_stars"
             menu.status = MenuStatus.PAID
+        elif ref.kind == "video_story":
+            query = select(VideoStoryOrder).where(VideoStoryOrder.id == ref.order_id).with_for_update()
+            video = (await session.execute(query)).scalar_one_or_none()
+            if (video is None or video.telegram_user_id != ref.owner_id
+                    or video.stars_amount != ref.stars):
+                return "duplicate"
+            if video.status in {"paid", "queued", "processing", "ready"}:
+                return "same" if (video.payment_system == "telegram_stars"
+                                  and video.payment_reference == charge_id) else "duplicate"
+            if video.status != "waiting_for_payment":
+                return "duplicate"
+            collage = await session.get(WallpaperOrder, video.wallpaper_order_id)
+            if collage is None or collage.telegram_user_id != ref.owner_id or not collage.paid:
+                return "duplicate"
+            video.status = "paid"
+            video.payment_reference = charge_id
+            video.payment_system = "telegram_stars"
+            video.paid_at = datetime.now(UTC)
         else:
             query = select(WallpaperOrder).where(WallpaperOrder.id == ref.order_id).with_for_update()
             order = (await session.execute(query)).scalar_one_or_none()

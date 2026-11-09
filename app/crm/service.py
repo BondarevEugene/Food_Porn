@@ -28,6 +28,11 @@ SETTING_RULES = {
     "menu_price_uah": (Decimal("1"), Decimal("100000"), False, None),
     "menu_price_stars": (Decimal("0"), Decimal("100000"), True, "menu_price_stars"),
     "gift_price_stars": (Decimal("0"), Decimal("100000"), True, "gift_price_stars"),
+    "wayforpay_video_story_price_uah": (Decimal("0.01"), Decimal("100000"), False, "wayforpay_video_story_price_uah"),
+    "video_story_price_stars": (Decimal("0"), Decimal("100000"), True, "video_story_price_stars"),
+    "video_economy_price_uah": (Decimal("0.01"), Decimal("100000"), False, "video_economy_price_uah"),
+    "video_cinematic_price_uah": (Decimal("0.01"), Decimal("100000"), False, "video_cinematic_price_uah"),
+    "video_premium_price_uah": (Decimal("0.01"), Decimal("100000"), False, "video_premium_price_uah"),
     "usd_exchange_rate": (Decimal("0.01"), Decimal("10000"), False, "usd_exchange_rate"),
     "price_electronic_uah": (Decimal("1"), Decimal("100000"), True, "price_electronic_uah"),
     "price_print_uah": (Decimal("1"), Decimal("100000"), True, "price_print_uah"),
@@ -301,6 +306,73 @@ async def dashboard(session, days: int = 30) -> dict:
     return result
 
 
+def calendar_bounds(period: str, year: int, index: int) -> tuple[datetime, datetime]:
+    """Half-open UTC interval; calendar reporting never uses rolling 30-day windows."""
+    if period not in {"month", "quarter", "half", "year"}:
+        raise ValueError("Неизвестный период")
+    if not 2000 <= year <= 2100:
+        raise ValueError("Год вне допустимого диапазона")
+    size = {"month": 1, "quarter": 3, "half": 6, "year": 12}[period]
+    if not 1 <= index <= 12 // size:
+        raise ValueError("Неверный номер периода")
+    start_month = (index - 1) * size + 1
+    start = datetime(year, start_month, 1, tzinfo=UTC)
+    end_month = start_month + size
+    end = (datetime(year + 1, 1, 1, tzinfo=UTC) if end_month > 12
+           else datetime(year, end_month, 1, tzinfo=UTC))
+    return start, end
+
+
+async def calendar_finance(session, period: str, year: int, index: int) -> dict:
+    """Cash, Stars and expenses stay separate; no currency is silently converted."""
+    begin, end = calendar_bounds(period, year, index)
+    orders = order_queries()
+    cash = (await session.execute(
+        select(orders.c.product, func.sum(orders.c.amount))
+        .where(orders.c.payment_kind == "cash",
+               orders.c.paid_at >= begin, orders.c.paid_at < end)
+        .group_by(orders.c.product)
+    )).all()
+    stars = await session.scalar(
+        select(func.sum(orders.c.stars)).where(
+            orders.c.payment_kind == "stars",
+            orders.c.paid_at >= begin, orders.c.paid_at < end
+        )
+    )
+    expenses = (await session.execute(
+        select(Expense.currency, func.sum(Expense.amount))
+        .where(Expense.voided.is_(False),
+               Expense.occurred_on >= begin.date(), Expense.occurred_on < end.date())
+        .group_by(Expense.currency)
+    )).all()
+    local_ai = await session.scalar(
+        select(func.sum(AIGenerationLog.cost_uah))
+        .where(AIGenerationLog.created_at >= begin, AIGenerationLog.created_at < end)
+    ) or Decimal(0)
+    actual_ai_usd = await session.scalar(
+        select(func.sum(ProviderCost.amount))
+        .where(ProviderCost.provider == "openai", ProviderCost.currency == "usd",
+               ProviderCost.bucket_start >= begin, ProviderCost.bucket_start < end)
+    ) or Decimal(0)
+    rate = await session.scalar(select(CurrencyRate.rate).order_by(CurrencyRate.date.desc()))
+    ai_uah = (Decimal(actual_ai_usd) * Decimal(rate or str(get_settings().usd_exchange_rate))
+              if actual_ai_usd else Decimal(local_ai))
+    by_product = {product: money(amount) for product, amount in cash}
+    revenue = sum((Decimal(amount or 0) for _, amount in cash), Decimal(0))
+    manual = {currency: money(amount) for currency, amount in expenses}
+    total_expenses = Decimal(manual.get("UAH", "0")) + ai_uah
+    return {
+        "period": period, "year": year, "index": index,
+        "start": begin.date().isoformat(), "end_exclusive": end.date().isoformat(),
+        "revenue_uah": money(revenue), "revenue_stars": int(stars or 0),
+        "revenue_by_product": by_product, "expenses": manual,
+        "ai_cost_uah": money(ai_uah),
+        "ai_cost_source": "openai_actual" if actual_ai_usd else "local_estimate",
+        "expenses_total_uah": money(total_expenses),
+        "balance_uah": money(revenue - total_expenses),
+    }
+
+
 async def customers_page(session, search="", page=1, limit=30):
     ids = union(
         select(Customer.telegram_user_id.label("uid")), select(WallpaperOrder.telegram_user_id)
@@ -411,7 +483,7 @@ def apply_runtime_values(values: dict) -> None:
     for key, value in values.items():
         _, _, integer, attribute = SETTING_RULES[key]
         if attribute:
-            setattr(settings, attribute, int(value) if integer else float(value))
+            setattr(settings, attribute, int(value) if integer else (Decimal(value) if attribute.endswith("_price_uah") else float(value)))
 
 
 async def load_runtime_settings(session_factory) -> None:
