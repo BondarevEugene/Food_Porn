@@ -490,7 +490,6 @@ async def collect_five_photos(message: Message, state: FSMContext, settings: Set
                 await state.update_data(goals=parse_five_goals(message.caption))
             except ValueError:
                 pass
-        goals_ready = bool((await state.get_data()).get("goals"))
         await message.answer(text_for(
             lang,
             f"Фото {count + 1}/{MAX_GIFT_PHOTOS} отримав 💛 "
