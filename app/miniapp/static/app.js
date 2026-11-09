@@ -584,17 +584,18 @@
     state.videoStory = null;
     state.videoProviders = [];
     try {
-      const methods = await api('/video-stories/payment-options');
-      state.videoProviders = methods.providers || [];
-    } catch (error) {
-      console.warn('Video payment options unavailable', error);
-    }
-    try {
       const latest = await api('/wallpapers/' + orderId + '/video-story/orders/latest');
       state.videoStory = latest.order || null;
     } catch (error) {
       // Video order lookup must never prevent access to the collage editor.
       console.warn('Video story status unavailable', error);
+    }
+    try {
+      const suffix = state.videoStory?.order_id ? '?video_order_id=' + encodeURIComponent(state.videoStory.order_id) : '';
+      const methods = await api('/video-stories/payment-options' + suffix);
+      state.videoProviders = methods.providers || [];
+    } catch (error) {
+      console.warn('Video payment options unavailable', error);
     }
     state.studioScene = 0;
     const versions = state.sceneStudio.versions.filter(item => item.scene_index === 0);
@@ -696,6 +697,8 @@
       if (action === 'video-order') {
         element.disabled = true;
         state.videoStory = await api('/wallpapers/' + state.sceneStudio.order_id + '/video-story/orders', {method:'POST'});
+        const methods = await api('/video-stories/payment-options?video_order_id=' + encodeURIComponent(state.videoStory.order_id));
+        state.videoProviders = methods.providers || [];
         render(); return;
       }
       if (action === 'video-checkout') {
