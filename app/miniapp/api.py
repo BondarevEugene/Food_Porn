@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import secrets
+import shutil
 import subprocess
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -1168,60 +1169,103 @@ async def create_wallpaper_video(
     voice: Annotated[UploadFile | None, File()] = None,
     music: Annotated[UploadFile | None, File()] = None,
 ) -> dict:
+    """Claim a paid video order before spending rendering resources."""
     order = await _own_wallpaper(order_id, user["id"])
     if not order.paid:
         raise HTTPException(403)
+    if music is not None or voice is not None or ai_voice:
+        raise HTTPException(422, "Custom audio uploads and voice are not enabled")
+    if not 10 <= duration_seconds <= 20:
+        raise HTTPException(422, "Video duration must be between 10 and 20 seconds")
+
     async with async_session_maker() as session:
         video_order = await session.scalar(
             select(VideoStoryOrder).where(
                 VideoStoryOrder.wallpaper_order_id == order_id,
                 VideoStoryOrder.telegram_user_id == user["id"],
-                VideoStoryOrder.status.in_(("paid", "queued", "processing", "ready")),
                 VideoStoryOrder.paid_at.is_not(None),
-            ).order_by(VideoStoryOrder.id.desc())
+                VideoStoryOrder.status.in_(("paid", "queued", "processing", "ready")),
+            ).order_by(VideoStoryOrder.id.desc()).with_for_update()
         )
-    if video_order is None:
-        raise HTTPException(403, "A separately paid video story order is required")
-    if music is not None or voice is not None or ai_voice:
-        raise HTTPException(422, "Custom audio uploads and voice are not enabled for video stories")
-    if order_id in _studio_jobs:
-        raise HTTPException(409, "Another Scene Studio operation is still running")
+        if video_order is None:
+            raise HTTPException(403, "A separately paid video story order is required")
+        if video_order.status == "ready":
+            if video_order.output_path and Path(video_order.output_path).is_file():
+                return {
+                    "kind": "video", "ready": True, "video_order_id": video_order.id,
+                    "url": f"/miniapp/api/video-stories/{video_order.id}/file",
+                }
+            raise HTTPException(409, "Video file is unavailable; contact support")
+        if video_order.status in {"queued", "processing"}:
+            raise HTTPException(409, "Video story is already processing")
+        if order_id in _studio_jobs:
+            raise HTTPException(409, "Another Scene Studio operation is still running")
+        video_order.status = "processing"
+        await session.commit()
+        video_order_id = video_order.id
+
     _studio_jobs.add(order_id)
+    phrase = " ".join(final_phrase.split()).strip()[:500]
+    if not phrase:
+        phrase = "Твоя прекрасная история уже начинается."
     try:
-        settings = get_settings()
-        upload_root = Path(order.mobile_path).parent / "scene_studio" / "audio"
-        limit = settings.max_upload_mb * 1024 * 1024
-        voice_path = await _save_audio_upload(voice, upload_root / "voice", limit)
-        music_path = await _save_audio_upload(music, upload_root / "music", limit)
-        phrase = " ".join(final_phrase.split()).strip()[:500]
-        if not phrase:
-            phrase = "Твоя прекрасная история уже начинается."
         service = WallpaperExportService(order)
-        try:
-            path = await service.render_video(
-                settings=settings,
-                goals=list(order.goals or []),
-                final_phrase=phrase,
-                duration_seconds=duration_seconds,
-                voice_path=voice_path,
-                music_path=music_path,
-                ai_voice=ai_voice and voice_path is None,
-            )
-        except (ValueError, RuntimeError, subprocess.SubprocessError) as exc:
-            raise HTTPException(422, str(exc)) from exc
+        rendered = await service.render_video(
+            settings=get_settings(),
+            goals=list(order.goals or []),
+            final_phrase=phrase,
+            duration_seconds=duration_seconds,
+            voice_path=None,
+            music_path=None,
+            ai_voice=False,
+        )
+        destination = Path(order.mobile_path).parent / "scene_studio" / "video_orders"
+        destination.mkdir(parents=True, exist_ok=True)
+        output = destination / f"video_story_{video_order_id}.mp4"
+        await asyncio.to_thread(shutil.copyfile, rendered, output)
         async with async_session_maker() as session:
-            current = await session.get(WallpaperOrder, order.id)
-            current.final_phrase = phrase
-            await WallpaperStudioRepository(session).save_export(
-                order_id=order.id, kind="video", path=str(path), mime_type="video/mp4",
-                source_revision=service.source_revision,
-                width=720, height=1280,
-                duration_seconds=Decimal(min(20, max(10, duration_seconds))),
-            )
-        return {"kind": "video", "ready": True,
-                "url": f"/miniapp/api/wallpapers/{order.id}/exports/video"}
+            current = await session.get(VideoStoryOrder, video_order_id, with_for_update=True)
+            if current is None or current.status != "processing":
+                raise RuntimeError("Video order processing state changed")
+            current.output_path = str(output)
+            current.status = "ready"
+            current.failure_reason = None
+            await session.commit()
+        return {
+            "kind": "video", "ready": True, "video_order_id": video_order_id,
+            "url": f"/miniapp/api/video-stories/{video_order_id}/file",
+        }
+    except Exception:
+        logger.exception("Video story rendering failed for order %s", video_order_id)
+        async with async_session_maker() as session:
+            current = await session.get(VideoStoryOrder, video_order_id, with_for_update=True)
+            if current is not None and current.status == "processing":
+                current.status = "failed"
+                current.failure_reason = "Video rendering failed; support intervention required"
+                await session.commit()
+        raise HTTPException(503, "Video rendering failed; contact support") from None
     finally:
         _studio_jobs.discard(order_id)
+
+
+@router.get("/api/video-stories/{video_order_id}/file")
+async def video_story_file(
+    video_order_id: int,
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    async with async_session_maker() as session:
+        video = await session.get(VideoStoryOrder, video_order_id)
+        if video is None or video.telegram_user_id != user["id"]:
+            raise HTTPException(404, "Video story order not found")
+        if video.status != "ready" or video.paid_at is None or not video.output_path:
+            raise HTTPException(403, "Paid and ready video story required")
+        path = Path(video.output_path)
+    if not path.is_file():
+        raise HTTPException(404, "Video file unavailable")
+    return FileResponse(
+        path, media_type="video/mp4", filename=f"video_story_{video_order_id}.mp4",
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @router.get("/api/wallpapers/{order_id}/exports/{kind}")
