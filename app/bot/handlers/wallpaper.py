@@ -710,21 +710,21 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
                 )
                 await repository.mark_paid(order, f"VIP_JOB_{job['id']}", "vip_bypass")
         await _send_full(message, mobile, desktop, lang)
-        if settings.miniapp_url:
-            await message.answer(
-                text_for(
-                    lang,
-                    "🎬 Редактор сцен і всі формати вже доступні у вашій майстерні.",
-                    "🎬 Редактор сцен и все форматы уже доступны в вашей мастерской.",
-                    "🎬 Scene Studio and every format are ready in your atelier.",
-                ),
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                    InlineKeyboardButton(
-                        text=text_for(lang, "Відкрити Scene Studio", "Открыть Scene Studio", "Open Scene Studio"),
-                        url=settings.miniapp_url,
-                    )
-                ]]),
-            )
+        await message.answer(
+            text_for(
+                lang,
+                "🎬 Хочете оживити цей колаж? Створіть окрему відеоісторію у Scene Studio.",
+                "🎬 Хотите оживить этот коллаж? Создайте отдельную видеоисторию в Scene Studio.",
+                "🎬 Bring this collage to life with a separate video story in Scene Studio.",
+            ),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(
+                    text=text_for(lang, "🎬 Створити відеоісторію", "🎬 Создать видеоисторию",
+                                  "🎬 Create video story"),
+                    callback_data="gift_video_plans",
+                )
+            ]]),
+        )
         if settings.portmone_test_mode:
             await send_portmone_sandbox_offer(
                 bot=message.bot,
@@ -841,6 +841,20 @@ async def generate_wallpapers(message: Message, state: FSMContext, settings: Set
         f"Полный цифровой подарок: {f'{wayforpay_amount:.2f} UAH' if wayforpay_amount is not None else f'{order.stars_amount} Stars'}. 💛",
         f"Complete digital gift: {f'{wayforpay_amount:.2f} UAH' if wayforpay_amount is not None else f'{order.stars_amount} Stars'}. 💛",
     ), reply_markup=buttons, parse_mode="HTML")
+    await message.answer(
+        text_for(
+            lang,
+            "🎬 Після підтвердження оплати ви зможете створити окрему відеоісторію.",
+            "🎬 После подтверждения оплаты вы сможете создать отдельную видеоисторию.",
+            "🎬 After payment confirmation, you can create a separate video story.",
+        ),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text=text_for(lang, "🎬 Відеоісторія", "🎬 Видеоистория", "🎬 Video story"),
+                callback_data="gift_video_plans",
+            )
+        ]]),
+    )
     await state.clear()
     await state.update_data(ui_lang=lang, lang_selected=selected)
 
