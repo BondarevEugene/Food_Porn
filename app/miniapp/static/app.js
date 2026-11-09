@@ -581,6 +581,7 @@
     clearPreview();
     clearStudioImages();
     state.sceneStudio = await api(`/wallpapers/${orderId}/studio`);
+    state.videoStory = null;
     state.studioScene = 0;
     const versions = state.sceneStudio.versions.filter(item => item.scene_index === 0);
     state.studioCompare = {left:'current', right:versions.length ? String(versions[versions.length - 1].id) : 'current'};
