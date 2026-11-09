@@ -1080,6 +1080,7 @@ async def create_video_story_order(
 async def video_story_checkout(
     video_order_id: int,
     user: Annotated[dict, Depends(current_user)],
+    provider: str = "wayforpay",
 ) -> dict:
     async with async_session_maker() as session:
         order = await session.get(VideoStoryOrder, video_order_id)
@@ -1092,6 +1093,17 @@ async def video_story_checkout(
             raise HTTPException(503, "Video story price is not configured")
         if order.amount != settings.wayforpay_video_story_price_uah:
             raise HTTPException(409, "Video story price changed; contact support")
+    if provider == "portmone":
+        payment = PaymentService(get_settings())
+        if not payment.portmone_ready:
+            raise HTTPException(503, "Portmone is temporarily unavailable")
+        url = await payment.create_portmone_invoice(
+            video_order_id, order.amount,
+            f"Food Porn video story #{video_order_id}", product="video_story",
+        )
+        return {"url": url, "amount": str(order.amount), "currency": "UAH", "provider": "portmone"}
+    if provider != "wayforpay":
+        raise HTTPException(422, "Unsupported video story payment provider")
     return await _wayforpay_checkout(
         product="video_story",
         reference_id=video_order_id,
@@ -1113,6 +1125,23 @@ async def verify_video_story_payment(
             return {"paid": False, "status": "refunded"}
         if order.status in {"paid", "queued", "processing", "ready"} and order.paid_at:
             return {"paid": True, "status": order.status}
+    if PaymentService(get_settings()).portmone_ready:
+        verified_portmone = await PaymentService(get_settings()).verify_portmone_payment(
+            video_order_id, order.amount, product="video_story",
+        )
+        if verified_portmone is not None:
+            async with async_session_maker() as session:
+                current = await session.get(VideoStoryOrder, video_order_id, with_for_update=True)
+                if current is None or current.telegram_user_id != user["id"]:
+                    raise HTTPException(404, "Video story order not found")
+                if current.status == "waiting_for_payment":
+                    current.status = "paid"
+                    current.payment_reference = verified_portmone.payment_id
+                    current.payment_system = "portmone"
+                    current.paid_at = datetime.now(UTC)
+                    await session.commit()
+                if current.status in {"paid", "queued", "processing", "ready"} and current.paid_at:
+                    return {"paid": True, "status": current.status}
     verified = await _wayforpay_is_paid("video_story", video_order_id, user["id"])
     return {"paid": verified, "status": "paid" if verified else "waiting_for_payment"}
 
