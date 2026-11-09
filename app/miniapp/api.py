@@ -117,7 +117,8 @@ def _track(task: asyncio.Task) -> None:
 
 
 async def _wayforpay_checkout(
-    *, product: str, reference_id: int, owner_id: int, description: str
+    *, product: str, reference_id: int, owner_id: int, description: str,
+    amount_override: Decimal | None = None,
 ) -> dict[str, str]:
     service = WayForPayService(get_settings())
     if not service.ready:
@@ -129,6 +130,7 @@ async def _wayforpay_checkout(
             product=product,
             reference_id=reference_id,
             description=description,
+            amount_override=amount_override,
         )
     return {
         "url": url,
@@ -1152,11 +1154,8 @@ async def video_story_checkout(
         if order.status != "waiting_for_payment":
             raise HTTPException(409, "Video story is not awaiting payment")
         settings = get_settings()
-        if provider != "stars":
-            if settings.wayforpay_video_story_price_uah is None or order.amount <= 0:
-                raise HTTPException(503, "UAH video story checkout is not configured")
-            if order.amount != settings.wayforpay_video_story_price_uah:
-                raise HTTPException(409, "Video story price changed; contact support")
+        if provider != "stars" and order.amount <= 0:
+            raise HTTPException(409, "This order has no UAH price; create a new order")
     if provider == "stars":
         if user.get("source_channel", "telegram") != "telegram":
             raise HTTPException(403, "Stars are only available in Telegram")
@@ -1183,6 +1182,7 @@ async def video_story_checkout(
         reference_id=video_order_id,
         owner_id=user["id"],
         description=f"Food Porn video story #{video_order_id}",
+        amount_override=order.amount,
     )
 
 
@@ -1686,6 +1686,8 @@ async def admin_dashboard(user: Annotated[dict, Depends(current_user)]) -> dict:
         vip = await get_vip_users(session, settings.default_vip_users)
         menu_price = await get_setting(session, "menu_price_uah", str(settings.menu_price))
     return {**data, "paid_gifts": data["paid_gifts"], "vip": vip, "menu_price": menu_price,
+            "video_story_price_uah": str(settings.wayforpay_video_story_price_uah) if settings.wayforpay_video_story_price_uah is not None else "",
+            "video_story_price_stars": settings.video_story_price_stars,
             "revenue": data["revenue_uah"], "stars_revenue": data["revenue_stars"],
             "stars_ready": settings.menu_price_stars > 0 and settings.gift_price_stars > 0,
             "payment_ready": PaymentService(settings).portmone_ready, "crm_url": "/crm", "owner": user["id"] in settings.admin_telegram_ids}
@@ -1704,6 +1706,33 @@ async def update_vip(payload: dict, user: Annotated[dict, Depends(current_user)]
     async with async_session_maker() as session:
         await set_setting(session, "vip_usernames", ",".join(normalized))
     return {"vip": normalized}
+
+
+@router.post("/api/admin/video-story-prices")
+async def update_video_story_prices(
+    payload: dict,
+    user: Annotated[dict, Depends(current_user)],
+) -> dict:
+    settings = get_settings()
+    if user["id"] not in settings.admin_telegram_ids:
+        raise HTTPException(403, "Owner access required")
+    values = {}
+    if "price_uah" in payload:
+        values["wayforpay_video_story_price_uah"] = payload["price_uah"]
+    if "price_stars" in payload:
+        values["video_story_price_stars"] = payload["price_stars"]
+    if not values:
+        raise HTTPException(422, "Provide a video story price")
+    async with async_session_maker() as session:
+        try:
+            await crm_save_settings(session, values, f"telegram:{user['id']}")
+        except (ValueError, ArithmeticError, TypeError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+    return {
+        "price_uah": str(settings.wayforpay_video_story_price_uah)
+        if settings.wayforpay_video_story_price_uah is not None else None,
+        "price_stars": settings.video_story_price_stars,
+    }
 
 
 @router.post("/api/admin/menu-price")
