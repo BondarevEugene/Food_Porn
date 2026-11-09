@@ -98,6 +98,7 @@ class Settings(BaseSettings):
     currency: str = "UAH"
     menu_price_stars: int = Field(default=0, ge=0, le=100000)
     gift_price_stars: int = Field(default=0, ge=0, le=100000)
+    video_story_price_stars: int = Field(default=0, ge=0, le=100000)
     video_economy_price_uah: Decimal = Field(default=Decimal("199.00"), gt=0, le=100000)
     video_cinematic_price_uah: Decimal = Field(default=Decimal("499.00"), gt=0, le=100000)
     video_premium_price_uah: Decimal = Field(default=Decimal("999.00"), gt=0, le=100000)
