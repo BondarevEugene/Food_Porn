@@ -483,7 +483,7 @@ def apply_runtime_values(values: dict) -> None:
     for key, value in values.items():
         _, _, integer, attribute = SETTING_RULES[key]
         if attribute:
-            setattr(settings, attribute, int(value) if integer else (Decimal(value) if attribute.startswith("video_") else float(value)))
+            setattr(settings, attribute, int(value) if integer else (Decimal(value) if attribute.endswith("_price_uah") else float(value)))
 
 
 async def load_runtime_settings(session_factory) -> None:
