@@ -125,6 +125,8 @@ class Settings(BaseSettings):
     wayforpay_test_mode: bool = False
     wayforpay_menu_price_uah: Decimal = Field(default=Decimal("5.00"), gt=0, le=100000)
     wayforpay_wallpaper_price_uah: Decimal = Field(default=Decimal("1.00"), gt=0, le=100000)
+    # Відео не продаємо, доки власник явно не встановить ціну.
+    wayforpay_video_story_price_uah: Decimal | None = Field(default=None, gt=0, le=100000)
 
     # --- Настройки типографии ---
     printshop_email: str = ""
