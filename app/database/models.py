@@ -228,6 +228,50 @@ class WallpaperOrder(TimestampMixin, Base):
     raw_desktop_path: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+
+class VideoStoryOrder(TimestampMixin, Base):
+    """Окреме платне замовлення відеоісторії на основі карти бажань."""
+
+    __tablename__ = "video_story_orders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    wallpaper_order_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("wallpaper_orders.id", ondelete="RESTRICT"),
+        nullable=False, index=True,
+    )
+    telegram_user_id: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, index=True,
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(
+        String(3), nullable=False, default="UAH",
+    )
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="waiting_for_payment", index=True,
+    )
+    payment_reference: Mapped[str | None] = mapped_column(
+        String(150), nullable=True, unique=True,
+    )
+    payment_system: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    music_mode: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="auto",
+    )
+    music_mood: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="cinematic",
+    )
+    ai_voice: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False,
+    )
+    music_track_id: Mapped[str | None] = mapped_column(
+        String(100), nullable=True,
+    )
+    output_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class WallpaperSceneVersion(TimestampMixin, Base):
     """One inexpensive alternative for one scene of a vision board."""
 
