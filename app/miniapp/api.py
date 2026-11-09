@@ -1272,6 +1272,8 @@ async def video_story_file(
 async def wallpaper_export_file(
     order_id: int, kind: str, user: Annotated[dict, Depends(current_user)]
 ) -> FileResponse:
+    if kind == "video":
+        raise HTTPException(404, "Use the video story order download endpoint")
     order = await _own_wallpaper(order_id, user["id"])
     if not order.paid:
         raise HTTPException(403)
