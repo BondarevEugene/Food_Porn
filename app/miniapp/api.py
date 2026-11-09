@@ -1106,7 +1106,7 @@ async def video_story_payment_options(
                 "provider": "portmone", "amount": str(uah), "currency": "UAH",
             })
     if (
-        (order.stars_amount if order is not None else settings.video_story_price_stars) > 0
+        (order.stars_amount or 0 if order is not None else settings.video_story_price_stars) > 0
         and (order is None or order.status == "waiting_for_payment")
         and user.get("source_channel", "telegram") == "telegram"
         and getattr(request.app.state, "bot", None) is not None
