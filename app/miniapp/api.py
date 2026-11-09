@@ -45,6 +45,7 @@ from app.database.repositories import (
     WayForPayPaymentRepository,
 )
 from app.database.session import async_session_maker
+from app.services.video_retention import prune_video_archive
 from app.miniapp.auth import current_user
 from app.services.admin_access import has_admin_access
 from app.services.dish_input import normalize_dish_payload
@@ -1301,6 +1302,10 @@ async def create_wallpaper_video(
             current.status = "ready"
             current.failure_reason = None
             await session.commit()
+        try:
+            await prune_video_archive(async_session_maker)
+        except Exception:
+            logger.exception("Video archive cleanup failed after order %s", video_order_id)
         return {
             "kind": "video", "ready": True, "video_order_id": video_order_id,
             "url": f"/miniapp/api/video-stories/{video_order_id}/file",
