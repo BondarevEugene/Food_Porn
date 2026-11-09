@@ -20,7 +20,7 @@ LINK_API = "https://www.portmone.com.ua/r3/api/gateway/"
 STATUS_API = "https://www.portmone.com.ua/gateway/"
 MONO_CREATE_API = "https://api.monobank.ua/api/merchant/invoice/create"
 MONO_STATUS_API = "https://api.monobank.ua/api/merchant/invoice/status"
-PAYMENT_PRODUCTS = frozenset({"menu", "wallpaper", "sandbox_menu", "sandbox_wallpaper"})
+PAYMENT_PRODUCTS = frozenset({"menu", "wallpaper", "sandbox_menu", "sandbox_wallpaper", "video_story"})
 
 
 class PaymentError(RuntimeError):
