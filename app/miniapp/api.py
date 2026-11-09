@@ -7,7 +7,6 @@ import logging
 import re
 import secrets
 import shutil
-import subprocess
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
