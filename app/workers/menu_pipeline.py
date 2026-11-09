@@ -11,6 +11,7 @@ Responsibilities:
     - Deliver preview artwork and payment invoices or VIP clean files via Telegram
 ==========================================================
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -31,7 +32,14 @@ from app.render.recipes import render_recipe_sheet
 from app.services.evening_plan import build_evening_plan, save_evening_plan
 from app.services.free_access import has_free_generation_access
 from app.services.image_generation import ImageGenerationService
-from app.services.menu_quality import validate_menu_artwork, validate_menu_files
+from app.services.menu_photo_recovery import restore_missing_menu_photos
+from app.services.menu_processing_lease import MenuProcessingLease
+from app.services.menu_quality import (
+    validate_customer_photos,
+    validate_menu_artwork,
+    validate_menu_files,
+)
+from app.services.menu_recipe_cache import split_recipe_work
 from app.services.payment import PaymentService
 from app.services.portmone_sandbox import send_portmone_sandbox_offer
 from app.services.prompt_builder import PromptBuilder
@@ -51,6 +59,7 @@ class MenuPipeline:
         self.session_factory = session_factory
         self.queue: asyncio.Queue[int] = asyncio.Queue()
         self._tasks: list[asyncio.Task] = []
+        self._active_menu_ids: set[int] = set()
 
         self.image_service = ImageGenerationService(settings)
         self.prompt_builder = PromptBuilder()
@@ -85,17 +94,35 @@ class MenuPipeline:
         while True:
             try:
                 menu_id = await self.queue.get()
-                await self._process(menu_id)
-                self.queue.task_done()
+                try:
+                    await self._process(menu_id)
+                finally:
+                    self.queue.task_done()
             except asyncio.CancelledError:
                 break
             except Exception as exc:
                 logger.error(f"Critical worker failure: {exc}", exc_info=True)
 
     async def _process(self, menu_id: int) -> None:
+        """Deduplicate simultaneous attempts within this worker process."""
+        if menu_id in self._active_menu_ids:
+            logger.info("Menu %s already processing in this process; skipping duplicate", menu_id)
+            return
+        self._active_menu_ids.add(menu_id)
+        try:
+            lease = MenuProcessingLease(self.session_factory, menu_id)
+            async with lease as acquired:
+                if not acquired:
+                    logger.info("Menu %s already leased or finalized; skipping", menu_id)
+                    return
+                await self._process_unlocked(menu_id, lease=lease)
+        finally:
+            self._active_menu_ids.discard(menu_id)
+
+    async def _process_unlocked(self, menu_id: int, *, lease: MenuProcessingLease) -> None:
         logger.info(f"Pipeline execution started for Menu ID:{menu_id}")
         async with self.session_factory() as session:
-            repo = MenuRepository(session)
+            repo = MenuRepository(session, processing_token=lease.token, processing_menu_id=menu_id)
             menu = await repo.get(menu_id, full=True)
 
             if not menu:
@@ -105,6 +132,9 @@ class MenuPipeline:
             try:
                 if self.settings.use_mock_images:
                     raise RuntimeError("USE_MOCK_IMAGES=true: настоящие фотографии отключены. Установите false в .env")
+                # Restore missing uploads before any billable AI operation.
+                await restore_missing_menu_photos(menu, self.bot, self.settings, repo)
+                validate_customer_photos(menu)
                 customer_telegram_id = menu.customer.telegram_user_id
                 is_telegram = menu.source_channel == "telegram"
                 username = None
@@ -130,6 +160,7 @@ class MenuPipeline:
                     if ready:
                         continue
 
+                    await lease.assert_owned()
                     prompt = self.prompt_builder.build(item)
                     await repo.set_item_processing(item, prompt)
 
@@ -142,9 +173,11 @@ class MenuPipeline:
                             product_type="menu",
                             order_id=menu.id,
                         )
+                        await lease.assert_owned()
                         await repo.set_item_done(item, str(path))
                     except Exception as img_exc:
                         logger.error(f"Image generation failed for item {item.id}: {img_exc}")
+                        await lease.assert_owned()
                         await repo.set_item_failed(item, str(img_exc))
 
                 failed_titles = [item.title for item in menu.items if item.title != "—" and
@@ -156,16 +189,21 @@ class MenuPipeline:
 
                 # Шаг 2: Генерация рецептов через LLM или локальный фоллбэк
                 language = getattr(menu.customer, "language", "uk") or "uk"
-                dish_titles = [item.title for item in menu.items if item.title != "—"]
-                menu_details = await self.recipe_service.generate_menu_details(
-                    dish_titles,
-                    language,
-                    user_id=customer_telegram_id,
-                    order_id=menu.id,
-                )
-                for item in menu.items:
-                    if item.title in menu_details:
-                        await repo.save_recipe_details(item, menu_details[item.title])
+                cached_details, missing_titles = split_recipe_work(menu.items)
+                menu_details = dict(cached_details)
+                if missing_titles:
+                    await lease.assert_owned()
+                    generated_details = await self.recipe_service.generate_menu_details(
+                        missing_titles,
+                        language,
+                        user_id=customer_telegram_id,
+                        order_id=menu.id,
+                    )
+                    await lease.assert_owned()
+                    for item in menu.items:
+                        if item.title in missing_titles:
+                            await repo.save_recipe_details(item, generated_details[item.title])
+                    menu_details.update(generated_details)
 
                 # Шаг 3: Агрегация списка покупок
                 shopping_list = aggregate_shopping_list(menu_details)
@@ -200,6 +238,7 @@ class MenuPipeline:
                     shopping_sections=shopping_sections,
                 )
                 save_evening_plan(self.settings.generated_dir / str(menu.id) / "evening_plan.json", plan)
+                await lease.assert_owned()
                 for kind, path in rendered_artifacts.as_mapping().items():
                     await repo.save_file(menu.id, kind, str(path))
                 await repo.save_file(menu.id, FileKind.RECIPE_SHEET, str(recipe_path))
@@ -211,6 +250,7 @@ class MenuPipeline:
 
                 is_uk = str(language).lower() in ("uk", "ukrainian")
 
+                await lease.assert_owned()
                 if is_vip or menu.is_paid:
                     # ВИП-режим: сразу отмечаем как оплаченное и выдаем чистые файлы без эквайринга
                     if not menu.is_paid:
@@ -430,13 +470,37 @@ class MenuPipeline:
                 logger.info(f"Pipeline successfully finished for Menu ID:{menu_id}")
 
             except Exception as proc_exc:
+                try:
+                    await lease.assert_owned()
+                except RuntimeError:
+                    logger.warning("Menu %s lease lost; refusing stale failure status update", menu_id)
+                    return
                 logger.error(f"Pipeline processing failed for Menu ID:{menu_id}: {proc_exc}", exc_info=True)
-                await repo.set_status(menu_id, MenuStatus.FAILED, error_message=str(proc_exc))
+                # A delivery failure must not invalidate an already paid order.
+                # Generated artifacts remain available for a separate delivery retry.
+                has_ready_files = any(
+                    Path(generated.path).is_file() for generated in menu.files
+                )
+                failure_status = (
+                    MenuStatus.PARTIAL_SUCCESS
+                    if menu.is_paid and has_ready_files
+                    else MenuStatus.FAILED
+                )
+                await repo.set_status(
+                    menu_id, failure_status, error_message=str(proc_exc)
+                )
                 if menu.source_channel == "telegram":
                     try:
                         await self.bot.send_message(
                             menu.customer.telegram_user_id,
-                            "Не удалось подготовить полный комплект. Оплата не выставлена; повторите создание позже.",
+                            (
+                                "Комплект подготовлен, но доставка не завершилась. "
+                                "Ваш оплаченный заказ сохранён; повторная оплата не требуется."
+                                if failure_status == MenuStatus.PARTIAL_SUCCESS
+                                else "Не удалось подготовить полный комплект. "
+                                     "Если оплата уже прошла, не оплачивайте повторно; "
+                                     "обратитесь в поддержку."
+                            ),
                         )
                     except Exception:
                         logger.exception("Could not notify customer about failed menu %s", menu_id)

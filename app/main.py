@@ -6,5 +6,8 @@ Module: Application Bootstrap (app/main.py)
 Layer: Application Core
 ==========================================================
 """
+
 from __future__ import annotations
-from main import app, main
+
+from main import app as app
+from main import main as main

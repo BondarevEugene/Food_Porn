@@ -6,7 +6,7 @@ import json
 import logging
 import re
 import secrets
-import subprocess
+import shutil
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -32,6 +32,7 @@ from app.database.models import (
     MenuStatus,
     ScheduledDelivery,
     ShareLink,
+    VideoStoryOrder,
     WallpaperExport,
     WallpaperOrder,
     WallpaperSceneVersion,
@@ -58,6 +59,7 @@ from app.services.replicate_vision_board import ImageSafetyError, ReplicateVisio
 from app.services.settings_service import get_setting, get_vip_users, set_setting
 from app.services.stars import OrderRef, create_invoice
 from app.services.storage import InvalidImageError, StorageService
+from app.services.video_retention import prune_video_archive
 from app.services.wallpaper_studio import (
     EDIT_MODES,
     WallpaperExportService,
@@ -65,7 +67,11 @@ from app.services.wallpaper_studio import (
     archive_source_photos,
     current_scene_preview,
 )
-from app.services.wayforpay import WayForPayService, apply_verified_payment
+from app.services.wayforpay import (
+    WayForPayService,
+    apply_verified_payment,
+    wayforpay_entitlement_is_active,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/miniapp")
@@ -112,7 +118,8 @@ def _track(task: asyncio.Task) -> None:
 
 
 async def _wayforpay_checkout(
-    *, product: str, reference_id: int, owner_id: int, description: str
+    *, product: str, reference_id: int, owner_id: int, description: str,
+    amount_override: Decimal | None = None,
 ) -> dict[str, str]:
     service = WayForPayService(get_settings())
     if not service.ready:
@@ -124,6 +131,7 @@ async def _wayforpay_checkout(
             product=product,
             reference_id=reference_id,
             description=description,
+            amount_override=amount_override,
         )
     return {
         "url": url,
@@ -133,23 +141,40 @@ async def _wayforpay_checkout(
     }
 
 
-async def _wayforpay_is_paid(product: str, reference_id: int, owner_id: int) -> bool:
+async def _wayforpay_is_paid(
+    product: str,
+    reference_id: int,
+    owner_id: int,
+) -> bool:
+    if product not in {"menu", "wallpaper", "video_story"}:
+        return False
+
     service = WayForPayService(get_settings())
     if not service.ready:
         return False
+
     async with async_session_maker() as session:
         repository = WayForPayPaymentRepository(session)
-        attempt = await repository.latest_for_product(product, str(reference_id), owner_id)
+        attempt = await repository.latest_for_product(
+            product, str(reference_id), owner_id
+        )
+
         if attempt is None:
             return False
-        if attempt.status == "approved":
-            return True
-        try:
-            payload = await service.check_status(attempt)
-            return await apply_verified_payment(session, attempt, payload)
-        except Exception:
-            logger.exception("Mini App WayForPay check failed for %s #%s", product, reference_id)
-            return False
+
+        if attempt.status != "approved":
+            try:
+                payload = await service.check_status(attempt)
+                await apply_verified_payment(session, attempt, payload)
+            except Exception:
+                logger.exception(
+                    "Mini App WayForPay check failed for %s #%s",
+                    product,
+                    reference_id,
+                )
+                return False
+
+        return await wayforpay_entitlement_is_active(session, attempt)
 
 
 def _public_job(job: dict) -> dict:
@@ -1010,6 +1035,201 @@ async def _save_audio_upload(upload: UploadFile | None, destination: Path, limit
     return destination
 
 
+@router.post("/api/wallpapers/{order_id}/video-story/orders")
+async def create_video_story_order(
+    order_id: int,
+    user: Annotated[dict, Depends(current_user)],
+) -> dict:
+    """Окреме замовлення відео, не пов'язане з оплатою колажу."""
+    settings = get_settings()
+    # Stars-only deployments must not depend on WayForPay configuration.
+    if settings.wayforpay_video_story_price_uah is None and not settings.video_story_price_stars:
+        raise HTTPException(503, "Video story price is not configured")
+    price = settings.wayforpay_video_story_price_uah or Decimal("0.00")
+    async with async_session_maker() as session:
+        wallpaper = await session.get(WallpaperOrder, order_id)
+        if wallpaper is None or wallpaper.telegram_user_id != user["id"]:
+            raise HTTPException(404, "Gift order not found")
+        if not wallpaper.paid:
+            raise HTTPException(403, "Pay for the wish collage first")
+        existing = await session.scalar(
+            select(VideoStoryOrder).where(
+                VideoStoryOrder.wallpaper_order_id == order_id,
+                VideoStoryOrder.telegram_user_id == user["id"],
+                VideoStoryOrder.status != "refunded",
+            ).order_by(VideoStoryOrder.id.desc()).limit(1)
+        )
+        if existing is None:
+            existing = VideoStoryOrder(
+                wallpaper_order_id=order_id,
+                telegram_user_id=user["id"],
+                amount=price,
+                currency="UAH",
+                stars_amount=settings.video_story_price_stars or None,
+            )
+            session.add(existing)
+            await session.commit()
+            await session.refresh(existing)
+        return {
+            "order_id": existing.id,
+            "wallpaper_order_id": order_id,
+            "status": existing.status,
+            "amount": str(existing.amount),
+            "currency": existing.currency,
+            "stars_amount": existing.stars_amount,
+            "paid": existing.paid_at is not None and existing.status in {"paid", "queued", "processing", "ready"},
+        }
+
+
+@router.get("/api/video-stories/payment-options")
+async def video_story_payment_options(
+    user: Annotated[dict, Depends(current_user)],
+    request: Request,
+    video_order_id: int | None = None,
+) -> dict:
+    """Expose enabled providers with the existing order's immutable price."""
+    settings = get_settings()
+    order = None
+    if video_order_id is not None:
+        async with async_session_maker() as session:
+            order = await session.get(VideoStoryOrder, video_order_id)
+            if order is None or order.telegram_user_id != user["id"]:
+                raise HTTPException(404, "Video story order not found")
+    options = []
+    uah = order.amount if order is not None else settings.wayforpay_video_story_price_uah
+    if uah is not None and uah > 0 and (order is None or order.status == "waiting_for_payment"):
+        if WayForPayService(settings).ready:
+            options.append({
+                "provider": "wayforpay", "amount": str(uah), "currency": "UAH",
+            })
+        if PaymentService(settings).portmone_ready:
+            options.append({
+                "provider": "portmone", "amount": str(uah), "currency": "UAH",
+            })
+    if (
+        (order.stars_amount or 0 if order is not None else settings.video_story_price_stars) > 0
+        and (order is None or order.status == "waiting_for_payment")
+        and user.get("source_channel", "telegram") == "telegram"
+        and getattr(request.app.state, "bot", None) is not None
+    ):
+        options.append({
+            "provider": "stars", "amount": str(order.stars_amount if order is not None else settings.video_story_price_stars),
+            "currency": "XTR",
+        })
+    return {"providers": options}
+
+
+@router.get("/api/wallpapers/{order_id}/video-story/orders/latest")
+async def latest_video_story_order(
+    order_id: int,
+    user: Annotated[dict, Depends(current_user)],
+) -> dict:
+    """Restore the owner's latest video order without creating or charging again."""
+    async with async_session_maker() as session:
+        wallpaper = await session.get(WallpaperOrder, order_id)
+        if wallpaper is None or wallpaper.telegram_user_id != user["id"]:
+            raise HTTPException(404, "Gift order not found")
+        video = await session.scalar(
+            select(VideoStoryOrder).where(
+                VideoStoryOrder.wallpaper_order_id == order_id,
+                VideoStoryOrder.telegram_user_id == user["id"],
+                VideoStoryOrder.status != "refunded",
+            ).order_by(VideoStoryOrder.id.desc()).limit(1)
+        )
+        if video is None:
+            return {"order": None}
+        return {"order": {
+            "order_id": video.id,
+            "wallpaper_order_id": order_id,
+            "status": video.status,
+            "amount": str(video.amount),
+            "currency": video.currency,
+            "stars_amount": video.stars_amount,
+            "paid": video.paid_at is not None and video.status in (
+                "paid", "queued", "processing", "ready",
+            ),
+        }}
+
+
+@router.post("/api/video-stories/{video_order_id}/checkout")
+async def video_story_checkout(
+    video_order_id: int,
+    user: Annotated[dict, Depends(current_user)],
+    request: Request,
+    provider: str = "wayforpay",
+) -> dict:
+    async with async_session_maker() as session:
+        order = await session.get(VideoStoryOrder, video_order_id)
+        if order is None or order.telegram_user_id != user["id"]:
+            raise HTTPException(404, "Video story order not found")
+        if order.status != "waiting_for_payment":
+            raise HTTPException(409, "Video story is not awaiting payment")
+        if provider != "stars" and order.amount <= 0:
+            raise HTTPException(409, "This order has no UAH price; create a new order")
+    if provider == "stars":
+        if user.get("source_channel", "telegram") != "telegram":
+            raise HTTPException(403, "Stars are only available in Telegram")
+        if not order.stars_amount or order.stars_amount <= 0:
+            raise HTTPException(409, "This order has no Stars price")
+        bot = getattr(request.app.state, "bot", None)
+        if bot is None:
+            raise HTTPException(503, "Telegram bot is unavailable")
+        url = await create_invoice(bot, OrderRef("video_story", order.id, user["id"], order.stars_amount))
+        return {"url": url, "stars": order.stars_amount, "provider": "stars"}
+    if provider == "portmone":
+        payment = PaymentService(get_settings())
+        if not payment.portmone_ready:
+            raise HTTPException(503, "Portmone is temporarily unavailable")
+        url = await payment.create_portmone_invoice(
+            video_order_id, order.amount,
+            f"Food Porn video story #{video_order_id}", product="video_story",
+        )
+        return {"url": url, "amount": str(order.amount), "currency": "UAH", "provider": "portmone"}
+    if provider != "wayforpay":
+        raise HTTPException(422, "Unsupported video story payment provider")
+    return await _wayforpay_checkout(
+        product="video_story",
+        reference_id=video_order_id,
+        owner_id=user["id"],
+        description=f"Food Porn video story #{video_order_id}",
+        amount_override=order.amount,
+    )
+
+
+@router.post("/api/video-stories/{video_order_id}/verify")
+async def verify_video_story_payment(
+    video_order_id: int,
+    user: Annotated[dict, Depends(current_user)],
+) -> dict:
+    async with async_session_maker() as session:
+        order = await session.get(VideoStoryOrder, video_order_id)
+        if order is None or order.telegram_user_id != user["id"]:
+            raise HTTPException(404, "Video story order not found")
+        if order.status == "refunded":
+            return {"paid": False, "status": "refunded"}
+        if order.status in {"paid", "queued", "processing", "ready"} and order.paid_at:
+            return {"paid": True, "status": order.status}
+    if PaymentService(get_settings()).portmone_ready:
+        verified_portmone = await PaymentService(get_settings()).verify_portmone_payment(
+            video_order_id, order.amount, product="video_story",
+        )
+        if verified_portmone is not None:
+            async with async_session_maker() as session:
+                current = await session.get(VideoStoryOrder, video_order_id, with_for_update=True)
+                if current is None or current.telegram_user_id != user["id"]:
+                    raise HTTPException(404, "Video story order not found")
+                if current.status == "waiting_for_payment":
+                    current.status = "paid"
+                    current.payment_reference = verified_portmone.payment_id
+                    current.payment_system = "portmone"
+                    current.paid_at = datetime.now(UTC)
+                    await session.commit()
+                if current.status in {"paid", "queued", "processing", "ready"} and current.paid_at:
+                    return {"paid": True, "status": current.status}
+    verified = await _wayforpay_is_paid("video_story", video_order_id, user["id"])
+    return {"paid": verified, "status": "paid" if verified else "waiting_for_payment"}
+
+
 @router.post("/api/wallpapers/{order_id}/video")
 async def create_wallpaper_video(
     order_id: int,
@@ -1020,53 +1240,115 @@ async def create_wallpaper_video(
     voice: Annotated[UploadFile | None, File()] = None,
     music: Annotated[UploadFile | None, File()] = None,
 ) -> dict:
+    """Claim a paid video order before spending rendering resources."""
     order = await _own_wallpaper(order_id, user["id"])
     if not order.paid:
         raise HTTPException(403)
-    if order_id in _studio_jobs:
-        raise HTTPException(409, "Another Scene Studio operation is still running")
+    if music is not None or voice is not None or ai_voice:
+        raise HTTPException(422, "Custom audio uploads and voice are not enabled")
+    if not 10 <= duration_seconds <= 20:
+        raise HTTPException(422, "Video duration must be between 10 and 20 seconds")
+
+    async with async_session_maker() as session:
+        video_order = await session.scalar(
+            select(VideoStoryOrder).where(
+                VideoStoryOrder.wallpaper_order_id == order_id,
+                VideoStoryOrder.telegram_user_id == user["id"],
+                VideoStoryOrder.paid_at.is_not(None),
+                VideoStoryOrder.status.in_(("paid", "queued", "processing", "ready")),
+            ).order_by(VideoStoryOrder.id.desc()).with_for_update()
+        )
+        if video_order is None:
+            raise HTTPException(403, "A separately paid video story order is required")
+        if video_order.status == "ready":
+            if video_order.output_path and Path(video_order.output_path).is_file():
+                return {
+                    "kind": "video", "ready": True, "video_order_id": video_order.id,
+                    "url": f"/miniapp/api/video-stories/{video_order.id}/file",
+                }
+            raise HTTPException(409, "Video file is unavailable; contact support")
+        if video_order.status in {"queued", "processing"}:
+            raise HTTPException(409, "Video story is already processing")
+        if order_id in _studio_jobs:
+            raise HTTPException(409, "Another Scene Studio operation is still running")
+        video_order.status = "processing"
+        await session.commit()
+        video_order_id = video_order.id
+
     _studio_jobs.add(order_id)
+    phrase = " ".join(final_phrase.split()).strip()[:500]
+    if not phrase:
+        phrase = "Твоя прекрасная история уже начинается."
     try:
-        settings = get_settings()
-        upload_root = Path(order.mobile_path).parent / "scene_studio" / "audio"
-        limit = settings.max_upload_mb * 1024 * 1024
-        voice_path = await _save_audio_upload(voice, upload_root / "voice", limit)
-        music_path = await _save_audio_upload(music, upload_root / "music", limit)
-        phrase = " ".join(final_phrase.split()).strip()[:500]
-        if not phrase:
-            phrase = "Твоя прекрасная история уже начинается."
         service = WallpaperExportService(order)
-        try:
-            path = await service.render_video(
-                settings=settings,
-                goals=list(order.goals or []),
-                final_phrase=phrase,
-                duration_seconds=duration_seconds,
-                voice_path=voice_path,
-                music_path=music_path,
-                ai_voice=ai_voice and voice_path is None,
-            )
-        except (ValueError, RuntimeError, subprocess.SubprocessError) as exc:
-            raise HTTPException(422, str(exc)) from exc
+        rendered = await service.render_video(
+            settings=get_settings(),
+            goals=list(order.goals or []),
+            final_phrase=phrase,
+            duration_seconds=duration_seconds,
+            voice_path=None,
+            music_path=None,
+            ai_voice=False,
+        )
+        destination = Path(order.mobile_path).parent / "scene_studio" / "video_orders"
+        destination.mkdir(parents=True, exist_ok=True)
+        output = destination / f"video_story_{video_order_id}.mp4"
+        await asyncio.to_thread(shutil.copyfile, rendered, output)
         async with async_session_maker() as session:
-            current = await session.get(WallpaperOrder, order.id)
-            current.final_phrase = phrase
-            await WallpaperStudioRepository(session).save_export(
-                order_id=order.id, kind="video", path=str(path), mime_type="video/mp4",
-                source_revision=service.source_revision,
-                width=720, height=1280,
-                duration_seconds=Decimal(min(20, max(10, duration_seconds))),
-            )
-        return {"kind": "video", "ready": True,
-                "url": f"/miniapp/api/wallpapers/{order.id}/exports/video"}
+            current = await session.get(VideoStoryOrder, video_order_id, with_for_update=True)
+            if current is None or current.status != "processing":
+                raise RuntimeError("Video order processing state changed")
+            current.output_path = str(output)
+            current.status = "ready"
+            current.failure_reason = None
+            await session.commit()
+        try:
+            await prune_video_archive(async_session_maker)
+        except Exception:
+            logger.exception("Video archive cleanup failed after order %s", video_order_id)
+        return {
+            "kind": "video", "ready": True, "video_order_id": video_order_id,
+            "url": f"/miniapp/api/video-stories/{video_order_id}/file",
+        }
+    except Exception:
+        logger.exception("Video story rendering failed for order %s", video_order_id)
+        async with async_session_maker() as session:
+            current = await session.get(VideoStoryOrder, video_order_id, with_for_update=True)
+            if current is not None and current.status == "processing":
+                current.status = "failed"
+                current.failure_reason = "Video rendering failed; support intervention required"
+                await session.commit()
+        raise HTTPException(503, "Video rendering failed; contact support") from None
     finally:
         _studio_jobs.discard(order_id)
+
+
+@router.get("/api/video-stories/{video_order_id}/file")
+async def video_story_file(
+    video_order_id: int,
+    user: Annotated[dict, Depends(current_user)],
+) -> FileResponse:
+    async with async_session_maker() as session:
+        video = await session.get(VideoStoryOrder, video_order_id)
+        if video is None or video.telegram_user_id != user["id"]:
+            raise HTTPException(404, "Video story order not found")
+        if video.status != "ready" or video.paid_at is None or not video.output_path:
+            raise HTTPException(403, "Paid and ready video story required")
+        path = Path(video.output_path)
+    if not path.is_file():
+        raise HTTPException(404, "Video file unavailable")
+    return FileResponse(
+        path, media_type="video/mp4", filename=f"video_story_{video_order_id}.mp4",
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @router.get("/api/wallpapers/{order_id}/exports/{kind}")
 async def wallpaper_export_file(
     order_id: int, kind: str, user: Annotated[dict, Depends(current_user)]
 ) -> FileResponse:
+    if kind == "video":
+        raise HTTPException(404, "Use the video story order download endpoint")
     order = await _own_wallpaper(order_id, user["id"])
     if not order.paid:
         raise HTTPException(403)
@@ -1076,6 +1358,18 @@ async def wallpaper_export_file(
                 WallpaperExport.order_id == order.id, WallpaperExport.kind == kind
             )
         )
+    if kind == "video":
+        async with async_session_maker() as session:
+            entitlement = await session.scalar(
+                select(VideoStoryOrder.id).where(
+                    VideoStoryOrder.wallpaper_order_id == order_id,
+                    VideoStoryOrder.telegram_user_id == user["id"],
+                    VideoStoryOrder.status.in_(("paid", "queued", "processing", "ready")),
+                    VideoStoryOrder.paid_at.is_not(None),
+                ).limit(1)
+            )
+        if entitlement is None:
+            raise HTTPException(403, "Video story payment required")
     current_revision = WallpaperExportService(order).source_revision
     if export is None or export.source_revision != current_revision or not Path(export.path).is_file():
         raise HTTPException(409, "Create this format for the current revision first")
@@ -1406,6 +1700,8 @@ async def admin_dashboard(user: Annotated[dict, Depends(current_user)]) -> dict:
         vip = await get_vip_users(session, settings.default_vip_users)
         menu_price = await get_setting(session, "menu_price_uah", str(settings.menu_price))
     return {**data, "paid_gifts": data["paid_gifts"], "vip": vip, "menu_price": menu_price,
+            "video_story_price_uah": str(settings.wayforpay_video_story_price_uah) if settings.wayforpay_video_story_price_uah is not None else "",
+            "video_story_price_stars": settings.video_story_price_stars,
             "revenue": data["revenue_uah"], "stars_revenue": data["revenue_stars"],
             "stars_ready": settings.menu_price_stars > 0 and settings.gift_price_stars > 0,
             "payment_ready": PaymentService(settings).portmone_ready, "crm_url": "/crm", "owner": user["id"] in settings.admin_telegram_ids}
@@ -1424,6 +1720,33 @@ async def update_vip(payload: dict, user: Annotated[dict, Depends(current_user)]
     async with async_session_maker() as session:
         await set_setting(session, "vip_usernames", ",".join(normalized))
     return {"vip": normalized}
+
+
+@router.post("/api/admin/video-story-prices")
+async def update_video_story_prices(
+    payload: dict,
+    user: Annotated[dict, Depends(current_user)],
+) -> dict:
+    settings = get_settings()
+    if user["id"] not in settings.admin_telegram_ids:
+        raise HTTPException(403, "Owner access required")
+    values = {}
+    if "price_uah" in payload:
+        values["wayforpay_video_story_price_uah"] = payload["price_uah"]
+    if "price_stars" in payload:
+        values["video_story_price_stars"] = payload["price_stars"]
+    if not values:
+        raise HTTPException(422, "Provide a video story price")
+    async with async_session_maker() as session:
+        try:
+            await crm_save_settings(session, values, f"telegram:{user['id']}")
+        except (ValueError, ArithmeticError, TypeError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+    return {
+        "price_uah": str(settings.wayforpay_video_story_price_uah)
+        if settings.wayforpay_video_story_price_uah is not None else None,
+        "price_stars": settings.video_story_price_stars,
+    }
 
 
 @router.post("/api/admin/menu-price")

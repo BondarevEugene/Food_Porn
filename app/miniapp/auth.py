@@ -34,7 +34,7 @@ def verify_init_data(raw: str, token: str, *, now: int | None = None) -> dict:
         age = (int(time.time()) if now is None else now) - stamp
         if age < -30 or age > 86400:
             raise ValueError("Expired launch payload")
-        check = "\n".join(f"{key}={value}" for key, value in sorted(fields.items()) if key != "hash")
+        check = "\n".join(f"{key}={value}" for key, value in sorted(fields.items()) if key not in {"hash", "signature"})
         secret = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
         expected = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, fields["hash"]):
@@ -110,6 +110,8 @@ def verify_channel_token(raw: str, *, now: int | None = None) -> dict:
             raise ValueError("Expired link")
         channel = str(payload["channel"])
         external_id = str(payload["external_user_id"])
+        if not external_id.strip() or len(external_id) > 150:
+            raise ValueError("Invalid external identity")
         if channel not in {"whatsapp", "messenger", "instagram", "viber", "slack", "discord"}:
             raise ValueError("Unknown channel")
         return {

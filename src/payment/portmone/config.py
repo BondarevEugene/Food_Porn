@@ -1,5 +1,6 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class PortmoneConfig(BaseSettings):
     payee_id: str = Field(default="111111", validation_alias="PORTMONE_PAYEE_ID")

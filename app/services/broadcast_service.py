@@ -1,8 +1,10 @@
 # app/services/broadcast_service.py
 import logging
+
 from aiogram import Bot
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.database.models import Customer, Menu, MenuStatus
 
 logger = logging.getLogger(__name__)

@@ -38,6 +38,7 @@ from app.database.session import Database
 from app.miniapp.api import router as miniapp_router
 from app.services.openai_costs import OpenAICostSynchronizer
 from app.services.scheduled_delivery import ScheduledDeliveryWorker
+from app.services.video_retention import VideoRetentionWorker
 from app.workers.menu_pipeline import MenuPipeline
 from src.payment.portmone.router import router as portmone_router
 
@@ -308,6 +309,10 @@ async def main() -> None:
             close_resource, "scheduled gift delivery", scheduled_delivery.stop
         )
         await scheduled_delivery.start()
+
+        video_retention = VideoRetentionWorker(database.session_factory)
+        resources.push_async_callback(close_resource, "video retention", video_retention.stop)
+        await video_retention.start()
 
         pipeline = MenuPipeline(
             bot=bot, settings=settings, session_factory=database.session_factory

@@ -26,6 +26,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
     CallbackQuery,
+    FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
@@ -40,6 +41,7 @@ from app.config import Settings
 from app.database import async_session_maker
 from app.database.models import Customer, ItemCategory, Menu, MenuStatus
 from app.database.repositories import MenuRepository
+from app.services.menu_delivery import MenuDeliveryUnavailable, paid_menu_documents
 from app.services.menu_wizard import (
     DEFAULT_VISUAL_STYLE,
     MEAL_FULL_DAY,
@@ -61,9 +63,9 @@ class PremiumMenuStates(StatesGroup):
 
 
 async def begin_menu_entry(
-    state: FSMContext,
-    menu_id: int,
-    category: ItemCategory = ItemCategory.MAIN,
+        state: FSMContext,
+        menu_id: int,
+        category: ItemCategory = ItemCategory.MAIN,
 ) -> None:
     """Compatibility entry used by older integrations."""
     await state.set_state(PremiumMenuStates.waiting_for_dish_list)
@@ -84,10 +86,10 @@ class LegacyMenuSetupAction(CallbackData, prefix="menu_setup"):
 
 
 async def begin_menu_setup(
-    message: Message,
-    state: FSMContext,
-    customer: Customer,
-    language: str = "ru",
+        message: Message,
+        state: FSMContext,
+        customer: Customer,
+        language: str = "ru",
 ) -> None:
     async with async_session_maker() as session:
         repo = MenuRepository(session)
@@ -108,9 +110,9 @@ async def begin_menu_setup(
 
 @router.callback_query(LegacyMenuSetupAction.filter(F.action.in_(["meal", "style"])))
 async def upgrade_legacy_menu_setup(
-    callback: CallbackQuery,
-    state: FSMContext,
-    session_factory: async_sessionmaker[AsyncSession],
+        callback: CallbackQuery,
+        state: FSMContext,
+        session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Turn a click on an old wizard button into the new full-day draft."""
     async with session_factory() as session:
@@ -170,6 +172,29 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
     """Генерирует инлайн-клавиатуру для управления сетом."""
     builder = InlineKeyboardBuilder()
 
+    # Основные действия меню. Каждая кнопка добавляется ровно один раз.
+    builder.button(
+        text="🍽 Выбрать категорию",
+        callback_data=MenuAction(
+            action="pick_category",
+            menu_id=menu.id,
+        ),
+    )
+    builder.button(
+        text="📝 Ввести список блюд",
+        callback_data=MenuAction(
+            action="bulk_items",
+            menu_id=menu.id,
+        ),
+    )
+    builder.button(
+        text="ℹ️ Требования к генерации",
+        callback_data=MenuAction(
+            action="requirements",
+            menu_id=menu.id,
+        ),
+    )
+
     builder.button(
         text=("✅ Фото обложки" if menu.cover_photo_path else "🖼 Загрузить фото обложки"),
         callback_data=MenuAction(action="req_cover", menu_id=menu.id)
@@ -194,10 +219,26 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
                 callback_data=MenuAction(action="generate", menu_id=menu.id)
             )
         else:
+            # Кнопка открывает понятную подсказку; не используем устаревший
+            # Старый callback без идентификатора меню больше не используется.
             builder.button(
                 text="⚠️ Добавьте блюда и два фото",
-                callback_data="ignore"
+                callback_data=MenuAction(
+                    action="requirements",
+                    menu_id=menu.id,
+                ),
             )
+
+    if getattr(menu, "is_paid", False) and menu.status in (
+        MenuStatus.PAID,
+        MenuStatus.PARTIAL_SUCCESS,
+        MenuStatus.COMPLETED,
+        MenuStatus.FAILED,
+    ):
+        builder.button(
+            text="📩 Получить готовые файлы повторно",
+            callback_data=MenuAction(action="resend", menu_id=menu.id),
+        )
 
     builder.button(text="⬅️ Назад", callback_data="prod_food_porn")
     builder.button(text="🏠 В начало", callback_data="back_to_products")
@@ -205,13 +246,93 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-@router.callback_query(F.data == "ignore")
-async def explain_generation_requirements(callback: CallbackQuery) -> None:
-    """Объясняет, какие данные ещё нужны для запуска генерации."""
+@router.callback_query(MenuAction.filter(F.action == "resend"))
+async def resend_paid_menu(
+    callback: CallbackQuery,
+    callback_data: MenuAction,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Resend saved PDFs; never re-enter the AI pipeline or payment flow."""
+    async with session_factory() as session:
+        menu = await MenuRepository(session).get(callback_data.menu_id, full=True)
+
+    if not _owned_by(menu, callback.from_user.id):
+        await callback.answer("Заказ не найден.", show_alert=True)
+        return
+
+    try:
+        booklet, recipes = paid_menu_documents(menu)
+    except MenuDeliveryUnavailable:
+        await callback.answer(
+            "Готовые файлы недоступны. Обратитесь в поддержку; повторно оплачивать не нужно.",
+            show_alert=True,
+        )
+        return
+
+    await callback.answer("Отправляем сохранённые файлы.")
+    try:
+        await callback.bot.send_document(
+            chat_id=callback.from_user.id,
+            document=FSInputFile(str(booklet)),
+            request_timeout=180,
+        )
+        await callback.bot.send_document(
+            chat_id=callback.from_user.id,
+            document=FSInputFile(str(recipes)),
+            request_timeout=180,
+        )
+    except Exception:
+        logger.exception("Paid menu resend failed for order %s", menu.id)
+        await callback.message.answer(
+            "Не удалось доставить файлы. Заказ и оплата сохранены; попробуйте позже."
+        )
+        return
+
+    async with session_factory() as session:
+        await MenuRepository(session).set_status(menu.id, MenuStatus.COMPLETED)
+    await callback.message.answer("Оба документа повторно отправлены. 💛")
+
+
+@router.callback_query(MenuAction.filter(F.action == "requirements"))
+async def show_generation_requirements(
+    callback: CallbackQuery,
+    callback_data: MenuAction,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Показывает, какие данные ещё нужны для запуска генерации."""
+    async with session_factory() as session:
+        menu = await MenuRepository(session).get(callback_data.menu_id, full=True)
+
+    if not _owned_by(menu, callback.from_user.id):
+        await callback.answer("Сет не найден.", show_alert=True)
+        return
+
+    missing = []
+    if not any(item.title != "—" for item in menu.items):
+        missing.append("добавьте хотя бы одно блюдо")
+    if not menu.cover_photo_path:
+        missing.append("загрузите фото обложки")
+    if not menu.spread_photo_path:
+        missing.append("загрузите фото разворота")
+
+    if missing:
+        message = "Чтобы запустить генерацию, " + ", ".join(missing) + "."
+    else:
+        message = "Всё готово. Можно запускать генерацию."
+
+    await callback.answer(message, show_alert=True)
+
+
+async def explain_legacy_generation_requirements(callback: CallbackQuery) -> None:
+    """Совместимость со старой кнопкой: точный текст для устаревшего сценария."""
     await callback.answer(
         "Добавьте хотя бы одно блюдо и загрузите фото обложки и разворота.",
         show_alert=True,
     )
+
+
+# Оставляем прежнее имя для интеграций, которые могли импортировать функцию напрямую.
+explain_generation_requirements = explain_legacy_generation_requirements
 
 
 # --- НОВЫЕ ИНТЕРАКТИВНЫЕ ФУНКЦИИ (на уровне модуля) ---
@@ -289,10 +410,10 @@ def _owned_by(menu: Menu | None, telegram_user_id: int) -> bool:
 
 @router.callback_query(MenuAction.filter(F.action == "view"))
 async def view_dashboard(
-    callback: CallbackQuery,
-    callback_data: MenuAction,
-    state: FSMContext,
-    session_factory: async_sessionmaker[AsyncSession],
+        callback: CallbackQuery,
+        callback_data: MenuAction,
+        state: FSMContext,
+        session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     await state.set_state(None)
     async with session_factory() as session:
@@ -310,12 +431,12 @@ async def view_dashboard(
     await callback.answer()
 
 
-@router.callback_query(MenuAction.filter(F.action.in_(["edit_plan", "edit_category"])))
+@router.callback_query(MenuAction.filter(F.action.in_(["edit_plan", "edit_category", "bulk_items"])))
 async def prompt_menu_plan(
-    callback: CallbackQuery,
-    callback_data: MenuAction,
-    state: FSMContext,
-    session_factory: async_sessionmaker[AsyncSession],
+        callback: CallbackQuery,
+        callback_data: MenuAction,
+        state: FSMContext,
+        session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as session:
         menu = await MenuRepository(session).get(callback_data.menu_id, full=True)
@@ -358,9 +479,9 @@ async def prompt_menu_plan(
 
 @router.message(PremiumMenuStates.waiting_for_dish_list, F.text)
 async def receive_dish_list(
-    message: Message,
-    state: FSMContext,
-    session_factory: async_sessionmaker[AsyncSession],
+        message: Message,
+        state: FSMContext,
+        session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     data = await state.get_data()
     menu_id = data.get("menu_id")
@@ -399,10 +520,10 @@ async def receive_dish_list(
 
 @router.callback_query(MenuAction.filter(F.action.in_(["req_cover", "req_spread"])))
 async def prompt_photo(
-    callback: CallbackQuery,
-    callback_data: MenuAction,
-    state: FSMContext,
-    session_factory: async_sessionmaker[AsyncSession],
+        callback: CallbackQuery,
+        callback_data: MenuAction,
+        state: FSMContext,
+        session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as session:
         menu = await MenuRepository(session).get(callback_data.menu_id, full=True)
@@ -433,11 +554,11 @@ async def prompt_photo(
 @router.message(PremiumMenuStates.waiting_for_cover, F.photo)
 @router.message(PremiumMenuStates.waiting_for_spread, F.photo)
 async def receive_photo(
-    message: Message,
-    state: FSMContext,
-    bot: Bot,
-    settings: Settings,
-    session_factory: async_sessionmaker[AsyncSession],
+        message: Message,
+        state: FSMContext,
+        bot: Bot,
+        settings: Settings,
+        session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     data = await state.get_data()
     menu_id = data.get("menu_id")
@@ -461,7 +582,11 @@ async def receive_photo(
 
     async with session_factory() as session:
         repo = MenuRepository(session)
-        kwargs = {"cover": str(path)} if role == "cover" else {"spread": str(path)}
+        kwargs = (
+            {"cover": str(path), "cover_file_id": message.photo[-1].file_id}
+            if role == "cover"
+            else {"spread": str(path), "spread_file_id": message.photo[-1].file_id}
+        )
         await repo.set_photos(menu_id, **kwargs)
         menu = await repo.get(menu_id, full=True)
 
@@ -520,8 +645,8 @@ async def confirm_generation(
 async def send_history(
         message: Message,
         session_factory: async_sessionmaker[AsyncSession],
-    *,
-    telegram_user_id: int | None = None,
+        *,
+        telegram_user_id: int | None = None,
 ) -> None:
     telegram_user_id = telegram_user_id or message.from_user.id
     async with session_factory() as session:
@@ -560,16 +685,16 @@ async def send_history(
 
 @router.message(Command("history"))
 async def history_command(
-    message: Message,
-    session_factory: async_sessionmaker[AsyncSession],
+        message: Message,
+        session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     await send_history(message, session_factory)
 
 
 @router.callback_query(F.data == "home_orders")
 async def history_callback(
-    callback: CallbackQuery,
-    session_factory: async_sessionmaker[AsyncSession],
+        callback: CallbackQuery,
+        session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     await send_history(
         callback.message,

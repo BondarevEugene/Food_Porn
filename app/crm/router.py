@@ -98,6 +98,20 @@ async def dashboard(identity: Identity, days: Days = 30):
         return await service.dashboard(session, days)
 
 
+@router.get("/api/finance/calendar")
+async def calendar_finance(
+    identity: Identity,
+    period: Literal["month", "quarter", "half", "year"] = "month",
+    year: int = Query(ge=2000, le=2100),
+    index: int = Query(ge=1, le=12),
+):
+    try:
+        async with async_session_maker() as session:
+            return await service.calendar_finance(session, period, year, index)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @router.post("/api/openai-costs/sync")
 async def sync_openai_costs(request: Request, identity: Identity, days: Days = 35):
     """Owner-only manual reconciliation with the OpenAI organization cost ledger."""

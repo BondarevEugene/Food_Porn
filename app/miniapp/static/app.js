@@ -15,7 +15,7 @@
   try { savedLanguage = localStorage.getItem('gift_lang') || ''; } catch (_) { /* private browsing */ }
   const state = {
     page: 'home', home: null, admin: null, job: null, menu: null, wallpaper: null, evening: null,
-    sceneStudio: null, studioScene: 0, studioCompare: {left:'current', right:'current'}, studioImages: {},
+    sceneStudio: null, videoStory: null, videoProviders: [], studioScene: 0, studioCompare: {left:'current', right:'current'}, studioImages: {},
     style: 'dark', lang: savedLanguage || tg?.initDataUnsafe?.user?.language_code?.slice(0, 2) || 'uk',
     error: '', previewUrl: '', previewError: '', viewKey: '', cookingIndex: 0, cookingStep: 0,
     menuInputMode: 'list'
@@ -276,7 +276,7 @@
     const locked = (studio.locked || []).includes(index);
     const versions = (studio.versions || []).filter(item => item.scene_index === index);
     const options = [`<option value="current">${esc(words.current)}</option>`, ...versions.map(item => `<option value="${item.id}">#${item.number} · ${esc(item.instruction)}</option>`)].join('');
-    const exports = ['phone','desktop','story','instagram','a3','telegram','video'].map(kind => {
+    const exports = ['phone','desktop','story','instagram','a3','telegram'].map(kind => {
       const ready = (studio.exports || []).find(item => item.kind === kind && item.ready);
       const labels = {phone:'📱 Phone',desktop:'🖥 Desktop',story:'▯ Story',instagram:'▣ Instagram',a3:'A3 Print',telegram:'Telegram Cover',video:'▶ MP4'};
       return ready ? `<button class="file-button" data-action="studio-download" data-kind="${kind}">${labels[kind]}</button>` : `<span class="format-chip pending">${labels[kind]}</span>`;
@@ -289,7 +289,7 @@
       <section class="panel"><div class="panel-title">${words.compare}<span>${index+1}/${studio.goals.length}</span></div><div class="compare-selects"><select id="compare-left">${options}</select><select id="compare-right">${options}</select></div><div class="scene-compare"><figure>${left}<figcaption>A</figcaption></figure><figure>${right}<figcaption>B</figcaption></figure></div>${selectedVersion && !selectedVersion.selected ? `<button class="primary" data-action="studio-select" data-version="${selectedVersion.id}">${words.apply}</button>` : ''}${button(locked ? words.unlock : words.lock, 'studio-lock', locked ? 'secondary' : 'file-button')}</section>
       <section class="panel scene-edit"><div class="panel-title">${words.newVersion}<span>1 AI request</span></div><div class="edit-modes">${['scene','clothing','background','mood'].map(mode => `<label><input type="radio" name="edit-mode" value="${mode}" ${mode==='scene'?'checked':''}><span>${words[mode]}</span></label>`).join('')}</div><label class="field">${words.instruction}</label><textarea id="scene-instruction" maxlength="500" placeholder="${esc(words.placeholder)}"></textarea>${button(words.newVersion, 'studio-generate', 'primary')}</section>`}
       <section class="panel"><div class="panel-title">${words.formats}<span>NO AI COST</span></div><div class="format-grid">${exports}</div>${button(words.makeFormats, 'studio-exports', 'secondary')}</section>
-      <section class="panel video-maker"><div class="panel-title">${words.video}<span>10–20 SEC</span></div><label class="field">${words.phrase}</label><textarea id="video-phrase" maxlength="500">${esc(studio.final_phrase || '')}</textarea><label class="check-row"><input id="video-ai-voice" type="checkbox"><span>${words.aiVoice}</span></label><label class="field">${words.voice}</label><input id="video-voice" class="input" type="file" accept="audio/*"><label class="field">${words.music}</label><input id="video-music" class="input" type="file" accept="audio/*">${button(words.makeVideo, 'studio-video', 'primary')}</section></div>`;
+      <section class="panel video-maker"><div class="panel-title">🎬 Видеоистория / Відеоісторія / Video story<span>SEPARATE PRODUCT</span></div><p>Видео оплачивается отдельно от коллажа. Video requires a separate purchase.</p><label class="field">${words.phrase}</label><textarea id="video-phrase" maxlength="500">${esc(studio.final_phrase || '')}</textarea><label class="field">Duration</label><select class="input" id="video-duration"><option value="10">10 sec</option><option value="15" selected>15 sec</option><option value="20">20 sec</option></select><p>${state.videoStory ? `#${esc(state.videoStory.order_id)} · ${esc(state.videoStory.status)} · ${esc(state.videoStory.amount)} ${esc(state.videoStory.currency)}${state.videoStory.stars_amount ? ' / ' + esc(state.videoStory.stars_amount) + ' ⭐' : ''}` : ''}</p>${button('1 · Оформить видео / Order video', 'video-order', 'secondary')}${state.videoStory?.status === 'waiting_for_payment' ? `<label class="field">2 · Payment</label><select id="video-provider" class="input">${(state.videoProviders || []).map(item => `<option value="${esc(item.provider)}">${esc(item.provider === 'stars' ? 'Telegram Stars' : item.provider === 'portmone' ? 'Portmone' : 'WayForPay')} · ${esc(item.amount)} ${esc(item.currency)}</option>`).join('')}</select>${state.videoProviders?.length ? button('Оплатить / Pay', 'video-checkout', 'primary') : '<p>Payment methods are not configured yet.</p>'}${button('Проверить оплату / Verify', 'video-verify', 'secondary')}` : ''}${state.videoStory?.paid && state.videoStory.status !== 'ready' ? button('3 · Создать MP4 / Generate', 'studio-video', 'primary') : ''}${state.videoStory?.status === 'ready' ? button('Скачать MP4 / Download', 'video-download', 'primary') : ''}</section></div>`;
   }
   function dishRow() {
     return `<div class="dish"><select class="input" name="category"><option value="main">Основное</option><option value="appetizer">Закуска</option><option value="salad">Салат</option><option value="soup">Суп</option><option value="dessert">Десерт</option><option value="drink">Напиток</option></select><input class="input" name="title" required maxlength="180" placeholder="${t('dishes')}"><button type="button" data-action="remove-dish" aria-label="Remove dish">×</button></div>`;
@@ -512,7 +512,7 @@
         break;
       case 'admin': {
         const a = state.admin;
-        body = `<div class="page">${goHomeButton()}<h1>${t('admin')}</h1><a class="primary" style="display:block;padding:16px;margin-bottom:18px;text-align:center;border-radius:14px" href="/crm${esc(window.location.hash)}">✦ Mini CRM · Клиенты, финансы, реклама →</a><div class="admin-grid">${[['♧','customers'],['◈','menus'],['✧','gifts'],['✓','paid_gifts']].map(([icon,key]) => `<div class="stat-card"><span>${icon}</span><strong>${a?.[key] ?? '–'}</strong><small>${t(key === 'paid_gifts' ? 'paid' : key)}</small></div>`).join('')}</div><section class="panel"><div class="panel-title">${t('details')}</div><p>Telegram Stars: ${a?.stars_ready ? '✓' : '—'} · ${esc(a?.stars_revenue || 0)} ⭐</p><p>Portmone: ${a?.payment_ready ? '✓' : '—'} · ${esc(a?.revenue || '0')} UAH</p><label class="field">Menu price, UAH</label><input id="menu-price" class="input" type="number" min="1" max="100000" step="0.01" value="${esc(a?.menu_price)}">${button(t('save'), 'save-price')}<hr class="divider"><label class="field">${t('vip')}</label><textarea id="vip" ${a?.owner ? '' : 'readonly'} placeholder="username, username">${esc((a?.vip || []).join(', '))}</textarea>${a?.owner ? button(t('save'), 'save-vip', 'primary') : ''}</section></div>`;
+        body = `<div class="page">${goHomeButton()}<h1>${t('admin')}</h1><a class="primary" style="display:block;padding:16px;margin-bottom:18px;text-align:center;border-radius:14px" href="/crm${esc(window.location.hash)}">✦ Mini CRM · Клиенты, финансы, реклама →</a><div class="admin-grid">${[['♧','customers'],['◈','menus'],['✧','gifts'],['✓','paid_gifts']].map(([icon,key]) => `<div class="stat-card"><span>${icon}</span><strong>${a?.[key] ?? '–'}</strong><small>${t(key === 'paid_gifts' ? 'paid' : key)}</small></div>`).join('')}</div><section class="panel"><div class="panel-title">${t('details')}</div><p>Telegram Stars: ${a?.stars_ready ? '✓' : '—'} · ${esc(a?.stars_revenue || 0)} ⭐</p><p>Portmone: ${a?.payment_ready ? '✓' : '—'} · ${esc(a?.revenue || '0')} UAH</p><label class="field">Menu price, UAH</label><input id="menu-price" class="input" type="number" min="1" max="100000" step="0.01" value="${esc(a?.menu_price)}">${button(t('save'), 'save-price')}<hr class="divider"><div class="panel-title">🎬 Video story tariffs</div><label class="field">Video story price, UAH</label><input id="video-story-price-uah" class="input" type="number" min="0.01" max="100000" step="0.01" value="${esc(a?.video_story_price_uah || '')}" ${a?.owner ? '' : 'readonly'}><label class="field">Video story price, Telegram Stars</label><input id="video-story-price-stars" class="input" type="number" min="0" max="100000" step="1" value="${esc(a?.video_story_price_stars ?? 0)}" ${a?.owner ? '' : 'readonly'}>${a?.owner ? button(t('save'), 'save-video-prices', 'primary') : ''}<hr class="divider"><label class="field">${t('vip')}</label><textarea id="vip" ${a?.owner ? '' : 'readonly'} placeholder="username, username">${esc((a?.vip || []).join(', '))}</textarea>${a?.owner ? button(t('save'), 'save-vip', 'primary') : ''}</section></div>`;
         break;
       }
     }
@@ -581,6 +581,22 @@
     clearPreview();
     clearStudioImages();
     state.sceneStudio = await api(`/wallpapers/${orderId}/studio`);
+    state.videoStory = null;
+    state.videoProviders = [];
+    try {
+      const latest = await api('/wallpapers/' + orderId + '/video-story/orders/latest');
+      state.videoStory = latest.order || null;
+    } catch (error) {
+      // Video order lookup must never prevent access to the collage editor.
+      console.warn('Video story status unavailable', error);
+    }
+    try {
+      const suffix = state.videoStory?.order_id ? '?video_order_id=' + encodeURIComponent(state.videoStory.order_id) : '';
+      const methods = await api('/video-stories/payment-options' + suffix);
+      state.videoProviders = methods.providers || [];
+    } catch (error) {
+      console.warn('Video payment options unavailable', error);
+    }
     state.studioScene = 0;
     const versions = state.sceneStudio.versions.filter(item => item.scene_index === 0);
     state.studioCompare = {left:'current', right:versions.length ? String(versions[versions.length - 1].id) : 'current'};
@@ -678,19 +694,51 @@
           `wallpaper-${state.sceneStudio.order_id}-${element.dataset.kind}`);
         return;
       }
+      if (action === 'video-order') {
+        element.disabled = true;
+        state.videoStory = await api('/wallpapers/' + state.sceneStudio.order_id + '/video-story/orders', {method:'POST'});
+        const methods = await api('/video-stories/payment-options?video_order_id=' + encodeURIComponent(state.videoStory.order_id));
+        state.videoProviders = methods.providers || [];
+        render(); return;
+      }
+      if (action === 'video-checkout') {
+        const provider = document.querySelector('#video-provider').value;
+        element.disabled = true;
+        const checkout = await api('/video-stories/' + state.videoStory.order_id + '/checkout?provider=' + encodeURIComponent(provider), {method:'POST'});
+        const url = checkout.url || checkout.invoice_url || checkout.payment_url;
+        if (!url) throw Error('Payment link unavailable');
+        if (provider === 'stars' && tg?.openInvoice) tg.openInvoice(url, async status => {
+          if (status === 'paid') {
+            try {
+              const latest = await api('/wallpapers/' + state.sceneStudio.order_id + '/video-story/orders/latest');
+              state.videoStory = latest.order || state.videoStory;
+              render();
+            } catch (error) { console.warn('Payment status refresh failed', error); }
+          }
+        });
+        else if (tg?.openLink) tg.openLink(url);
+        else window.open(url, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      if (action === 'video-verify') {
+        const result = await api('/video-stories/' + state.videoStory.order_id + '/verify', {method:'POST'});
+        state.videoStory.status = result.status;
+        state.videoStory.paid = result.paid;
+        render(); return;
+      }
+      if (action === 'video-download') {
+        await download('/video-stories/' + state.videoStory.order_id + '/file', 'video-story-' + state.videoStory.order_id + '.mp4');
+        return;
+      }
       if (action === 'studio-video') {
+        if (!state.videoStory?.paid) throw Error('Separate video payment required');
         const data = new FormData();
         data.append('final_phrase', document.querySelector('#video-phrase').value.trim());
-        data.append('duration_seconds', '15');
-        data.append('ai_voice', String(document.querySelector('#video-ai-voice').checked));
-        const voice = document.querySelector('#video-voice').files[0];
-        const music = document.querySelector('#video-music').files[0];
-        if (voice) data.append('voice', voice);
-        if (music) data.append('music', music);
+        data.append('duration_seconds', document.querySelector('#video-duration').value);
         element.disabled = true;
-        await api(`/wallpapers/${state.sceneStudio.order_id}/video`, {method:'POST', body:data});
-        state.sceneStudio = await api(`/wallpapers/${state.sceneStudio.order_id}/studio`);
-        render(); notice(studioWords().video, true); return;
+        const result = await api('/wallpapers/' + state.sceneStudio.order_id + '/video', {method:'POST', body:data});
+        if (result.ready) { state.videoStory.status = 'ready'; render(); }
+        return;
       }
       if (action === 'menu-input-mode') {
         state.menuInputMode = element.dataset.mode === 'structured' ? 'structured' : 'list';
@@ -802,6 +850,14 @@
       }
       if (action === 'save-price') {
         await api('/admin/menu-price', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({price:document.querySelector('#menu-price').value})});
+        state.admin = await api('/admin'); render(); return;
+      }
+      if (action === 'save-video-prices') {
+        const uah = document.querySelector('#video-story-price-uah').value.trim();
+        const stars = document.querySelector('#video-story-price-stars').value.trim();
+        const payload = {price_stars:stars};
+        if (uah) payload.price_uah = uah;
+        await api('/admin/video-story-prices', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
         state.admin = await api('/admin'); render(); return;
       }
       if (action === 'save-vip') {

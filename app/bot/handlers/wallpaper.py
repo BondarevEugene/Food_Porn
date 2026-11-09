@@ -36,6 +36,7 @@ from app.services.portmone_sandbox import send_portmone_sandbox_offer
 from app.services.print_bundle import create_print_bundle
 from app.services.replicate_vision_board import ImageSafetyError, ReplicateVisionBoardRenderer
 from app.services.stars import OrderRef, create_invoice
+from app.services.video_story_plans import VideoTier, get_video_plan, video_plan_label
 from app.services.wallpaper_studio import archive_source_photos
 from app.services.wayforpay import WayForPayService
 
@@ -94,10 +95,56 @@ def safety_recovery_keyboard(lang: str, photo_count: int) -> InlineKeyboardMarku
 
 
 def finish_photos_keyboard(lang: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
-        text=text_for(lang, "✨ Готово, далі", "✨ Готово, дальше", "✨ Done, continue"),
-        callback_data="gift_photos_done",
-    )]])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=text_for(lang, "✨ Готово, далі", "✨ Готово, дальше", "✨ Done, continue"),
+            callback_data="gift_photos_done",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🎬 Створити відеоісторію", "🎬 Создать видеоисторию", "🎬 Create video story"),
+            callback_data="gift_video_plans",
+        )],
+    ])
+
+
+@router.callback_query(F.data == "gift_video_plans")
+async def show_gift_video_plans(callback: CallbackQuery, state: FSMContext, settings: Settings) -> None:
+    count = len(upload_paths(settings, callback.from_user.id))
+    if count < 1:
+        await callback.answer("Спочатку завантажте фотографії / Сначала загрузите фотографии", show_alert=True)
+        return
+    lang = (await state.get_data()).get("lang", "uk")
+    rows = [[InlineKeyboardButton(
+        text=f"{video_plan_label(tier, lang)} · {get_video_plan(tier).seconds} с",
+        callback_data=f"gift_video_tier:{tier.value}",
+    )] for tier in VideoTier]
+    await callback.message.answer(
+        text_for(lang, "🎬 Оберіть формат відеоісторії:", "🎬 Выберите формат видеоистории:",
+                 "🎬 Choose a video-story format:"),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("gift_video_tier:"))
+async def choose_gift_video_tier(callback: CallbackQuery, state: FSMContext, settings: Settings) -> None:
+    if len(upload_paths(settings, callback.from_user.id)) < 1:
+        await callback.answer("Спочатку завантажте фотографії / Сначала загрузите фотографии", show_alert=True)
+        return
+    try:
+        tier = VideoTier((callback.data or "").removeprefix("gift_video_tier:"))
+    except ValueError:
+        await callback.answer("Невідомий тариф / Неизвестный тариф", show_alert=True)
+        return
+    lang = (await state.get_data()).get("lang", "uk")
+    await state.update_data(video_story_tier=tier.value)
+    await callback.message.answer(text_for(
+        lang,
+        f"🎬 {video_plan_label(tier, lang)} · {get_video_plan(tier).seconds} с. Оплата та генерація будуть доступні після підключення відеосервісу. Кошти не списуються.",
+        f"🎬 {video_plan_label(tier, lang)} · {get_video_plan(tier).seconds} с. Оплата и генерация станут доступны после подключения видеосервиса. Деньги не списываются.",
+        f"🎬 {video_plan_label(tier, lang)} · {get_video_plan(tier).seconds}s. Checkout and generation will be available once the video service is connected. No charge is made.",
+    ))
+    await callback.answer()
 
 
 @router.callback_query(F.data.in_({"gift_safety_one_photo", "gift_safety_five_photos", "gift_safety_goals"}))

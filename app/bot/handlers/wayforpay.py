@@ -19,6 +19,7 @@ import logging
 from pathlib import Path
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, FSInputFile
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -30,7 +31,11 @@ from app.database.repositories import (
     WayForPayPaymentRepository,
 )
 from app.services.print_bundle import create_print_bundle
-from app.services.wayforpay import WayForPayService, apply_verified_payment
+from app.services.wayforpay import (
+    WayForPayService,
+    apply_verified_payment,
+    wayforpay_entitlement_is_active,
+)
 
 logger = logging.getLogger(__name__)
 router = Router(name="wayforpay")
@@ -46,10 +51,10 @@ async def _deliver_menu(callback: CallbackQuery, menu_id: int, session: AsyncSes
     if pdf is None or recipe is None or not pdf.is_file() or not recipe.is_file():
         return False
     await callback.message.answer_document(
-        FSInputFile(str(pdf)), caption="Ваш готовый электронный буклет 💛"
+        FSInputFile(str(pdf)), caption="Ваш готовий електронний буклет 💛"
     )
     await callback.message.answer_document(
-        FSInputFile(str(recipe)), caption="Рецепты и список покупок"
+        FSInputFile(str(recipe)), caption="Рецепти та список покупок"
     )
     return True
 
@@ -64,7 +69,7 @@ async def _deliver_wallpaper(
     if not mobile.is_file() or not desktop.is_file():
         return False
     await callback.message.answer_document(FSInputFile(str(mobile)), caption="Заставка для телефона 💛")
-    await callback.message.answer_document(FSInputFile(str(desktop)), caption="Заставка для компьютера 💛")
+    await callback.message.answer_document(FSInputFile(str(desktop)), caption="Заставка для комп’ютера 💛")
     try:
         archive = await asyncio.to_thread(
             create_print_bundle,
@@ -76,7 +81,7 @@ async def _deliver_wallpaper(
             dpi=settings.print_dpi,
         )
         await callback.message.answer_document(
-            FSInputFile(str(archive)), caption="Архив для типографии"
+            FSInputFile(str(archive)), caption="Архів для друкарні"
         )
     except Exception:
         logger.exception("Could not create WayForPay print bundle for order %s", order.id)
@@ -92,45 +97,95 @@ async def check_wayforpay(
     try:
         payment_id = int((callback.data or "").removeprefix("check_wayforpay:"))
     except ValueError:
-        await callback.answer("Некорректный номер платежа.", show_alert=True)
+        await callback.answer("Некоректний номер платежу.", show_alert=True)
         return
 
     async with session_factory() as session:
         repository = WayForPayPaymentRepository(session)
         payment = await repository.get_for_user(payment_id, callback.from_user.id)
         if payment is None:
-            await callback.answer("Счёт WayForPay не найден.", show_alert=True)
+            await callback.answer("Платіж WayForPay не знайдено.", show_alert=True)
             return
+
         if payment.status != "approved":
             try:
                 payload = await WayForPayService(settings).check_status(payment)
-                if not await apply_verified_payment(session, payment, payload):
-                    await callback.answer(
-                        "WayForPay пока не подтвердил оплату.", show_alert=True
-                    )
-                    return
+                owns_order = await apply_verified_payment(session, payment, payload)
             except Exception:
-                logger.exception("WayForPay status check failed for %s", payment.order_reference)
+                logger.exception(
+                    "WayForPay status check failed for %s",
+                    payment.order_reference,
+                )
                 await callback.answer(
-                    "Проверка WayForPay временно недоступна. Повторите немного позже.",
+                    "Не вдалося перевірити платіж WayForPay. Спробуйте пізніше.",
                     show_alert=True,
                 )
                 return
-
-        if not payment.grants_entitlement:
-            delivered = True
-            await callback.message.answer("🧪 Тестовый платёж WayForPay подтверждён.")
+            if payment.status != "approved":
+                await callback.answer(
+                    "WayForPay ще не підтвердив оплату.", show_alert=True
+                )
+                return
         else:
-            numeric_reference = int(payment.reference_id)
-            delivered = (
-                await _deliver_menu(callback, numeric_reference, session)
-                if payment.product == "menu"
-                else await _deliver_wallpaper(callback, numeric_reference, session, settings)
-            )
-        if not delivered:
+            # Статус провайдера не гарантує права на конкретне замовлення.
+            owns_order = await wayforpay_entitlement_is_active(session, payment)
+
+        if not owns_order:
             await callback.answer(
-                "Оплата подтверждена, но файлы пока недоступны. Напишите в поддержку.",
+                "Платіж підтверджено, але замовлення вже оплачено іншим способом. "
+                "Якщо кошти списано двічі, зверніться до підтримки.",
                 show_alert=True,
             )
             return
-    await callback.answer("Оплата WayForPay подтверждена!")
+
+        if not payment.grants_entitlement:
+            await callback.message.answer("Тестовий платіж WayForPay підтверджено.")
+            await callback.answer()
+            return
+
+        try:
+            reference_id = int(payment.reference_id)
+        except (TypeError, ValueError):
+            logger.error("Invalid WayForPay reference for payment %s", payment.id)
+            await callback.answer(
+                "Некоректний номер замовлення. Зверніться до підтримки.",
+                show_alert=True,
+            )
+            return
+
+        try:
+            if payment.product == "menu":
+                delivered = await _deliver_menu(callback, reference_id, session)
+            elif payment.product == "wallpaper":
+                delivered = await _deliver_wallpaper(
+                    callback, reference_id, session, settings
+                )
+            else:
+                delivered = None
+        except TelegramAPIError:
+            logger.exception(
+                "WayForPay delivery failed for payment %s", payment.order_reference
+            )
+            delivered = False
+
+        if delivered is None:
+            logger.error(
+                "Unsupported WayForPay product %r for payment %s",
+                payment.product,
+                payment.order_reference,
+            )
+            await callback.answer(
+                "Невідомий тип замовлення. Зверніться до підтримки.",
+                show_alert=True,
+            )
+            return
+
+        if not delivered:
+            await callback.answer(
+                "Оплату підтверджено, але не всі файли вдалося надіслати. "
+                "Повторіть перевірку оплати пізніше або зверніться до підтримки.",
+                show_alert=True,
+            )
+            return
+
+        await callback.answer("Оплату WayForPay підтверджено!")

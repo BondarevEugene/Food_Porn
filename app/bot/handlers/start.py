@@ -23,13 +23,13 @@ from aiogram.types import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.bot.handlers.menu import begin_menu_setup
+from app.bot.handlers.menu import build_dashboard_kb
 from app.bot.handlers.wallpaper import language_for, start_wallpaper_from_start, text_for
 from app.bot.states.wallpaper import WallpaperStates
 from app.config import get_settings
 from app.database import async_session_maker
 from app.database.models import FileKind, Language, Menu, MenuStatus, ShareLink, WallpaperOrder
-from app.database.repositories import CustomerRepository
+from app.database.repositories import CustomerRepository, MenuRepository
 from app.services.admin_access import has_admin_access
 
 router = Router(name="start")
@@ -512,10 +512,47 @@ async def start_food_porn_flow(callback: CallbackQuery, state: FSMContext) -> No
 
 
 async def _send_food_start(message: Message, state: FSMContext, customer=None) -> None:
+    """Создаёт гастрономический сет и открывает панель управления меню."""
     if customer is None:
         async with async_session_maker() as session:
-            customer = await CustomerRepository(session).by_telegram_id(message.from_user.id)
+            customer = await CustomerRepository(session).by_telegram_id(
+                message.from_user.id
+            )
+
     if customer is None:
-        await message.answer("Не вдалося знайти ваш профіль. Спробуйте /start ще раз.")
+        await message.answer(
+            "Не вдалося знайти ваш профіль. Спробуйте /start ще раз."
+        )
         return
-    await begin_menu_setup(message, state, customer, customer.language.value)
+
+    # Создаём меню через зависимости текущего модуля:
+    # это позволяет корректно подменять их в тестах.
+    async with async_session_maker() as session:
+        repository = MenuRepository(session)
+        created_menu = await repository.create(customer)
+        menu = await repository.get(created_menu.id, full=True)
+
+    await state.update_data(menu_id=menu.id)
+
+    language = getattr(customer, "language", "ru")
+    language = getattr(language, "value", language) or "ru"
+
+    title = text_for(
+        language,
+        "⚜️ <b>Гастрономічний сет</b>",
+        "⚜️ <b>Гастрономический сет</b>",
+        "⚜️ <b>Gastronomic Set</b>",
+    )
+
+    description = text_for(
+        language,
+        "Додайте страви та завантажте два фото: обкладинку й розворот.",
+        "Добавьте блюда и загрузите два фото: обложку и разворот.",
+        "Add dishes and upload two photos: a cover and a spread.",
+    )
+
+    await message.answer(
+        f"{title}\n\n{description}",
+        reply_markup=build_dashboard_kb(menu),
+        parse_mode="HTML",
+    )

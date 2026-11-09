@@ -1,8 +1,9 @@
 # app/services/dynamic_settings.py
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.database.models import AppSetting
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.config import get_settings
+from app.database.models import AppSetting
 
 
 async def get_setting_value(db: AsyncSession, key: str, default: str = "") -> str:

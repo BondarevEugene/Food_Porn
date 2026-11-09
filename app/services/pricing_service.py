@@ -1,7 +1,9 @@
 # app/services/pricing_service.py
 from datetime import datetime
+
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+
 from src.billing.models import ProductPrice
 
 

@@ -13,14 +13,10 @@ Responsibilities:
 """
 
 import phonenumbers
-from aiogram import Dispatcher, F, Router
+from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-dp = Dispatcher()
-
-from aiogram import Dispatcher
 
 from app.bot.helpers import item_question
 from app.bot.keyboards import REMOVE_KEYBOARD, language_keyboard, phone_keyboard
@@ -29,13 +25,7 @@ from app.database.models import Language
 from app.database.repositories import CustomerRepository, MenuRepository
 from app.locales.messages import t
 
-dp = Dispatcher()
-
 router = Router(name="registration")
-
-# Захист від NameError для діагностики лаунчера
-dp = None
-
 
 @router.message(RegistrationStates.name, F.text)
 async def receive_name(message: Message, state: FSMContext) -> None:

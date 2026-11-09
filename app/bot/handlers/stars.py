@@ -69,6 +69,8 @@ async def stars_success(message: Message) -> None:
                     await message.answer_document(FSInputFile(str(path)))
                 except Exception:
                     logger.exception("Could not send paid menu file %s", path)
+    elif ref.kind == "video_story":
+        await message.answer("Оплата відеоісторії підтверджена 💛 Поверніться до Mini App для створення відео.")
     else:
         # Update the durable Mini App job so an owner sees the files on refresh.
         root = get_settings().storage_root / "miniapp_jobs" / str(ref.owner_id)

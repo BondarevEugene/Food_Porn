@@ -1,69 +1,188 @@
-"""Telegram signature / browser session authorization and encrypted credentials."""
+
+"""Telegram authorization, browser sessions and encrypted CRM credentials."""
 
 from __future__ import annotations
 
 import json
 import secrets
-from typing import Annotated
+from typing import Annotated, Any
 
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Header, HTTPException, Request
 
 from app.config import get_settings
-from app.database.session import async_session_maker
 from app.miniapp.auth import current_user
-from app.services.admin_access import has_admin_access
 
 
 def credential_cipher() -> Fernet:
-    key = get_settings().crm_encryption_key.get_secret_value()
-    try:
-        return Fernet(key.encode())
-    except (ValueError, TypeError) as exc:
+    """Create a Fernet cipher using the configured CRM encryption key."""
+    raw_key = get_settings().crm_encryption_key.get_secret_value().strip()
+
+    if not raw_key:
         raise HTTPException(
-            503, "CRM_ENCRYPTION_KEY не настроен. Запустите установщик обновления."
+            status_code=503,
+            detail=(
+                "CRM_ENCRYPTION_KEY не настроен. "
+                "Проверьте конфигурацию сервера."
+            ),
+        )
+
+    try:
+        return Fernet(raw_key.encode("ascii"))
+    except (ValueError, TypeError, UnicodeEncodeError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "CRM_ENCRYPTION_KEY имеет неверный формат. "
+                "Укажите корректный Fernet-ключ."
+            ),
         ) from exc
 
 
-def encrypt_credentials(values: dict) -> str:
-    return credential_cipher().encrypt(json.dumps(values).encode()).decode()
+def encrypt_credentials(values: dict[str, Any]) -> str:
+    """Encrypt integration credentials before storing them in the database."""
+    if not isinstance(values, dict):
+        raise TypeError("Credentials must be a dictionary")
+
+    try:
+        payload = json.dumps(
+            values,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "Credentials contain unsupported values"
+        ) from exc
+
+    return credential_cipher().encrypt(payload).decode("ascii")
 
 
-def decrypt_credentials(value: str) -> dict:
+def decrypt_credentials(value: str | None) -> dict[str, Any]:
+    """Decrypt integration credentials stored in the database."""
     if not value:
         return {}
-    try:
-        return json.loads(credential_cipher().decrypt(value.encode()))
-    except (InvalidToken, ValueError) as exc:
+
+    if not isinstance(value, str):
         raise HTTPException(
-            503, "Не удалось расшифровать ключи. Восстановите исходный CRM_ENCRYPTION_KEY."
+            status_code=503,
+            detail="Сохранённые CRM-ключи имеют неверный формат.",
+        )
+
+    try:
+        encrypted = value.encode("ascii")
+        decrypted = credential_cipher().decrypt(encrypted)
+        result = json.loads(decrypted.decode("utf-8"))
+
+    except (
+        InvalidToken,
+        ValueError,
+        TypeError,
+        UnicodeError,
+    ) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Не удалось расшифровать CRM-ключи. "
+                "Проверьте исходный CRM_ENCRYPTION_KEY."
+            ),
         ) from exc
 
+    if not isinstance(result, dict):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Расшифрованные CRM-ключи имеют неверную структуру."
+            ),
+        )
 
-async def crm_identity(request: Request, authorization: Annotated[str, Header()] = "") -> dict:
+    return result
+
+
+async def crm_identity(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """
+    Resolve the authenticated CRM identity.
+
+    Telegram authorization:
+        Only IDs listed in ADMIN_TELEGRAM_IDS are allowed.
+
+    Browser authorization:
+        Requires an authenticated admin session.
+        Every state-changing request must contain a valid CSRF token.
+    """
+    settings = get_settings()
+
+    # Telegram Mini App authorization.
     if authorization:
         user = current_user(authorization)
-        if not await has_admin_access(
-            user["id"], user.get("username"), get_settings(), async_session_maker
+        telegram_id = user.get("id")
+
+        if (
+            not isinstance(telegram_id, int)
+            or isinstance(telegram_id, bool)
+            or telegram_id <= 0
         ):
-            raise HTTPException(403, "Нет доступа к CRM")
+            raise HTTPException(
+                status_code=401,
+                detail="Некорректный Telegram ID.",
+            )
+
+        # CRM access is granted only by an explicit Telegram ID.
+        # Usernames and VIP usernames are not authorization credentials.
+        if telegram_id not in settings.admin_telegram_ids:
+            raise HTTPException(
+                status_code=403,
+                detail="Нет доступа к CRM.",
+            )
+
         return {
             **user,
-            "actor": f"telegram:{user['id']}",
-            "owner": user["id"] in get_settings().admin_telegram_ids,
+            "actor": f"telegram:{telegram_id}",
+            "owner": True,
         }
+
+    # Browser admin session authorization.
     if request.session.get("admin_authenticated") is True:
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
-            expected = request.session.get("crm_csrf", "")
+            expected = request.session.get("crm_csrf")
             supplied = request.headers.get("x-csrf-token", "")
-            if not expected or not secrets.compare_digest(expected, supplied):
-                raise HTTPException(403, "Обновите страницу и повторите действие")
-        return {"actor": "web:admin", "owner": True, "first_name": "Администратор"}
-    raise HTTPException(401, "Откройте CRM из Telegram или войдите через /admin/login")
+
+            if (
+                not isinstance(expected, str)
+                or not expected
+                or not supplied
+                or not secrets.compare_digest(expected, supplied)
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Обновите страницу и повторите действие.",
+                )
+
+        return {
+            "actor": "web:admin",
+            "owner": True,
+            "first_name": "Администратор",
+        }
+
+    raise HTTPException(
+        status_code=401,
+        detail=(
+            "Откройте CRM из Telegram "
+            "или войдите через /admin/login."
+        ),
+    )
 
 
-def require_owner(identity: dict) -> None:
+def require_owner(identity: dict[str, Any]) -> None:
+    """Restrict sensitive CRM operations to an authorized owner."""
     if not identity.get("owner"):
         raise HTTPException(
-            403, "Управлять доступом и API-ключами может администратор из ADMIN_TELEGRAM_IDS"
+            status_code=403,
+            detail=(
+                "Управлять доступом и API-ключами "
+                "может только администратор."
+            ),
         )
