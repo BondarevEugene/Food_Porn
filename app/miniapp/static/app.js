@@ -15,7 +15,7 @@
   try { savedLanguage = localStorage.getItem('gift_lang') || ''; } catch (_) { /* private browsing */ }
   const state = {
     page: 'home', home: null, admin: null, job: null, menu: null, wallpaper: null, evening: null,
-    sceneStudio: null, videoStory: null, studioScene: 0, studioCompare: {left:'current', right:'current'}, studioImages: {},
+    sceneStudio: null, videoStory: null, videoProviders: [], studioScene: 0, studioCompare: {left:'current', right:'current'}, studioImages: {},
     style: 'dark', lang: savedLanguage || tg?.initDataUnsafe?.user?.language_code?.slice(0, 2) || 'uk',
     error: '', previewUrl: '', previewError: '', viewKey: '', cookingIndex: 0, cookingStep: 0,
     menuInputMode: 'list'
@@ -289,7 +289,7 @@
       <section class="panel"><div class="panel-title">${words.compare}<span>${index+1}/${studio.goals.length}</span></div><div class="compare-selects"><select id="compare-left">${options}</select><select id="compare-right">${options}</select></div><div class="scene-compare"><figure>${left}<figcaption>A</figcaption></figure><figure>${right}<figcaption>B</figcaption></figure></div>${selectedVersion && !selectedVersion.selected ? `<button class="primary" data-action="studio-select" data-version="${selectedVersion.id}">${words.apply}</button>` : ''}${button(locked ? words.unlock : words.lock, 'studio-lock', locked ? 'secondary' : 'file-button')}</section>
       <section class="panel scene-edit"><div class="panel-title">${words.newVersion}<span>1 AI request</span></div><div class="edit-modes">${['scene','clothing','background','mood'].map(mode => `<label><input type="radio" name="edit-mode" value="${mode}" ${mode==='scene'?'checked':''}><span>${words[mode]}</span></label>`).join('')}</div><label class="field">${words.instruction}</label><textarea id="scene-instruction" maxlength="500" placeholder="${esc(words.placeholder)}"></textarea>${button(words.newVersion, 'studio-generate', 'primary')}</section>`}
       <section class="panel"><div class="panel-title">${words.formats}<span>NO AI COST</span></div><div class="format-grid">${exports}</div>${button(words.makeFormats, 'studio-exports', 'secondary')}</section>
-      <section class="panel video-maker"><div class="panel-title">🎬 Видеоистория / Відеоісторія / Video story<span>SEPARATE PRODUCT</span></div><p>Видео оплачивается отдельно от коллажа. Video requires a separate purchase.</p><label class="field">${words.phrase}</label><textarea id="video-phrase" maxlength="500">${esc(studio.final_phrase || '')}</textarea><label class="field">Duration</label><select class="input" id="video-duration"><option value="10">10 sec</option><option value="15" selected>15 sec</option><option value="20">20 sec</option></select><p>${state.videoStory ? `#${esc(state.videoStory.order_id)} · ${esc(state.videoStory.status)} · ${esc(state.videoStory.amount)} ${esc(state.videoStory.currency)}${state.videoStory.stars_amount ? ' / ' + esc(state.videoStory.stars_amount) + ' ⭐' : ''}` : ''}</p>${button('1 · Оформить видео / Order video', 'video-order', 'secondary')}${state.videoStory?.status === 'waiting_for_payment' ? `<label class="field">2 · Payment</label><select id="video-provider" class="input"><option value="wayforpay">WayForPay</option><option value="portmone">Portmone</option><option value="stars">Telegram Stars</option></select>${button('Оплатить / Pay', 'video-checkout', 'primary')}${button('Проверить оплату / Verify', 'video-verify', 'secondary')}` : ''}${state.videoStory?.paid && state.videoStory.status !== 'ready' ? button('3 · Создать MP4 / Generate', 'studio-video', 'primary') : ''}${state.videoStory?.status === 'ready' ? button('Скачать MP4 / Download', 'video-download', 'primary') : ''}</section></div>`;
+      <section class="panel video-maker"><div class="panel-title">🎬 Видеоистория / Відеоісторія / Video story<span>SEPARATE PRODUCT</span></div><p>Видео оплачивается отдельно от коллажа. Video requires a separate purchase.</p><label class="field">${words.phrase}</label><textarea id="video-phrase" maxlength="500">${esc(studio.final_phrase || '')}</textarea><label class="field">Duration</label><select class="input" id="video-duration"><option value="10">10 sec</option><option value="15" selected>15 sec</option><option value="20">20 sec</option></select><p>${state.videoStory ? `#${esc(state.videoStory.order_id)} · ${esc(state.videoStory.status)} · ${esc(state.videoStory.amount)} ${esc(state.videoStory.currency)}${state.videoStory.stars_amount ? ' / ' + esc(state.videoStory.stars_amount) + ' ⭐' : ''}` : ''}</p>${button('1 · Оформить видео / Order video', 'video-order', 'secondary')}${state.videoStory?.status === 'waiting_for_payment' ? `<label class="field">2 · Payment</label><select id="video-provider" class="input">${(state.videoProviders || []).map(item => `<option value="${esc(item.provider)}">${esc(item.provider === 'stars' ? 'Telegram Stars' : item.provider === 'portmone' ? 'Portmone' : 'WayForPay')} · ${esc(item.amount)} ${esc(item.currency)}</option>`).join('')}</select>${state.videoProviders?.length ? button('Оплатить / Pay', 'video-checkout', 'primary') : '<p>Payment methods are not configured yet.</p>'}${button('Проверить оплату / Verify', 'video-verify', 'secondary')}` : ''}${state.videoStory?.paid && state.videoStory.status !== 'ready' ? button('3 · Создать MP4 / Generate', 'studio-video', 'primary') : ''}${state.videoStory?.status === 'ready' ? button('Скачать MP4 / Download', 'video-download', 'primary') : ''}</section></div>`;
   }
   function dishRow() {
     return `<div class="dish"><select class="input" name="category"><option value="main">Основное</option><option value="appetizer">Закуска</option><option value="salad">Салат</option><option value="soup">Суп</option><option value="dessert">Десерт</option><option value="drink">Напиток</option></select><input class="input" name="title" required maxlength="180" placeholder="${t('dishes')}"><button type="button" data-action="remove-dish" aria-label="Remove dish">×</button></div>`;
@@ -582,6 +582,13 @@
     clearStudioImages();
     state.sceneStudio = await api(`/wallpapers/${orderId}/studio`);
     state.videoStory = null;
+    state.videoProviders = [];
+    try {
+      const methods = await api('/video-stories/payment-options');
+      state.videoProviders = methods.providers || [];
+    } catch (error) {
+      console.warn('Video payment options unavailable', error);
+    }
     try {
       const latest = await api('/wallpapers/' + orderId + '/video-story/orders/latest');
       state.videoStory = latest.order || null;
@@ -697,7 +704,15 @@
         const checkout = await api('/video-stories/' + state.videoStory.order_id + '/checkout?provider=' + encodeURIComponent(provider), {method:'POST'});
         const url = checkout.url || checkout.invoice_url || checkout.payment_url;
         if (!url) throw Error('Payment link unavailable');
-        if (provider === 'stars' && tg?.openInvoice) tg.openInvoice(url);
+        if (provider === 'stars' && tg?.openInvoice) tg.openInvoice(url, async status => {
+          if (status === 'paid') {
+            try {
+              const latest = await api('/wallpapers/' + state.sceneStudio.order_id + '/video-story/orders/latest');
+              state.videoStory = latest.order || state.videoStory;
+              render();
+            } catch (error) { console.warn('Payment status refresh failed', error); }
+          }
+        });
         else if (tg?.openLink) tg.openLink(url);
         else window.open(url, '_blank', 'noopener,noreferrer');
         return;
