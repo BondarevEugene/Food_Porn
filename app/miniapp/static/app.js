@@ -160,6 +160,11 @@
       ...options, headers: {Authorization: authorization, ...(options.headers || {})}
     });
     if (!response.ok) {
+      if (response.status === 401) {
+        const error = new Error('Telegram authorization failed');
+        error.status = 401;
+        throw error;
+      }
       let detail;
       try { detail = (await response.json()).detail; } catch (_) { /* HTTP error without JSON */ }
       throw Error(typeof detail === 'string' ? detail : `HTTP ${response.status}`);
@@ -212,6 +217,7 @@
     return `<header class="top"><button type="button" class="brand" data-page="home"><span class="brand-mark">✦</span><span>${t('studio')}<small>THE GIFT ATELIER</small></span></button><button type="button" class="header-action" data-page="settings" aria-label="${t('setting')}">⚙</button></header><main>${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}${body}</main>${footer()}`;
   }
   function orderCount() {
+    if (!state.home) return '—';
     const jobs = state.home?.jobs || [];
     const linked = new Set(jobs.map(job => job.order_id).filter(Boolean));
     return jobs.length + (state.home?.menus?.length || 0) + (state.home?.wallpapers || []).filter(order => !linked.has(order.id)).length;
@@ -526,15 +532,35 @@
     }
   }
 
+  function authFailureView() {
+    const words = {
+      ru: ['Не удалось открыть мастерскую', 'Telegram не подтвердил авторизацию. Ваши заказы не удалены. Закройте это окно и откройте мастерскую заново кнопкой в боте.', 'Повторить подключение'],
+      uk: ['Не вдалося відкрити майстерню', 'Telegram не підтвердив авторизацію. Ваші замовлення не видалені. Закрийте це вікно й відкрийте майстерню кнопкою в боті.', 'Повторити підключення'],
+      en: ['Unable to open the studio', 'Telegram authorization failed. Your orders have not been deleted. Close this window and reopen the studio using the bot button.', 'Retry connection']
+    };
+    const [title, explanation, retry] = words[state.lang] || words.uk;
+    app.innerHTML = '<main class="page"><section class="panel"><h1>' + esc(title) + '</h1><p>' +
+      esc(explanation) + '</p>' + button(retry, 'retry-auth', 'primary') + '</section></main>';
+  }
   async function open(page) {
     state.page = page;
     state.error = '';
     state.viewKey = '';
     clearPreview();
     try {
-      if (['home','orders','food'].includes(page)) state.home = await api('/home');
+      if (['home','orders','food'].includes(page)) {
+        state.home = null;
+        state.home = await api('/home');
+      }
       if (page === 'admin') state.admin = await api('/admin');
-    } catch (error) { state.error = error.message; }
+    } catch (error) {
+      if (error.status === 401 || !authorization) {
+        state.home = null;
+        authFailureView();
+        return;
+      }
+      state.error = error.message;
+    }
     render();
     window.scrollTo(0, 0);
   }
@@ -641,6 +667,7 @@
       }
       const action = element.dataset.action;
       if (!action) return;
+      if (action === 'retry-auth') { await open('home'); return; }
       if (action === 'studio-open') {
         const orderId = state.page === 'job' ? state.job?.order_id : state.wallpaper?.id;
         if (!orderId) throw Error('Order is not ready for Scene Studio');
