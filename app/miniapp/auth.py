@@ -16,12 +16,15 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import time
 from urllib.parse import parse_qsl
 
 from fastapi import Header, HTTPException
 
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 def verify_init_data(raw: str, token: str, *, now: int | None = None) -> dict:
@@ -44,12 +47,21 @@ def verify_init_data(raw: str, token: str, *, now: int | None = None) -> dict:
             raise ValueError("Invalid user")
         return user
     except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        # Log only the failure category; never expose initData, hashes or bot tokens.
+        reason = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
+        if reason not in {
+            "Missing or duplicate launch fields", "Expired launch payload",
+            "Invalid launch signature", "Invalid user",
+        }:
+            reason = type(exc).__name__
+        logger.warning("Telegram Mini App authentication rejected: %s", reason)
         raise HTTPException(status_code=401, detail="Open this page from the Telegram bot") from exc
 
 
 def current_user(authorization: str = Header(default="")) -> dict:
     scheme, _, raw = authorization.partition(" ")
     if not raw:
+        logger.warning("Telegram Mini App authentication rejected: missing Authorization payload")
         raise HTTPException(status_code=401, detail="Open this page from the Telegram bot")
     if scheme.lower() == "tma":
         return verify_init_data(raw, get_settings().bot_token)
