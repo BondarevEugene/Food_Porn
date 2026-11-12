@@ -322,9 +322,13 @@ async def test_one_photo_also_requires_goals_and_supports_caption(tmp_path, monk
         message = SimpleNamespace(caption=caption, photo=[SimpleNamespace(file_id="p", file_size=100)],
             document=None, from_user=SimpleNamespace(id=42), bot=Bot(), answer=AsyncMock())
         await wallpaper.collect_photo(message, state, settings, None)
-        if caption is None:
-            assert state.state == WallpaperStates.waiting_for_goals and generated == []
-    assert generated == [GOALS]
+        assert state.state == WallpaperStates.waiting_for_product
+        assert generated == []
+        keyboard = message.answer.await_args.kwargs["reply_markup"]
+        assert {button.callback_data for row in keyboard.inline_keyboard for button in row} == {
+            "gift_product:collage", "gift_product:video", "gift_product:both"
+        }
+    assert state.data["goals"] == GOALS
 
 
 @pytest.mark.asyncio
