@@ -32,6 +32,7 @@ from app.database.repositories import WallpaperOrderRepository
 from app.services.free_access import has_free_generation_access
 from app.services.gift_drafts import load_gift_draft, store_gift_draft
 from app.services.gift_pricing import checkout_price_uah
+from app.services.gift_purchases import create_gift_quote
 from app.services.goal_story import GoalScenePlanner
 from app.services.payment import PaymentService
 from app.services.portmone_sandbox import send_portmone_sandbox_offer
@@ -669,16 +670,59 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
         except Exception:
             logger.exception("Could not persist gift goals for %s", message.from_user.id)
     if data.get("gift_product") in {"video", "both"}:
+        lang = data.get("lang", "uk")
+        if session_factory is None:
+            await message.answer(text_for(
+                lang,
+                "Замовлення не вдалося зберегти. Спробуйте пізніше.",
+                "Не удалось сохранить заказ. Попробуйте позже.",
+                "Could not save the order. Please try again later.",
+            ))
+            return
+        try:
+            quote = await create_gift_quote(
+                session_factory, settings=settings, user_id=message.from_user.id,
+                choice=data["gift_product"], goals=goals,
+                photo_paths=upload_paths(settings, message.from_user.id),
+                style=data.get("style", "dark"),
+            )
+        except ValueError:
+            await message.answer(text_for(
+                lang,
+                "🎬 Цілі та фото збережені, але тариф відео ще не налаштовано. "
+                "Оплату не запитуємо.",
+                "🎬 Цели и фото сохранены, но тариф видео ещё не настроен. "
+                "Оплату не запрашиваем.",
+                "🎬 Goals and photos saved, but video pricing is not configured. "
+                "No payment will be requested.",
+            ))
+            return
+        except Exception:
+            logger.exception("Could not quote gift purchase for %s", message.from_user.id)
+            await message.answer(text_for(
+                lang,
+                "Не вдалося зберегти розрахунок замовлення. Оплату не запитуємо.",
+                "Не удалось сохранить расчёт заказа. Оплату не запрашиваем.",
+                "Could not save the order quote. No payment will be requested.",
+            ))
+            return
+        await state.update_data(gift_quote_id=quote.id)
+        summary = (
+            f"Коллаж: {quote.collage_amount:.2f} UAH; "
+            f"Видео: {quote.video_amount:.2f} UAH; "
+            f"Итого: {quote.total_amount:.2f} UAH."
+        )
         await message.answer(text_for(
-            data.get("lang", "uk"),
-            "🎬 Ваші фото, цілі й вибір збережені. Оплата комплекту та окремого відео "
-            "ще не підключена до цього сценарію. Генерацію та оплату не запускаємо, "
-            "щоб не продати вам інший продукт.",
-            "🎬 Ваши фото, цели и выбор сохранены. Оплата комплекта и отдельного видео "
-            "ещё не подключена к этому сценарию. Генерацию и оплату не запускаем, "
-            "чтобы не продать вам другой продукт.",
-            "🎬 Photos, goals and choice are saved. The video-only and bundle checkout "
-            "is not wired to this flow yet. We won't generate or charge for another product.",
+            lang,
+            f"🎬 Розрахунок № {quote.id[:8]} збережено. {summary} "
+            "Це ще не платіж: створення відео та єдина оплата комплекту "
+            "поки не активовані.",
+            f"🎬 Расчёт № {quote.id[:8]} сохранён. {summary} "
+            "Это ещё не платёж: генерация видео и единая оплата комплекта "
+            "пока не активированы.",
+            f"🎬 Quote #{quote.id[:8]} saved. {summary} "
+            "This is not a charge: video rendering and unified bundle "
+            "checkout are not enabled yet.",
         ))
         return
     await state.set_state(WallpaperStates.generating)
