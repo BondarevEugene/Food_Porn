@@ -109,6 +109,28 @@ class GiftPurchase(CRMBase):
     )
 
 
+class GiftPaymentReceipt(CRMBase):
+    """One verified payment per quote, independent of delivery state.
+
+    Uniqueness protects both a purchase and a provider charge from duplicate
+    callback processing. Never insert this table from a client request.
+    """
+
+    __tablename__ = "crm_gift_payment_receipts"
+
+    purchase_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_payment_id: Mapped[str] = mapped_column(
+        String(180), unique=True, nullable=False
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    verified_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(UTC),
+    )
+
+
 async def initialize_schema(engine) -> None:
     # Only additive CRM-owned tables are created. Existing bot tables and Alembic head
     # are never altered, avoiding the differing local migration chains.
