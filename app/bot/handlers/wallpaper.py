@@ -101,10 +101,20 @@ def finish_photos_keyboard(lang: str) -> InlineKeyboardMarkup:
             text=text_for(lang, "✨ Готово, далі", "✨ Готово, дальше", "✨ Done, continue"),
             callback_data="gift_photos_done",
         )],
-        [InlineKeyboardButton(
-            text=text_for(lang, "🎬 Створити відеоісторію", "🎬 Создать видеоисторию", "🎬 Create video story"),
-            callback_data="gift_video_plans",
-        )],
+    ])
+
+
+def gift_product_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Select the requested deliverables once, after photo upload."""
+    choices = (
+        ("collage", "🖼️ Лише колаж", "🖼️ Только коллаж", "🖼️ Collage only"),
+        ("video", "🎬 Лише відеоісторія", "🎬 Только видеоистория", "🎬 Video only"),
+        ("both", "✨ Колаж + відео", "✨ Коллаж + видео", "✨ Collage + video"),
+    )
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=text_for(lang, uk, ru, en),
+                              callback_data=f"gift_product:{key}")]
+        for key, uk, ru, en in choices
     ])
 
 
@@ -368,16 +378,35 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
             await callback.answer("Надішліть від 1 до 7 фото 💛")
             return
         data = await state.get_data()
-        ready = bool(data.get("goals"))
-        await state.set_state(WallpaperStates.generating if ready else WallpaperStates.waiting_for_goals)
+        await state.update_data(gift_product=None)
     await callback.answer()
-    if ready:
-        await generate_wallpapers(callback.message, state, settings, session_factory)
-    else:
-        await callback.message.answer(text_for(data.get("lang", "uk"),
-                                               f"Зберіг {count} фото 💛 Тепер надішліть від 5 до 9 цілей, кожну з нового рядка.",
-                                               f"Сохранил {count} фото 💛 Теперь пришлите от 5 до 9 целей, каждую с новой строки.",
-                                               f"Saved {count} photos 💛 Now send 5 to 9 goals, one per line."))
+    await callback.message.answer(
+        text_for(data.get("lang", "uk"),
+                 "Фото збережено 💛 Оберіть, що створити:",
+                 "Фото сохранены 💛 Выберите, что создать:",
+                 "Photos saved 💛 Choose what to create:"),
+        reply_markup=gift_product_keyboard(data.get("lang", "uk")),
+    )
+
+
+@router.callback_query(F.data.startswith("gift_product:"))
+async def select_gift_product(callback: CallbackQuery, state: FSMContext) -> None:
+    product = (callback.data or "").removeprefix("gift_product:")
+    if product not in {"collage", "video", "both"} or (
+        await state.get_state()
+    ) != WallpaperStates.waiting_for_five_photos.state:
+        await callback.answer("Почніть новий подарунок через /start 💛", show_alert=True)
+        return
+    data = await state.get_data()
+    await state.update_data(gift_product=product)
+    await state.set_state(WallpaperStates.waiting_for_goals)
+    await callback.answer()
+    await callback.message.answer(text_for(
+        data.get("lang", "uk"),
+        "Вибір збережено 💛 Надішліть 5–9 цілей, кожну з нового рядка. Стиль можна обрати нижче.",
+        "Выбор сохранён 💛 Пришлите 5–9 целей, каждую с новой строки. Стиль можно выбрать ниже.",
+        "Choice saved 💛 Send 5–9 goals, one per line. Choose the style below.",
+    ), reply_markup=gift_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
 
 
 @router.callback_query(F.data == "gift_photos_done")
