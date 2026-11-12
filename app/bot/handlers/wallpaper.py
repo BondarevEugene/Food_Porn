@@ -307,12 +307,14 @@ async def resume_saved_photos(message: Message, state: FSMContext, settings: Set
     lang = language_for(message.from_user)
     await state.clear()
     await state.update_data(ui_lang=lang, lang=lang, style="dark")
-    await state.set_state(WallpaperStates.waiting_for_goals)
-    await message.answer(text_for(lang,
-                                  f"Ваші {len(photos)} фото збережені 💛 Після перезапуску потрібно ще раз надіслати від 5 до 9 цілей, кожну з нового рядка. Можна змінити стиль кнопками нижче.",
-                                  f"Ваши {len(photos)} фото сохранены 💛 После перезапуска нужно ещё раз отправить от 5 до 9 целей, каждую с новой строки. Стиль можно выбрать кнопками ниже.",
-                                  f"Your {len(photos)} photos are saved 💛 After restart, please send your 5 to 9 goals again, one per line. You can change style below."),
-                         reply_markup=gift_keyboard(lang))
+    await state.set_state(WallpaperStates.waiting_for_product)
+    await message.answer(
+        text_for(lang,
+                 f"Збережено {len(photos)} фото 💛 Оберіть продукт, щоб продовжити.",
+                 f"Сохранено {len(photos)} фото 💛 Выберите продукт для продолжения.",
+                 f"Saved {len(photos)} photos 💛 Choose your product to continue."),
+        reply_markup=gift_product_keyboard(lang),
+    )
 
 
 @router.callback_query(F.data.startswith("gift_style:"))
@@ -379,6 +381,7 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
             return
         data = await state.get_data()
         await state.update_data(gift_product=None)
+        await state.set_state(WallpaperStates.waiting_for_product)
     await callback.answer()
     await callback.message.answer(
         text_for(data.get("lang", "uk"),
@@ -394,19 +397,28 @@ async def select_gift_product(callback: CallbackQuery, state: FSMContext) -> Non
     product = (callback.data or "").removeprefix("gift_product:")
     if product not in {"collage", "video", "both"} or (
         await state.get_state()
-    ) != WallpaperStates.waiting_for_five_photos.state:
+    ) != WallpaperStates.waiting_for_product.state:
         await callback.answer("Почніть новий подарунок через /start 💛", show_alert=True)
         return
     data = await state.get_data()
     await state.update_data(gift_product=product)
     await state.set_state(WallpaperStates.waiting_for_goals)
     await callback.answer()
-    await callback.message.answer(text_for(
-        data.get("lang", "uk"),
-        "Вибір збережено 💛 Надішліть 5–9 цілей, кожну з нового рядка. Стиль можна обрати нижче.",
-        "Выбор сохранён 💛 Пришлите 5–9 целей, каждую с новой строки. Стиль можно выбрать ниже.",
-        "Choice saved 💛 Send 5–9 goals, one per line. Choose the style below.",
-    ), reply_markup=gift_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
+    goals_saved = isinstance(data.get("goals"), list) and 5 <= len(data["goals"]) <= 9
+    if goals_saved:
+        await callback.message.answer(text_for(
+            data.get("lang", "uk"),
+            "Вибір збережено 💛 Цілі вже є. Надішліть їх повторно, якщо хочете змінити.",
+            "Выбор сохранён 💛 Цели уже есть. Пришлите их повторно, если хотите изменить.",
+            "Choice saved 💛 Your goals are saved. Resend them only to change them.",
+        ), reply_markup=gift_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
+    else:
+        await callback.message.answer(text_for(
+            data.get("lang", "uk"),
+            "Вибір збережено 💛 Надішліть 5–9 цілей, кожну з нового рядка. Стиль можна обрати нижче.",
+            "Выбор сохранён 💛 Пришлите 5–9 целей, каждую с новой строки. Стиль можно выбрать ниже.",
+            "Choice saved 💛 Send 5–9 goals, one per line. Choose the style below.",
+        ), reply_markup=gift_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
 
 
 @router.callback_query(F.data == "gift_photos_done")
@@ -533,6 +545,17 @@ async def collect_five_photos(message: Message, state: FSMContext, settings: Set
         ), reply_markup=finish_photos_keyboard(lang))
 
 
+@router.message(WallpaperStates.waiting_for_product)
+async def waiting_for_product_notice(message: Message, state: FSMContext) -> None:
+    lang = (await state.get_data()).get("lang", "uk")
+    await message.answer(text_for(
+        lang,
+        "Фото збережені 💛 Спочатку оберіть продукт кнопкою нижче.",
+        "Фото сохранены 💛 Сначала выберите продукт кнопкой ниже.",
+        "Your photos are saved 💛 Choose a product using the buttons below first.",
+    ), reply_markup=gift_product_keyboard(lang))
+
+
 @router.message(WallpaperStates.waiting_for_five_photos)
 async def waiting_for_five_notice(message: Message, state: FSMContext) -> None:
     lang = (await state.get_data()).get("lang", "uk")
@@ -586,6 +609,19 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
     if data.get("goals") != goals:
         await state.update_data(render_job=None, blocked_input=False)
     await state.update_data(goals=goals)
+    if data.get("gift_product") in {"video", "both"}:
+        await message.answer(text_for(
+            data.get("lang", "uk"),
+            "🎬 Ваші фото, цілі й вибір збережені. Оплата комплекту та окремого відео "
+            "ще не підключена до цього сценарію. Генерацію та оплату не запускаємо, "
+            "щоб не продати вам інший продукт.",
+            "🎬 Ваши фото, цели и выбор сохранены. Оплата комплекта и отдельного видео "
+            "ещё не подключена к этому сценарию. Генерацию и оплату не запускаем, "
+            "чтобы не продать вам другой продукт.",
+            "🎬 Photos, goals and choice are saved. The video-only and bundle checkout "
+            "is not wired to this flow yet. We won't generate or charge for another product.",
+        ))
+        return
     await state.set_state(WallpaperStates.generating)
     await generate_wallpapers(message, state, settings, session_factory)
 
@@ -631,6 +667,8 @@ async def _send_full(message: Message, mobile: Path, desktop: Path, lang: str = 
 async def generate_wallpapers(message: Message, state: FSMContext, settings: Settings,
                               session_factory: async_sessionmaker[AsyncSession]) -> None:
     data = await state.get_data()
+    if data.get("gift_product") in {"video", "both"}:
+        raise RuntimeError("Video or bundle selection cannot use collage-only checkout")
     selected = data.get("lang_selected", False)
     photos = upload_paths(settings, message.from_user.id)
     goals = data.get("goals")
