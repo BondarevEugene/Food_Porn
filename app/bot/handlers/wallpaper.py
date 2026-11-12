@@ -782,10 +782,16 @@ async def verify_gift_purchase_callback(
             await callback.answer("Замовлення не знайдено.", show_alert=True)
             return
         paid = await session.get(GiftPaymentReceipt, purchase_id) is not None
-        if not paid:
-            attempt = await WayForPayPaymentRepository(session).latest_for_product(
-                "gift_purchase", purchase_id, callback.from_user.id,
+        attempt = await WayForPayPaymentRepository(session).latest_for_product(
+            "gift_purchase", purchase_id, callback.from_user.id,
+        )
+        if attempt is not None and attempt.test_mode:
+            await callback.answer(
+                "Тестову оплату збережено. Платний рендер вимкнено.",
+                show_alert=True,
             )
+            return
+        if not paid:
             if attempt is None:
                 await callback.answer("Оплату ще не знайдено.", show_alert=True)
                 return
