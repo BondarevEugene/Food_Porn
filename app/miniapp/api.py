@@ -6,7 +6,6 @@ import json
 import logging
 import re
 import secrets
-import shutil
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
