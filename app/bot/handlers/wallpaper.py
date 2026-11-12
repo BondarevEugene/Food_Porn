@@ -520,17 +520,24 @@ async def collect_photo(message: Message, state: FSMContext, settings: Settings,
                                           "Фото отримав 💛 Тепер надішліть від 5 до 9 цілей одним повідомленням, по одній на рядок.",
                                           "Фото получил 💛 Теперь пришлите от 5 до 9 целей одним сообщением, по одной на строку.",
                                           "Photo received 💛 Please send your 5 to 9 goals in one message, one per line."))
-    if (await state.get_data()).get("goals"):
-        await state.set_state(WallpaperStates.generating)
-        await generate_wallpapers(message, state, settings, session_factory)
-    else:
-        await state.set_state(WallpaperStates.waiting_for_goals)
-        if not message.caption:
-            await message.answer(text_for(lang,
-                                          "Фото отримав 💛 Надішліть від 5 до 9 цілей одним повідомленням, по одній на рядок.",
-                                          "Фото получил 💛 Пришлите от 5 до 9 целей одним сообщением, по одной на строку.",
-                                          "Photo received 💛 Send 5 to 9 goals in one message, one per line."))
-
+    await state.update_data(gift_product=None)
+    await state.set_state(WallpaperStates.waiting_for_product)
+    if session_factory is not None:
+        try:
+            current = await state.get_data()
+            await store_gift_draft(
+                session_factory, user_id=message.from_user.id, product_choice=None,
+                goals=current.get("goals"), photo_paths=upload_paths(settings, message.from_user.id),
+                style=current.get("style", "dark"), language=lang, stage="product",
+            )
+        except Exception:
+            logger.exception("Could not persist single-photo gift draft")
+    await message.answer(text_for(
+        lang,
+        "Фото збережено 💛 Оберіть, що створити:",
+        "Фото сохранено 💛 Выберите, что создать:",
+        "Photo saved 💛 Choose what to create:",
+    ), reply_markup=gift_product_keyboard(lang))
 
 @router.message(WallpaperStates.waiting_for_five_photos, F.photo | F.document)
 async def collect_five_photos(message: Message, state: FSMContext, settings: Settings,
