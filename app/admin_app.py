@@ -170,6 +170,19 @@ async def application_lifespan(_app):
                 sync_connection, checkfirst=True
             )
         )
+    # Separate billing registry: create only the tables SQLAdmin exposes.
+    # Keep existing balances and transaction records unchanged.
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            lambda sync_connection: Account.__table__.create(
+                sync_connection, checkfirst=True
+            )
+        )
+        await connection.run_sync(
+            lambda sync_connection: Transaction.__table__.create(
+                sync_connection, checkfirst=True
+            )
+        )
     await load_runtime_settings(async_session_maker)
     yield
 
