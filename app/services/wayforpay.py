@@ -26,9 +26,11 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
+from app.crm.models import GiftPaymentReceipt, GiftPurchase
 from app.database.models import Menu, MenuStatus, VideoStoryOrder, WallpaperOrder, WayForPayPayment
 from app.database.repositories import WayForPayPaymentRepository
 
@@ -39,7 +41,7 @@ WAYFORPAY_API_URL = "https://api.wayforpay.com/api"
 # It is deliberately not a production credential.
 TEST_MERCHANT_ACCOUNT = "test_merch_n1"
 TEST_MERCHANT_SECRET = "flk3409refn54t54t*FNJRET"
-PRODUCTS = frozenset({"menu", "wallpaper", "video_story"})
+PRODUCTS = frozenset({"menu", "wallpaper", "video_story", "gift_purchase"})
 
 
 class WayForPayError(RuntimeError):
@@ -119,6 +121,8 @@ class WayForPayService:
             return _money(self.settings.wayforpay_menu_price_uah)
         if product == "wallpaper":
             return _money(self.settings.wayforpay_wallpaper_price_uah)
+        if product == "gift_purchase":
+            raise WayForPayError("Gift purchase requires an immutable database quote")
         if product == "video_story":
             if self.settings.wayforpay_video_story_price_uah is None:
                 raise WayForPayError("Video story price is not configured")
@@ -143,6 +147,17 @@ class WayForPayService:
         if product not in PRODUCTS:
             raise WayForPayError("Unsupported WayForPay product")
         self.credentials()
+        if product == "gift_purchase":
+            purchase = await session.get(GiftPurchase, str(reference_id))
+            if (
+                purchase is None
+                or purchase.telegram_user_id != telegram_user_id
+                or purchase.status != "quoted"
+                or purchase.currency != "UAH"
+                or amount_override is None
+                or _money(amount_override) != purchase.total_amount
+            ):
+                raise WayForPayError("Gift purchase quote is missing, paid or mismatched")
         amount = _money(amount_override) if amount_override is not None else self.price_for(product)
         if amount <= 0:
             raise WayForPayError("Checkout amount must be positive")
@@ -294,6 +309,19 @@ async def wayforpay_entitlement_is_active(
     if not payment.grants_entitlement:
         return True
 
+    if payment.product == "gift_purchase":
+        purchase = await session.get(GiftPurchase, payment.reference_id)
+        receipt = await session.get(GiftPaymentReceipt, payment.reference_id)
+        return bool(
+            purchase and receipt
+            and purchase.telegram_user_id == payment.telegram_user_id
+            and purchase.status == "paid"
+            and receipt.provider == "wayforpay"
+            and receipt.provider_payment_id == payment.order_reference
+            and receipt.amount == payment.amount
+            and receipt.currency == payment.currency
+        )
+
     try:
         reference_id = int(payment.reference_id)
     except (TypeError, ValueError):
@@ -376,6 +404,62 @@ async def apply_verified_payment(
         payment.error_message = None
         payment.paid_at = payment.paid_at or datetime.now(UTC)
 
+        await session.commit()
+        return True
+
+    if payment.product == "gift_purchase":
+        # The webhook caller has already checked the WayForPay HMAC signature.
+        # Both the charge attempt and the immutable quote/receipt are committed
+        # in one database transaction, not through a second session.
+        purchase = await session.get(
+            GiftPurchase, payment.reference_id, with_for_update=True
+        )
+        if (
+            purchase is None
+            or purchase.telegram_user_id != payment.telegram_user_id
+            or purchase.total_amount != payment.amount
+            or purchase.currency != payment.currency
+        ):
+            raise WayForPayError("Gift purchase owner or price mismatch")
+        receipt = await session.get(GiftPaymentReceipt, purchase.id)
+        if receipt is not None:
+            same = (
+                receipt.provider == "wayforpay"
+                and receipt.provider_payment_id == payment.order_reference
+                and receipt.amount == payment.amount
+                and receipt.currency == payment.currency
+            )
+            payment.status = "approved"
+            payment.provider_payment_id = str(
+                payload.get("authCode") or payment.order_reference
+            )[:120]
+            payment.paid_at = payment.paid_at or datetime.now(UTC)
+            payment.error_message = None if same else "duplicate_payment: manual refund required"
+            await session.commit()
+            return same
+        if purchase.status != "quoted":
+            raise WayForPayError("Gift purchase is no longer payable")
+        reused = await session.scalar(
+            select(GiftPaymentReceipt.purchase_id).where(
+                GiftPaymentReceipt.provider_payment_id == payment.order_reference
+            )
+        )
+        if reused is not None:
+            raise WayForPayError("Gift payment reference already used")
+        session.add(GiftPaymentReceipt(
+            purchase_id=purchase.id,
+            provider="wayforpay",
+            provider_payment_id=payment.order_reference,
+            amount=payment.amount,
+            currency=payment.currency,
+        ))
+        purchase.status = "paid"
+        payment.status = "approved"
+        payment.provider_payment_id = str(
+            payload.get("authCode") or payment.order_reference
+        )[:120]
+        payment.error_message = None
+        payment.paid_at = payment.paid_at or datetime.now(UTC)
         await session.commit()
         return True
 
