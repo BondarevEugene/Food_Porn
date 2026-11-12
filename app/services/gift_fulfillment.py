@@ -54,7 +54,7 @@ async def process_paid_gift_purchase(
             checkpoint = GiftFulfillment(purchase_id=purchase_id)
             session.add(checkpoint)
             await session.flush()
-        if checkpoint.status == "ready":
+        if checkpoint.status in {"ready", "delivering", "delivered"}:
             return checkpoint
         if checkpoint.status == "processing" and checkpoint.updated_at:
             timestamp = checkpoint.updated_at
@@ -127,6 +127,16 @@ async def process_paid_gift_purchase(
                 await session.commit()
 
         if purchase.includes_video:
+            if video_order_id is not None:
+                # Retry an incomplete MP4 without generating images twice.
+                async with factory() as session:
+                    previous = await session.get(
+                        VideoStoryOrder, video_order_id, with_for_update=True
+                    )
+                    if previous is not None and previous.status == "failed":
+                        previous.status = "paid"
+                        previous.failure_reason = None
+                        await session.commit()
             if video_order_id is None:
                 async with factory() as session:
                     video = VideoStoryOrder(
