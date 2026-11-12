@@ -590,7 +590,7 @@ class PortmoneSandboxPaymentRepository:
         reference_id: str,
         amount: Decimal,
     ) -> PortmoneSandboxPayment:
-        if product not in {"menu", "wallpaper"}:
+        if product not in {"menu", "wallpaper", "video_story", "gift_purchase"}:
             raise ValueError("Unsupported sandbox product")
         payment = PortmoneSandboxPayment(
             telegram_user_id=telegram_user_id,
