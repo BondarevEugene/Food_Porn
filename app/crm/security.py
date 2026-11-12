@@ -115,6 +115,30 @@ async def crm_identity(
     """
     settings = get_settings()
 
+    # Browser admin session authorization.
+    if request.session.get("admin_authenticated") is True:
+        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+            expected = request.session.get("crm_csrf")
+            supplied = request.headers.get("x-csrf-token", "")
+
+            if (
+                not isinstance(expected, str)
+                or not expected
+                or not supplied
+                or not secrets.compare_digest(expected, supplied)
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Обновите страницу и повторите действие.",
+                )
+
+        return {
+            "actor": "web:admin",
+            "owner": True,
+            "first_name": "Администратор",
+        }
+
+
     # Telegram Mini App authorization.
     if authorization:
         user = current_user(authorization)
@@ -142,29 +166,6 @@ async def crm_identity(
             **user,
             "actor": f"telegram:{telegram_id}",
             "owner": True,
-        }
-
-    # Browser admin session authorization.
-    if request.session.get("admin_authenticated") is True:
-        if request.method not in {"GET", "HEAD", "OPTIONS"}:
-            expected = request.session.get("crm_csrf")
-            supplied = request.headers.get("x-csrf-token", "")
-
-            if (
-                not isinstance(expected, str)
-                or not expected
-                or not supplied
-                or not secrets.compare_digest(expected, supplied)
-            ):
-                raise HTTPException(
-                    status_code=403,
-                    detail="Обновите страницу и повторите действие.",
-                )
-
-        return {
-            "actor": "web:admin",
-            "owner": True,
-            "first_name": "Администратор",
         }
 
     raise HTTPException(
