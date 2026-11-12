@@ -147,11 +147,16 @@ def run_session() -> int:
         bot = subprocess.Popen([sys.executable, "run.py"], cwd=ROOT, env=env)
         wait_for_page(f"http://127.0.0.1:{PORT}/miniapp", bot, tunnel, 90)
         wait_for_page(public_url, bot, tunnel, 75)
+        crm_public_url = public_url.removesuffix("/miniapp") + "/crm"
+        wait_for_page(f"http://127.0.0.1:{PORT}/crm", bot, tunnel, 30)
+        wait_for_page(crm_public_url, bot, tunnel, 30)
         print("\n" + "=" * 64, flush=True)
         print(f"НОВЫЙ АДРЕС MINI APP: {public_url}", flush=True)
+        print(f"НОВЫЙ АДРЕС MINI CRM: {crm_public_url}", flush=True)
         print("Локальный и публичный адреса отвечают HTTP 200.", flush=True)
         print("Отправьте боту НОВЫЙ /start и нажмите кнопку в новом сообщении.", flush=True)
         print("Старые сообщения бота содержат прежний адрес и больше не откроются.", flush=True)
+        print("Для Mini CRM заново откройте /admin: старая кнопка использует старый туннель.", flush=True)
         print("Оставьте это окно открытым. Для остановки нажмите Ctrl+C.", flush=True)
         print("=" * 64 + "\n", flush=True)
         next_health_check = time.monotonic() + 15
@@ -163,7 +168,8 @@ def run_session() -> int:
             if tunnel.poll() is not None:
                 raise TunnelLost("Туннель отключился; старый адрес больше не работает.")
             if time.monotonic() >= next_health_check:
-                missed_checks = 0 if public_page_is_ready(public_url) else missed_checks + 1
+                pages_ready = public_page_is_ready(public_url) and public_page_is_ready(crm_public_url)
+                missed_checks = 0 if pages_ready else missed_checks + 1
                 if missed_checks == 1:
                     print("Публичный адрес временно не отвечает. Проверяю повторно...", flush=True)
                 if missed_checks >= 3:
