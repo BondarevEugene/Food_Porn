@@ -28,9 +28,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.bot.keyboards import add_wayforpay_option
 from app.bot.states.wallpaper import WallpaperStates
 from app.config import Settings, get_settings
-from app.database.repositories import WallpaperOrderRepository
+from app.crm.models import GiftPaymentReceipt, GiftPurchase
+from app.database.repositories import WallpaperOrderRepository, WayForPayPaymentRepository
 from app.services.free_access import has_free_generation_access
+from app.services.gift_delivery import deliver_paid_gift
 from app.services.gift_drafts import load_gift_draft, store_gift_draft
+from app.services.gift_fulfillment import GiftFulfillmentBusy, process_paid_gift_purchase
 from app.services.gift_pricing import checkout_price_uah
 from app.services.gift_purchases import create_gift_quote
 from app.services.goal_story import GoalScenePlanner
@@ -41,7 +44,7 @@ from app.services.replicate_vision_board import ImageSafetyError, ReplicateVisio
 from app.services.stars import OrderRef, create_invoice
 from app.services.video_story_plans import VideoTier
 from app.services.wallpaper_studio import archive_source_photos
-from app.services.wayforpay import WayForPayService
+from app.services.wayforpay import WayForPayService, apply_verified_payment
 
 router = Router(name="wallpaper")
 logger = logging.getLogger(__name__)
@@ -738,12 +741,16 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
                         "Оплатите один раз — файлы поступят после подтверждения.",
                         f"✨ Order #{quote.id[:8]}. {summary} "
                         "Pay once and receive files after confirmation.",
-                    ), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                        InlineKeyboardButton(
-                            text=text_for(lang, "💳 Оплатити комплект", "💳 Оплатить заказ", "💳 Pay for order"),
+                    ), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(
+                            text=text_for(lang, "💳 Оплатити замовлення", "💳 Оплатить заказ", "💳 Pay for order"),
                             url=checkout_url,
-                        )
-                    ]]))
+                        )],
+                        [InlineKeyboardButton(
+                            text=text_for(lang, "🔄 Перевірити оплату", "🔄 Проверить оплату", "🔄 Check payment"),
+                            callback_data=f"gift_purchase_status:{quote.id}",
+                        )],
+                    ]))
                     return
         await message.answer(text_for(
             lang,
@@ -757,6 +764,56 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
         return
     await state.set_state(WallpaperStates.generating)
     await generate_wallpapers(message, state, settings, session_factory)
+
+
+@router.callback_query(F.data.startswith("gift_purchase_status:"))
+async def verify_gift_purchase_callback(
+    callback: CallbackQuery,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    purchase_id = (callback.data or "").removeprefix("gift_purchase_status:")
+    if not re.fullmatch(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", purchase_id):
+        await callback.answer("Некоректний номер замовлення.", show_alert=True)
+        return
+    async with session_factory() as session:
+        purchase = await session.get(GiftPurchase, purchase_id)
+        if purchase is None or purchase.telegram_user_id != callback.from_user.id:
+            await callback.answer("Замовлення не знайдено.", show_alert=True)
+            return
+        paid = await session.get(GiftPaymentReceipt, purchase_id) is not None
+        if not paid:
+            attempt = await WayForPayPaymentRepository(session).latest_for_product(
+                "gift_purchase", purchase_id, callback.from_user.id,
+            )
+            if attempt is None:
+                await callback.answer("Оплату ще не знайдено.", show_alert=True)
+                return
+            service = WayForPayService(settings)
+            try:
+                verified_payload = await service.check_status(attempt)
+                paid = await apply_verified_payment(session, attempt, verified_payload)
+            except Exception:
+                logger.exception("Could not verify gift purchase %s", purchase_id)
+                await callback.answer("Платіж ще не підтверджено.", show_alert=True)
+                return
+    if not paid:
+        await callback.answer("Платіж ще не підтверджено.", show_alert=True)
+        return
+    await callback.answer("Оплату підтверджено 💛")
+    try:
+        await process_paid_gift_purchase(session_factory, settings, purchase_id)
+        await deliver_paid_gift(session_factory, callback.bot, purchase_id)
+    except GiftFulfillmentBusy:
+        await callback.message.answer(
+            "✨ Відео або колаж вже створюється. Перевірте статус трохи пізніше."
+        )
+    except Exception:
+        logger.exception("Could not resume paid gift %s", purchase_id)
+        await callback.message.answer(
+            "Оплату отримано, але видача затримується. "
+            "Скористайтеся /paysupport та вкажіть номер замовлення."
+        )
 
 
 @router.message(WallpaperStates.waiting_for_goals)
