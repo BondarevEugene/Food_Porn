@@ -309,6 +309,9 @@ async def resume_saved_photos(message: Message, state: FSMContext, settings: Set
     lang = language_for(message.from_user)
     await state.clear()
     draft = await load_gift_draft(session_factory, message.from_user.id) if session_factory else None
+    # Never reuse a previous product choice for a different batch of photos.
+    if draft and set(draft.photo_paths or []) != {str(photo) for photo in photos}:
+        draft = None
     stored_choice = draft.product_choice if draft and draft.product_choice in {"collage", "video", "both"} else None
     stored_goals = list(draft.goals or []) if draft else []
     await state.update_data(
