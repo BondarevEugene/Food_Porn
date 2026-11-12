@@ -22,6 +22,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.config import get_settings
+from app.crm.models import GiftPaymentReceipt, GiftPurchase
 from app.database.models import Menu, VideoStoryOrder, WallpaperOrder, WayForPayPayment
 from app.database.repositories import WayForPayPaymentRepository
 from app.database.session import async_session_maker
@@ -70,6 +71,14 @@ async def _payload(request: Request) -> dict[str, Any]:
 
 async def _product_is_paid(payment: WayForPayPayment) -> bool:
     async with async_session_maker() as session:
+        if payment.product == "gift_purchase":
+            purchase = await session.get(GiftPurchase, payment.reference_id)
+            receipt = await session.get(GiftPaymentReceipt, payment.reference_id)
+            return bool(
+                purchase and purchase.status == "paid"
+                and purchase.telegram_user_id == payment.telegram_user_id
+                and receipt is not None
+            )
         try:
             reference_id = int(payment.reference_id)
         except (TypeError, ValueError):
