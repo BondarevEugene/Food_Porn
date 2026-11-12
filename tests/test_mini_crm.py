@@ -466,6 +466,27 @@ async def test_service_instance_registry_can_be_initialized_idempotently(tmp_pat
     await engine.dispose()
 
 
+async def test_billing_sqladmin_tables_can_be_initialized_idempotently(tmp_path):
+    from sqlalchemy import inspect
+    from src.billing.models import Account, Transaction
+
+    engine = create_async_engine("sqlite+aiosqlite:///" + str(tmp_path / "billing.db"))
+    async with engine.begin() as connection:
+        for _ in range(2):
+            for model in (Account, Transaction):
+                await connection.run_sync(
+                    lambda sync_connection, table=model.__table__: table.create(
+                        sync_connection, checkfirst=True
+                    )
+                )
+        tables = await connection.run_sync(
+            lambda sync_connection: inspect(sync_connection).get_table_names()
+        )
+        assert "accounts" in tables
+        assert "transactions" in tables
+    await engine.dispose()
+
+
 async def test_export_has_bom_and_formula_protection(crm):
     await seed(crm)
     async with crm.factory() as session:
