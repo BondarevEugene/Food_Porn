@@ -12,6 +12,7 @@ from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
+from app.crm.models import GiftFulfillment, GiftPaymentReceipt, GiftPurchase
 from app.database.models import VideoStoryOrder, WallpaperOrder
 from app.services.wallpaper_studio import WallpaperExportService
 
@@ -40,8 +41,33 @@ async def render_verified_video_story(
         if video is None or video.telegram_user_id != owner_id:
             raise VideoStoryNotPayable("Video story order not found")
         wallpaper = await session.get(WallpaperOrder, video.wallpaper_order_id)
-        if wallpaper is None or wallpaper.telegram_user_id != owner_id or not wallpaper.paid:
-            raise VideoStoryNotPayable("Paid parent artwork is required")
+        if wallpaper is None or wallpaper.telegram_user_id != owner_id:
+            raise VideoStoryNotPayable("Parent artwork is missing")
+        if not wallpaper.paid:
+            # Video-only purchases need internal source artwork, not a second
+            # collage entitlement. A verified purchase and an exact linking
+            # checkpoint authorize only the MP4 renderer.
+            fulfillment = await session.get(
+                GiftFulfillment, video.payment_reference.removeprefix("gift_purchase:")
+            ) if video.payment_system == "gift_purchase" and video.payment_reference else None
+            purchase = await session.get(
+                GiftPurchase, fulfillment.purchase_id
+            ) if fulfillment else None
+            receipt = await session.get(
+                GiftPaymentReceipt, fulfillment.purchase_id
+            ) if fulfillment else None
+            if not (
+                fulfillment and purchase and receipt
+                and purchase.status == "paid"
+                and purchase.includes_video
+                and purchase.telegram_user_id == owner_id
+                and fulfillment.wallpaper_order_id == wallpaper.id
+                and fulfillment.video_order_id == video.id
+                and receipt.purchase_id == purchase.id
+                and receipt.amount == purchase.total_amount
+                and receipt.currency == purchase.currency
+            ):
+                raise VideoStoryNotPayable("Paid video purchase is required")
         if video.paid_at is None or video.status not in {"paid", "queued", "processing", "ready"}:
             raise VideoStoryNotPayable("A verified video payment is required")
         if video.status == "ready":
