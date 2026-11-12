@@ -645,7 +645,7 @@ class WayForPayPaymentRepository:
         test_mode: bool,
         grants_entitlement: bool,
     ) -> WayForPayPayment:
-        if product not in {"menu", "wallpaper"}:
+        if product not in {"menu", "wallpaper", "video_story", "gift_purchase"}:
             raise ValueError("Unsupported WayForPay product")
         payment = WayForPayPayment(
             telegram_user_id=telegram_user_id,
