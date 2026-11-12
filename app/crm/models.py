@@ -79,6 +79,36 @@ class GiftDraft(CRMBase):
     )
 
 
+class GiftPurchase(CRMBase):
+    """Immutable quoted price of a requested gift bundle.
+
+    This record is NOT a charge or a paid entitlement. Checkout integration
+    must verify a provider receipt before changing its payment state.
+    """
+
+    __tablename__ = "crm_gift_purchases"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    request_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    product_choice: Mapped[str] = mapped_column(String(16), nullable=False)
+    includes_collage: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    includes_video: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="UAH")
+    collage_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    video_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    goals: Mapped[list] = mapped_column(JSON, nullable=False)
+    photo_paths: Mapped[list] = mapped_column(JSON, nullable=False)
+    visual_style: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="quoted")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
 async def initialize_schema(engine) -> None:
     # Only additive CRM-owned tables are created. Existing bot tables and Alembic head
     # are never altered, avoiding the differing local migration chains.
