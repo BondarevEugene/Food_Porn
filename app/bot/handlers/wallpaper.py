@@ -31,6 +31,7 @@ from app.config import Settings, get_settings
 from app.database.repositories import WallpaperOrderRepository
 from app.services.free_access import has_free_generation_access
 from app.services.gift_pricing import checkout_price_uah
+from app.services.gift_drafts import store_gift_draft, load_gift_draft
 from app.services.goal_story import GoalScenePlanner
 from app.services.payment import PaymentService
 from app.services.portmone_sandbox import send_portmone_sandbox_offer
@@ -298,7 +299,8 @@ async def start_wallpaper_from_start(message: Message, state: FSMContext,
 
 
 @router.message(F.text == "/resume")
-async def resume_saved_photos(message: Message, state: FSMContext, settings: Settings) -> None:
+async def resume_saved_photos(message: Message, state: FSMContext, settings: Settings,
+                              session_factory: async_sessionmaker[AsyncSession] | None = None) -> None:
     """Recover uploads after the bot restarts and its in-memory FSM is lost."""
     photos = upload_paths(settings, message.from_user.id)
     if not 1 <= len(photos) <= MAX_GIFT_PHOTOS:
@@ -306,7 +308,22 @@ async def resume_saved_photos(message: Message, state: FSMContext, settings: Set
         return
     lang = language_for(message.from_user)
     await state.clear()
-    await state.update_data(ui_lang=lang, lang=lang, style="dark")
+    draft = await load_gift_draft(session_factory, message.from_user.id) if session_factory else None
+    stored_choice = draft.product_choice if draft and draft.product_choice in {"collage", "video", "both"} else None
+    stored_goals = list(draft.goals or []) if draft else []
+    await state.update_data(
+        ui_lang=lang, lang=lang, style=draft.style if draft else "dark",
+        gift_product=stored_choice, goals=stored_goals,
+    )
+    if stored_choice:
+        await state.set_state(WallpaperStates.waiting_for_goals)
+        await message.answer(text_for(
+            lang,
+            "Фото та вибір продукту відновлено 💛 Надішліть цілі, щоб продовжити.",
+            "Фото и выбор продукта восстановлены 💛 Пришлите цели, чтобы продолжить.",
+            "Photos and product selection restored 💛 Send your goals to continue.",
+        ), reply_markup=gift_keyboard(lang, draft.style if draft else "dark"))
+        return
     await state.set_state(WallpaperStates.waiting_for_product)
     await message.answer(
         text_for(lang,
@@ -382,6 +399,16 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
         data = await state.get_data()
         await state.update_data(gift_product=None)
         await state.set_state(WallpaperStates.waiting_for_product)
+        if session_factory is not None:
+            try:
+                await store_gift_draft(
+                    session_factory, user_id=user_id, product_choice=None,
+                    goals=data.get("goals"), photo_paths=upload_paths(settings, user_id),
+                    style=data.get("style", "dark"), language=data.get("lang", "uk"),
+                    stage="product",
+                )
+            except Exception:
+                logger.exception("Could not persist gift draft for %s", user_id)
     await callback.answer()
     await callback.message.answer(
         text_for(data.get("lang", "uk"),
@@ -393,7 +420,8 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
 
 
 @router.callback_query(F.data.startswith("gift_product:"))
-async def select_gift_product(callback: CallbackQuery, state: FSMContext) -> None:
+async def select_gift_product(callback: CallbackQuery, state: FSMContext,
+                              session_factory: async_sessionmaker[AsyncSession] | None = None) -> None:
     product = (callback.data or "").removeprefix("gift_product:")
     if product not in {"collage", "video", "both"} or (
         await state.get_state()
@@ -403,6 +431,16 @@ async def select_gift_product(callback: CallbackQuery, state: FSMContext) -> Non
     data = await state.get_data()
     await state.update_data(gift_product=product)
     await state.set_state(WallpaperStates.waiting_for_goals)
+    if session_factory is not None:
+        try:
+            await store_gift_draft(
+                session_factory, user_id=callback.from_user.id, product_choice=product,
+                goals=data.get("goals"), photo_paths=upload_paths(get_settings(), callback.from_user.id),
+                style=data.get("style", "dark"), language=data.get("lang", "uk"),
+                stage="goals",
+            )
+        except Exception:
+            logger.exception("Could not persist selected gift product for %s", callback.from_user.id)
     await callback.answer()
     goals_saved = isinstance(data.get("goals"), list) and 5 <= len(data["goals"]) <= 9
     if goals_saved:
@@ -609,6 +647,17 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
     if data.get("goals") != goals:
         await state.update_data(render_job=None, blocked_input=False)
     await state.update_data(goals=goals)
+    if session_factory is not None and data.get("gift_product") in {"collage", "video", "both"}:
+        try:
+            await store_gift_draft(
+                session_factory, user_id=message.from_user.id,
+                product_choice=data["gift_product"], goals=goals,
+                photo_paths=upload_paths(settings, message.from_user.id),
+                style=data.get("style", "dark"), language=data.get("lang", "uk"),
+                stage="ready",
+            )
+        except Exception:
+            logger.exception("Could not persist gift goals for %s", message.from_user.id)
     if data.get("gift_product") in {"video", "both"}:
         await message.answer(text_for(
             data.get("lang", "uk"),
