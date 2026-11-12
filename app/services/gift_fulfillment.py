@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
 from app.crm.models import GiftFulfillment, GiftPaymentReceipt, GiftPurchase
-from app.database.models import VideoStoryOrder, WallpaperOrder
+from app.database.models import VideoStoryOrder
 from app.database.repositories import WallpaperOrderRepository
 from app.services.goal_story import GoalScenePlanner
 from app.services.replicate_vision_board import ReplicateVisionBoardRenderer
