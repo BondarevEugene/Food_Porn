@@ -669,7 +669,9 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
             )
         except Exception:
             logger.exception("Could not persist gift goals for %s", message.from_user.id)
-    if data.get("gift_product") in {"video", "both"}:
+    if data.get("gift_product") in {"video", "both"} or (
+        settings.gift_unified_checkout_enabled and data.get("gift_product") == "collage"
+    ):
         lang = data.get("lang", "uk")
         if session_factory is None:
             await message.answer(text_for(
@@ -712,17 +714,45 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
             f"Видео: {quote.video_amount:.2f} UAH; "
             f"Итого: {quote.total_amount:.2f} UAH."
         )
+        if settings.gift_unified_checkout_enabled:
+            wayforpay = WayForPayService(settings)
+            if wayforpay.ready:
+                try:
+                    async with session_factory() as session:
+                        _, checkout_url = await wayforpay.create_checkout(
+                            session,
+                            telegram_user_id=message.from_user.id,
+                            product="gift_purchase",
+                            reference_id=quote.id,
+                            description=f"Food Porn gift {quote.product_choice} #{quote.id[:8]}",
+                            amount_override=quote.total_amount,
+                        )
+                except Exception:
+                    logger.exception("Could not create unified gift payment for %s", quote.id)
+                else:
+                    await message.answer(text_for(
+                        lang,
+                        f"✨ Замовлення № {quote.id[:8]}. {summary} "
+                        "Оплатіть один раз — файли надійдуть після підтвердження.",
+                        f"✨ Заказ № {quote.id[:8]}. {summary} "
+                        "Оплатите один раз — файлы поступят после подтверждения.",
+                        f"✨ Order #{quote.id[:8]}. {summary} "
+                        "Pay once and receive files after confirmation.",
+                    ), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                        InlineKeyboardButton(
+                            text=text_for(lang, "💳 Оплатити комплект", "💳 Оплатить заказ", "💳 Pay for order"),
+                            url=checkout_url,
+                        )
+                    ]]))
+                    return
         await message.answer(text_for(
             lang,
             f"🎬 Розрахунок № {quote.id[:8]} збережено. {summary} "
-            "Це ще не платіж: створення відео та єдина оплата комплекту "
-            "поки не активовані.",
+            "Оплата зараз недоступна. Кошти не списані.",
             f"🎬 Расчёт № {quote.id[:8]} сохранён. {summary} "
-            "Это ещё не платёж: генерация видео и единая оплата комплекта "
-            "пока не активированы.",
+            "Оплата сейчас недоступна. Деньги не списаны.",
             f"🎬 Quote #{quote.id[:8]} saved. {summary} "
-            "This is not a charge: video rendering and unified bundle "
-            "checkout are not enabled yet.",
+            "Payment is not currently available. No charge has been made.",
         ))
         return
     await state.set_state(WallpaperStates.generating)
