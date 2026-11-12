@@ -426,6 +426,46 @@ async def test_web_login_and_csrf(crm):
     assert (await crm.client.get("/crm/api/dashboard")).status_code == 401
 
 
+async def test_browser_session_overrides_stale_telegram_initdata(crm):
+    login = await crm.client.post(
+        "/admin/login", data={"username": "owner", "password": "password-for-test"}
+    )
+    assert login.status_code in (302, 303)
+    stale_header = {"Authorization": "tma invalid-signature"}
+    result = await crm.client.get("/crm/api/session", headers=stale_header)
+    assert result.status_code == 200
+    assert result.json()["owner"] is True
+
+    csrf = result.json()["csrf"]
+    result = await crm.client.patch(
+        "/crm/api/settings",
+        headers={**stale_header, "x-csrf-token": csrf},
+        json={"values": {"gift_price_stars": 15}},
+    )
+    assert result.status_code == 200
+    await crm.client.get("/admin/logout")
+    assert (await crm.client.get("/crm/api/session", headers=stale_header)).status_code == 401
+
+
+async def test_service_instance_registry_can_be_initialized_idempotently(tmp_path):
+    from sqlalchemy import inspect
+    from src.orchestrator.models import ServiceInstance
+
+    engine = create_async_engine("sqlite+aiosqlite:///" + str(tmp_path / "service.db"))
+    async with engine.begin() as connection:
+        for _ in range(2):
+            await connection.run_sync(
+                lambda sync_connection: ServiceInstance.__table__.create(
+                    sync_connection, checkfirst=True
+                )
+            )
+        names = await connection.run_sync(
+            lambda sync_connection: inspect(sync_connection).get_table_names()
+        )
+        assert "service_instances" in names
+    await engine.dispose()
+
+
 async def test_export_has_bom_and_formula_protection(crm):
     await seed(crm)
     async with crm.factory() as session:
