@@ -18,7 +18,7 @@ import html
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.config import get_settings
@@ -26,6 +26,8 @@ from app.crm.models import GiftPaymentReceipt, GiftPurchase
 from app.database.models import Menu, VideoStoryOrder, WallpaperOrder, WayForPayPayment
 from app.database.repositories import WayForPayPaymentRepository
 from app.database.session import async_session_maker
+from app.services.gift_delivery import deliver_paid_gift
+from app.services.gift_fulfillment import GiftFulfillmentBusy, process_paid_gift_purchase
 from app.services.wayforpay import (
     WAYFORPAY_CHECKOUT_URL,
     WayForPayError,
@@ -130,8 +132,22 @@ async def checkout(checkout_token: str) -> HTMLResponse:
     )
 
 
+async def _complete_paid_gift(purchase_id: str, bot) -> None:
+    """Post-response generation; errors are persisted for safe manual recovery."""
+    try:
+        await process_paid_gift_purchase(
+            async_session_maker, get_settings(), purchase_id
+        )
+        if bot is not None:
+            await deliver_paid_gift(async_session_maker, bot, purchase_id)
+    except GiftFulfillmentBusy:
+        logger.info("Gift fulfillment already running: %s", purchase_id)
+    except Exception:
+        logger.exception("Paid gift processing failed: %s", purchase_id)
+
+
 @router.post("/webhook")
-async def webhook(request: Request) -> JSONResponse:
+async def webhook(request: Request, background_tasks: BackgroundTasks) -> JSONResponse:
     payload = await _payload(request)
     order_reference = str(payload.get("orderReference", ""))
     if not order_reference:
@@ -145,9 +161,21 @@ async def webhook(request: Request) -> JSONResponse:
             raise HTTPException(400, "Invalid payment signature")
 
         try:
-            await apply_verified_payment(session, payment, payload)
+            activated = await apply_verified_payment(session, payment, payload)
         except WayForPayError as exc:
             raise HTTPException(409, str(exc)) from exc
+
+        if (
+            activated
+            and payment.product == "gift_purchase"
+            and not payment.test_mode
+        ):
+            # Only a signed provider approval schedules generation. A sandbox
+            # callback must never initiate billable image API requests.
+            background_tasks.add_task(
+                _complete_paid_gift, payment.reference_id,
+                getattr(request.app.state, "bot", None),
+            )
 
     return JSONResponse(service.callback_ack(order_reference))
 
