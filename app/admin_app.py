@@ -162,6 +162,14 @@ class ServiceInstanceAdmin(ModelView, model=ServiceInstance):
 @asynccontextmanager
 async def application_lifespan(_app):
     await initialize_schema(engine)
+    # The orchestrator has separate metadata; provision only its registry table.
+    # Existing tables and data are left untouched.
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            lambda sync_connection: ServiceInstance.__table__.create(
+                sync_connection, checkfirst=True
+            )
+        )
     await load_runtime_settings(async_session_maker)
     yield
 
