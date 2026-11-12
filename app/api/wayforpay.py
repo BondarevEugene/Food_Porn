@@ -18,8 +18,9 @@ import html
 import logging
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.background import BackgroundTask
 
 from app.config import get_settings
 from app.crm.models import GiftPaymentReceipt, GiftPurchase
@@ -147,12 +148,13 @@ async def _complete_paid_gift(purchase_id: str, bot) -> None:
 
 
 @router.post("/webhook")
-async def webhook(request: Request, background_tasks: BackgroundTasks) -> JSONResponse:
+async def webhook(request: Request) -> JSONResponse:
     payload = await _payload(request)
     order_reference = str(payload.get("orderReference", ""))
     if not order_reference:
         raise HTTPException(400, "Missing orderReference")
     service = WayForPayService(get_settings())
+    pending_purchase: str | None = None
     async with async_session_maker() as session:
         repository = WayForPayPaymentRepository(session)
         payment = await repository.by_order_reference(order_reference, lock=True)
@@ -172,12 +174,16 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> JSONRe
         ):
             # Only a signed provider approval schedules generation. A sandbox
             # callback must never initiate billable image API requests.
-            background_tasks.add_task(
-                _complete_paid_gift, payment.reference_id,
-                getattr(request.app.state, "bot", None),
-            )
+            pending_purchase = payment.reference_id
 
-    return JSONResponse(service.callback_ack(order_reference))
+    background = (
+        BackgroundTask(
+            _complete_paid_gift, pending_purchase,
+            getattr(request.app.state, "bot", None),
+        )
+        if pending_purchase else None
+    )
+    return JSONResponse(service.callback_ack(order_reference), background=background)
 
 
 @router.get("/return", response_class=HTMLResponse)
