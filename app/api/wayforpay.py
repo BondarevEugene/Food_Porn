@@ -18,6 +18,7 @@ import html
 import logging
 from typing import Any
 
+from aiogram import Bot
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.background import BackgroundTask
@@ -134,17 +135,26 @@ async def checkout(checkout_token: str) -> HTMLResponse:
 
 
 async def _complete_paid_gift(purchase_id: str, bot) -> None:
-    """Post-response generation; errors are persisted for safe manual recovery."""
+    """Post-response processing; failures remain recoverable in PostgreSQL."""
+    temporary_bot: Bot | None = None
     try:
         await process_paid_gift_purchase(
             async_session_maker, get_settings(), purchase_id
         )
+        if bot is None:
+            token = get_settings().bot_token
+            if token and ":" in token:
+                temporary_bot = Bot(token=token)
+                bot = temporary_bot
         if bot is not None:
             await deliver_paid_gift(async_session_maker, bot, purchase_id)
     except GiftFulfillmentBusy:
         logger.info("Gift fulfillment already running: %s", purchase_id)
     except Exception:
         logger.exception("Paid gift processing failed: %s", purchase_id)
+    finally:
+        if temporary_bot is not None:
+            await temporary_bot.session.close()
 
 
 @router.post("/webhook")
