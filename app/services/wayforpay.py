@@ -148,6 +148,8 @@ class WayForPayService:
             raise WayForPayError("Unsupported WayForPay product")
         self.credentials()
         if product == "gift_purchase":
+            if not grants_entitlement:
+                raise WayForPayError("Gift purchase requires an entitlement-bearing payment")
             purchase = await session.get(GiftPurchase, str(reference_id))
             if (
                 purchase is None
