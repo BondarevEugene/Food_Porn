@@ -30,8 +30,8 @@ from app.bot.states.wallpaper import WallpaperStates
 from app.config import Settings, get_settings
 from app.database.repositories import WallpaperOrderRepository
 from app.services.free_access import has_free_generation_access
+from app.services.gift_drafts import load_gift_draft, store_gift_draft
 from app.services.gift_pricing import checkout_price_uah
-from app.services.gift_drafts import store_gift_draft, load_gift_draft
 from app.services.goal_story import GoalScenePlanner
 from app.services.payment import PaymentService
 from app.services.portmone_sandbox import send_portmone_sandbox_offer
