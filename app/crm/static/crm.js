@@ -16,7 +16,7 @@
   async function request(path, options={}, raw=false){
     const headers = {'Accept':'application/json',...options.headers};
     if(launch) headers.Authorization='tma '+launch;
-    if(options.body){headers['Content-Type']='application/json';if(!launch)headers['X-CSRF-Token']=state.csrf;}
+    if(options.body){headers['Content-Type']='application/json';if(state.csrf)headers['X-CSRF-Token']=state.csrf;}
     const response=await fetch('/crm/api'+path,{...options,headers,credentials:'same-origin',cache:'no-store'});
     if(!response.ok){let message='Ошибка '+response.status;try{const body=await response.json();message=typeof body.detail==='string'?body.detail:'Проверьте заполненные поля';}catch{}throw new Error(message);}
     return raw?response:response.json();
