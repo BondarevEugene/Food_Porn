@@ -140,6 +140,8 @@ class GiftFulfillment(CRMBase):
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
     wallpaper_order_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     video_order_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    collage_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    video_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC),
