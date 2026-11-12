@@ -110,7 +110,7 @@ async def test_wrong_price_and_owner_are_not_accepted_at_checkout(purchase_db):
                     amount_override=price,
                 )
     async with factory() as session:
-        with pytest.raises(WayForPayError, match="requires an immutable"):
+        with pytest.raises(WayForPayError, match="quote is missing"):
             await service.create_checkout(
                 session, telegram_user_id=42, product="gift_purchase",
                 reference_id=purchase.id, description="Gift bundle",
