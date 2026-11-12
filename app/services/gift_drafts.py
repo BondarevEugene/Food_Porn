@@ -7,10 +7,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.crm.models import GiftDraft
-
 
 VALID_CHOICES = frozenset({"collage", "video", "both"})
 VALID_STAGES = frozenset({"photos", "product", "goals", "ready"})
