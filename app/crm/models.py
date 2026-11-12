@@ -131,6 +131,22 @@ class GiftPaymentReceipt(CRMBase):
     )
 
 
+class GiftFulfillment(CRMBase):
+    """Durable generation state for one verified gift purchase."""
+
+    __tablename__ = "crm_gift_fulfillments"
+
+    purchase_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    wallpaper_order_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    video_order_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+
 async def initialize_schema(engine) -> None:
     # Only additive CRM-owned tables are created. Existing bot tables and Alembic head
     # are never altered, avoiding the differing local migration chains.
