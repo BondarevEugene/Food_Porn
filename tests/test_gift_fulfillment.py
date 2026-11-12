@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from PIL import Image
@@ -12,7 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.config import Settings
 from app.crm.models import CRMBase, GiftFulfillment, GiftPaymentReceipt
 from app.database.models import Base, VideoStoryOrder, WallpaperOrder
-from app.services import gift_fulfillment
+from app.services import gift_delivery, gift_fulfillment
 from app.services.gift_purchases import create_gift_quote
 
 
@@ -167,3 +168,55 @@ async def test_running_fulfillment_cannot_be_claimed_twice(fulfillment_factory):
             factory, settings, purchase.id
         )
     assert calls["render"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("choice", "send_collage", "send_video"), [
+    ("collage", True, False),
+    ("video", False, True),
+    ("both", True, True),
+])
+async def test_delivery_sends_only_paid_products_once(
+    fulfillment_factory, choice, send_collage, send_video
+):
+    factory, settings, photo, calls = fulfillment_factory
+    purchase = await _purchase(factory, settings, photo, choice)
+    await gift_fulfillment.process_paid_gift_purchase(
+        factory, settings, purchase.id
+    )
+    bot = SimpleNamespace(send_media_group=AsyncMock(), send_video=AsyncMock())
+    assert await gift_delivery.deliver_paid_gift(factory, bot, purchase.id)
+    assert not await gift_delivery.deliver_paid_gift(factory, bot, purchase.id)
+    assert bot.send_media_group.await_count == int(send_collage)
+    assert bot.send_video.await_count == int(send_video)
+    async with factory() as session:
+        checkpoint = await session.get(GiftFulfillment, purchase.id)
+        assert checkpoint.status == "delivered"
+        assert checkpoint.collage_sent is send_collage
+        assert checkpoint.video_sent is send_video
+
+
+@pytest.mark.asyncio
+async def test_failed_video_send_can_resume_without_resending_collage(
+    fulfillment_factory
+):
+    factory, settings, photo, calls = fulfillment_factory
+    purchase = await _purchase(factory, settings, photo, "both")
+    await gift_fulfillment.process_paid_gift_purchase(
+        factory, settings, purchase.id
+    )
+    bot = SimpleNamespace(
+        send_media_group=AsyncMock(),
+        send_video=AsyncMock(side_effect=RuntimeError("Temporary Telegram failure")),
+    )
+    with pytest.raises(RuntimeError, match="Temporary"):
+        await gift_delivery.deliver_paid_gift(factory, bot, purchase.id)
+    async with factory() as session:
+        checkpoint = await session.get(GiftFulfillment, purchase.id)
+        assert checkpoint.status == "ready"
+        assert checkpoint.collage_sent is True
+        assert checkpoint.video_sent is False
+    bot.send_video = AsyncMock()
+    assert await gift_delivery.deliver_paid_gift(factory, bot, purchase.id)
+    bot.send_media_group.assert_awaited_once()
+    bot.send_video.assert_awaited_once()
