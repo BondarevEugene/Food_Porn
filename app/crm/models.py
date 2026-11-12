@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Numeric, String, Text
+from sqlalchemy import JSON, BigInteger, Boolean, Date, DateTime, Numeric, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -61,8 +61,26 @@ class CustomerNote(CRMBase):
     updated_by: Mapped[str] = mapped_column(String(100))
 
 
+class GiftDraft(CRMBase):
+    """Recoverable pre-payment gift selection; never represents a paid entitlement."""
+
+    __tablename__ = "crm_gift_drafts"
+
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    product_choice: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    style: Mapped[str] = mapped_column(String(20), nullable=False, default="dark")
+    language: Mapped[str] = mapped_column(String(2), nullable=False, default="uk")
+    goals: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    photo_paths: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    stage: Mapped[str] = mapped_column(String(24), nullable=False, default="photos")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+
 async def initialize_schema(engine) -> None:
-    # Only these four tables are created. Existing bot tables and Alembic head
+    # Only additive CRM-owned tables are created. Existing bot tables and Alembic head
     # are never altered, avoiding the differing local migration chains.
     async with engine.begin() as connection:
         await connection.run_sync(CRMBase.metadata.create_all)
