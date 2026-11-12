@@ -179,7 +179,7 @@ async def webhook(request: Request) -> JSONResponse:
 
         if (
             activated
-            and payment.product == "gift_purchase"
+            and getattr(payment, "product", None) == "gift_purchase"
             and not payment.test_mode
         ):
             # Only a signed provider approval schedules generation. A sandbox
