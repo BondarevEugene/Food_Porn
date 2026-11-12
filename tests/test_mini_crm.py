@@ -449,6 +449,7 @@ async def test_browser_session_overrides_stale_telegram_initdata(crm):
 
 async def test_service_instance_registry_can_be_initialized_idempotently(tmp_path):
     from sqlalchemy import inspect
+
     from src.orchestrator.models import ServiceInstance
 
     engine = create_async_engine("sqlite+aiosqlite:///" + str(tmp_path / "service.db"))
@@ -468,6 +469,7 @@ async def test_service_instance_registry_can_be_initialized_idempotently(tmp_pat
 
 async def test_billing_sqladmin_tables_can_be_initialized_idempotently(tmp_path):
     from sqlalchemy import inspect
+
     from src.billing.models import Account, Transaction
 
     engine = create_async_engine("sqlite+aiosqlite:///" + str(tmp_path / "billing.db"))
