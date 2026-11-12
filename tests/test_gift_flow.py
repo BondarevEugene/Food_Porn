@@ -234,7 +234,7 @@ async def test_five_photo_album_waits_for_required_goals(tmp_path, monkeypatch):
     await state.set_state(WallpaperStates.waiting_for_five_photos)
     callback = SimpleNamespace(from_user=SimpleNamespace(id=42), message=fake_message(), answer=AsyncMock())
     await wallpaper.finish_gift_photos(callback, state, settings, None)
-    assert state.state == WallpaperStates.waiting_for_five_photos
+    assert state.state == WallpaperStates.waiting_for_product
     keyboard = callback.message.answer.await_args.kwargs["reply_markup"]
     assert {button.callback_data for row in keyboard.inline_keyboard for button in row} == {
         "gift_product:collage", "gift_product:video", "gift_product:both"
@@ -275,7 +275,7 @@ async def test_album_accepts_one_to_seven_photos(tmp_path, monkeypatch, count):
     assert state.state == WallpaperStates.waiting_for_five_photos
     callback = SimpleNamespace(from_user=SimpleNamespace(id=42), message=fake_message(), answer=AsyncMock())
     await wallpaper.finish_gift_photos(callback, state, settings, None)
-    assert state.state == WallpaperStates.waiting_for_five_photos
+    assert state.state == WallpaperStates.waiting_for_product
     keyboard = callback.message.answer.await_args.kwargs["reply_markup"]
     assert {button.callback_data for row in keyboard.inline_keyboard for button in row} == {
         "gift_product:collage", "gift_product:video", "gift_product:both"
@@ -558,7 +558,7 @@ async def test_resume_keeps_saved_uploads_after_memory_state_was_lost(tmp_path):
     message = SimpleNamespace(from_user=SimpleNamespace(id=42, language_code="ru"),
                               answer=AsyncMock())
     await wallpaper.resume_saved_photos(message, state, settings)
-    assert state.state == WallpaperStates.waiting_for_goals
+    assert state.state == WallpaperStates.waiting_for_product
     assert state.data["lang"] == "ru"
     assert len(wallpaper.upload_paths(settings, 42)) == 5
-    assert "5 фото сохранены" in message.answer.await_args.args[0]
+    assert "Сохранено 5 фото" in message.answer.await_args.args[0]
