@@ -72,14 +72,16 @@ def gift_keyboard(lang: str, selected: str = "dark") -> InlineKeyboardMarkup:
         ("light", "☀️ Світла", "☀️ Светлая", "☀️ Light"),
         ("color", "🌈 Кольорова", "🌈 Цветная", "🌈 Color"),
     )
+    # This keyboard is used only after the photo and product stages.
+    # Never offer to restart photo upload from the style selection step.
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=text_for(lang, "✨ Додати до 7 фото", "✨ Добавить до 7 фото", "✨ Add up to 7 photos"),
-                              callback_data="gift_five_photos")],
         [InlineKeyboardButton(text=("✓ " if key == selected else "")
-                                   + text_for(lang, uk, ru, en), callback_data=f"gift_style:{key}")
-         for key, uk, ru, en in styles],
-        [InlineKeyboardButton(text=text_for(lang, "⬅️ До меню", "⬅️ В меню", "⬅️ Back"),
-                              callback_data="back_to_products")],
+                                   + text_for(lang, uk, ru, en), callback_data=f"gift_style:{key}")]
+        for key, uk, ru, en in styles],
+        [InlineKeyboardButton(
+            text=text_for(lang, "⬅️ Головне меню", "⬅️ Главное меню", "⬅️ Main menu"),
+            callback_data="back_to_products",
+        )],
     ])
 
 
