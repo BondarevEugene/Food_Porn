@@ -24,6 +24,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+import httpx
 import pytest
 
 from app.bot.keyboards import add_wayforpay_option, get_payment_keyboard
@@ -671,3 +672,71 @@ async def test_wayforpay_late_failed_notification_does_not_revoke_approval() -> 
     assert result is False
     assert attempt.status == "approved"
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_check_status_rejects_unsigned_provider_reply_without_card_logging(
+    monkeypatch, caplog,
+) -> None:
+    from app.services import wayforpay as module
+
+    response = {
+        "reasonCode": 1100,
+        "reason": "Unknown order",
+        "cardPan": "4111111111111111",
+        "merchantSignature": "",
+    }
+
+    async def fake_request(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=response)
+
+    original_client = module.httpx.AsyncClient
+    monkeypatch.setattr(
+        module.httpx, "AsyncClient",
+        lambda **kwargs: original_client(
+            transport=httpx.MockTransport(fake_request), **kwargs
+        ),
+    )
+    attempt = payment()
+    with pytest.raises(WayForPayError, match="no valid payment signature"):
+        await WayForPayService(settings()).check_status(attempt)
+    assert "reason_code=1100" in caplog.text
+    assert "signed=False" in caplog.text
+    assert "4111111111111111" not in caplog.text
+    assert attempt.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_check_status_accepts_correctly_signed_provider_reply(monkeypatch) -> None:
+    from app.services import wayforpay as module
+
+    attempt = payment()
+    payload = {
+        "merchantAccount": TEST_MERCHANT_ACCOUNT,
+        "orderReference": attempt.order_reference,
+        "amount": "5.00",
+        "currency": "UAH",
+        "authCode": "AUTH-OK",
+        "cardPan": "41****1111",
+        "transactionStatus": "Approved",
+        "reasonCode": "1100",
+    }
+    payload["merchantSignature"] = sign([
+        payload[name] for name in (
+            "merchantAccount", "orderReference", "amount", "currency", "authCode",
+            "cardPan", "transactionStatus", "reasonCode",
+        )
+    ])
+
+    async def fake_request(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=payload)
+
+    original_client = module.httpx.AsyncClient
+    monkeypatch.setattr(
+        module.httpx, "AsyncClient",
+        lambda **kwargs: original_client(
+            transport=httpx.MockTransport(fake_request), **kwargs
+        ),
+    )
+    verified = await WayForPayService(settings()).check_status(attempt)
+    assert verified["transactionStatus"] == "Approved"
