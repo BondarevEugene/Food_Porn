@@ -429,11 +429,11 @@ async def start_five_photo_gift(callback: CallbackQuery, state: FSMContext) -> N
     await state.update_data(gift_upload_status_message_id=None)
     await callback.message.answer(text_for(
         data.get("lang", "uk"),
-        "📷 <b>Крок 1 із 3 · Додайте фото</b>\nДо 7 фото — альбомом або по черзі. "
+        "📷 <b>Крок 1 із 4 · Додайте фото</b>\nДо 7 фото — альбомом або по черзі. "
         "Після завантаження натисніть «Продовжити».",
-        "📷 <b>Шаг 1 из 3 · Добавьте фото</b>\nДо 7 фото — альбомом или по одному. "
+        "📷 <b>Шаг 1 из 4 · Добавьте фото</b>\nДо 7 фото — альбомом или по одному. "
         "После загрузки нажмите «Продолжить».",
-        "📷 <b>Step 1 of 3 · Add photos</b>\nUp to 7 photos in an album or separately. "
+        "📷 <b>Step 1 of 4 · Add photos</b>\nUp to 7 photos in an album or separately. "
         "Tap Continue when ready.",
     ), reply_markup=finish_photos_keyboard(data.get("lang", "uk")))
     await callback.answer()
@@ -464,10 +464,11 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
     await callback.answer()
     await callback.message.answer(
         text_for(data.get("lang", "uk"),
-                 "Фото збережено 💛 Оберіть, що створити:",
-                 "Фото сохранены 💛 Выберите, что создать:",
-                 "Photos saved 💛 Choose what to create:"),
+                 "② <b>Формат подарунка</b> · Оберіть, що створити:",
+                 "② <b>Формат подарка</b> · Выберите, что создать:",
+                 "② <b>Gift format</b> · Choose what to create:"),
         reply_markup=gift_product_keyboard(data.get("lang", "uk")),
+        parse_mode="HTML",
     )
 
 
@@ -501,7 +502,7 @@ async def select_gift_product(callback: CallbackQuery, state: FSMContext,
             "③ <b>Цілі й стиль</b> · цілі збережено. Надішліть їх ще раз для підтвердження або зміни.",
             "③ <b>Цели и стиль</b> · цели сохранены. Отправьте их снова для подтверждения или изменения.",
             "③ <b>Goals & style</b> · goals saved. Send them again to confirm or change.",
-        ), reply_markup=gift_goals_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
+        ), reply_markup=gift_goals_keyboard(data.get("lang", "uk"), data.get("style", "dark")), parse_mode="HTML")
     else:
         await callback.message.answer(text_for(
             data.get("lang", "uk"),
@@ -609,9 +610,9 @@ async def collect_photo(message: Message, state: FSMContext, settings: Settings,
     await message.answer(text_for(
         lang,
         "Фото збережено 💛 Оберіть, що створити:",
-        "Фото сохранено 💛 Выберите, что создать:",
-        "Photo saved 💛 Choose what to create:",
-    ), reply_markup=gift_product_keyboard(lang))
+        "② <b>Формат подарка</b> · Выберите, что создать:",
+        "② <b>Gift format</b> · Choose what to create:",
+    ), parse_mode="HTML", reply_markup=gift_product_keyboard(lang))
 
 @router.message(WallpaperStates.waiting_for_five_photos, F.photo | F.document)
 async def collect_five_photos(message: Message, state: FSMContext, settings: Settings,
