@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import time
 from decimal import Decimal
 from pathlib import Path
 
@@ -184,6 +185,7 @@ class MenuPipeline:
 
                     destination = self.settings.uploads_dir / str(menu.id) / f"item_{item.id}.jpg"
                     try:
+                        image_started = time.perf_counter()
                         path = await self.image_service.generate(
                             prompt,
                             destination,
@@ -193,6 +195,10 @@ class MenuPipeline:
                         )
                         await lease.assert_owned()
                         await repo.set_item_done(item, str(path))
+                        logger.info(
+                            "Menu image rendered menu=%s item=%s elapsed=%.2fs",
+                            menu_id, item.id, time.perf_counter() - image_started,
+                        )
                         dishes_done += 1
                         if (
                             is_telegram and customer_telegram_id
