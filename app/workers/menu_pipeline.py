@@ -27,7 +27,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.bot.keyboards import add_wayforpay_option, get_payment_keyboard
 from app.config import Settings
-from app.database.models import Customer, FileKind, GeneratedFile, GenerationStatus, Menu, MenuStatus
+from app.database.models import (
+    Customer,
+    FileKind,
+    GeneratedFile,
+    GenerationStatus,
+    Menu,
+    MenuStatus,
+)
 from app.database.repositories import MenuRepository
 from app.render.booklet import BookletRenderer, menu_render_snapshot
 from app.render.recipes import render_recipe_sheet
