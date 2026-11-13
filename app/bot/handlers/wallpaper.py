@@ -62,6 +62,17 @@ def get_user_lock(user_id: int) -> asyncio.Lock:
 MAX_GIFT_PHOTOS = 7
 
 
+async def retire_gift_step_buttons(callback: CallbackQuery) -> None:
+    """Remove buttons for a completed step so old Telegram messages cannot mislead."""
+    editor = getattr(getattr(callback, "message", None), "edit_reply_markup", None)
+    if not callable(editor):
+        return
+    try:
+        await editor(reply_markup=None)
+    except Exception:
+        logger.debug("Could not hide completed gift step buttons", exc_info=True)
+
+
 def text_for(lang: str, uk: str, ru: str, en: str) -> str:
     return {"ru": ru, "en": en}.get(lang, uk)
 
@@ -461,6 +472,7 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
                 )
             except Exception:
                 logger.exception("Could not persist gift draft for %s", user_id)
+    await retire_gift_step_buttons(callback)
     await callback.answer()
     await callback.message.answer(
         text_for(data.get("lang", "uk"),
@@ -494,6 +506,7 @@ async def select_gift_product(callback: CallbackQuery, state: FSMContext,
             )
         except Exception:
             logger.exception("Could not persist selected gift product for %s", callback.from_user.id)
+    await retire_gift_step_buttons(callback)
     await callback.answer()
     goals_saved = isinstance(data.get("goals"), list) and 5 <= len(data["goals"]) <= 9
     if goals_saved:
@@ -526,6 +539,7 @@ async def go_back_to_gift_product(
     data = await state.get_data()
     await state.update_data(gift_product=None, gift_quote_id=None)
     await state.set_state(WallpaperStates.waiting_for_product)
+    await retire_gift_step_buttons(callback)
     await callback.message.answer(
         text_for(data.get("lang", "uk"),
                  "② <b>Формат подарунка</b> · оберіть один варіант.",
