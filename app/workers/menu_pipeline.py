@@ -27,7 +27,7 @@ from app.bot.keyboards import add_wayforpay_option, get_payment_keyboard
 from app.config import Settings
 from app.database.models import FileKind, GenerationStatus, MenuStatus
 from app.database.repositories import MenuRepository
-from app.render.booklet import BookletRenderer
+from app.render.booklet import BookletRenderer, menu_render_snapshot
 from app.render.recipes import render_recipe_sheet
 from app.services.evening_plan import build_evening_plan, save_evening_plan
 from app.services.free_access import has_free_generation_access
@@ -211,7 +211,12 @@ class MenuPipeline:
                 shopping_text = self._format_shopping_list(shopping_list, language)
 
                 # Рецепты и список продуктов выдаются вместе с оплаченным PDF.
-                rendered_artifacts = await asyncio.to_thread(self.renderer.render, menu)
+                # Resolve every ORM attribute on the event loop before the
+                # CPU-bound Pillow/ReportLab renderer enters its worker thread.
+                render_input = menu_render_snapshot(menu)
+                rendered_artifacts = await asyncio.to_thread(
+                    self.renderer.render, render_input
+                )
                 preview_image_path = rendered_artifacts.outside_preview
                 production_pdf_path = rendered_artifacts.print_pdf
                 recipe_path = await asyncio.to_thread(
