@@ -219,6 +219,41 @@ class MenuRepository:
         await self._commit()
         self.session.expire_all()
 
+    async def set_premium_preferences(
+        self, menu_id: int, **changes: object
+    ) -> Menu:
+        """Save an editable menu configuration; never mutate paid orders."""
+        allowed = {
+            "selection_mode", "selected_cuisine", "visual_style", "servings",
+            "menu_mood", "include_drinks", "include_dessert",
+        }
+        if not changes or set(changes) - allowed:
+            raise ValueError("Invalid menu preference keys")
+        menu = await self.get(menu_id)
+        if menu is None:
+            raise LookupError(f"Menu {menu_id} not found")
+        if menu.status not in (MenuStatus.DRAFT, MenuStatus.FAILED) or menu.is_paid:
+            raise ValueError("Paid or processing menu preferences cannot be changed")
+        if "servings" in changes and (
+            type(changes["servings"]) is not int
+            or not 1 <= changes["servings"] <= 12
+        ):
+            raise ValueError("Servings must be 1–12")
+        if "selection_mode" in changes and changes["selection_mode"] not in ("manual", "cuisine"):
+            raise ValueError("Invalid selection mode")
+        if "visual_style" in changes and changes["visual_style"] not in (
+            "premium_dark", "premium_light", "premium_colorful",
+        ):
+            raise ValueError("Invalid visual style")
+        if "menu_mood" in changes and changes["menu_mood"] not in (
+            "romantic", "cozy", "festive", "light", "refined",
+        ):
+            raise ValueError("Invalid menu mood")
+        for field, value in changes.items():
+            setattr(menu, field, value)
+        await self._commit()
+        return menu
+
     async def replace_menu_plan(
         self,
         *,
