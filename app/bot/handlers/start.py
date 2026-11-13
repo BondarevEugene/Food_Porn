@@ -178,39 +178,25 @@ def get_products_menu_keyboard(
     user_id: int | None = None, lang: str = "uk", *, is_admin: bool = False
 ) -> InlineKeyboardMarkup:
     """Головне меню вибору продуктів екосистеми."""
+    # Product decisions first; service actions are a separate level.
     buttons = [
-        [
-            InlineKeyboardButton(
-                text=text_for(lang, "🍽 Створити меню", "🍽 Создать меню", "🍽 Create a menu"),
-                callback_data="prod_food_porn",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=text_for(
-                    lang,
-                    "📱 Створити карту бажань на заставку",
-                    "📱 Создать карту желаний на заставку",
-                    "📱 Create a vision-board wallpaper",
-                ),
-                callback_data="prod_manifestation",
-            )
-        ],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🎁 Створити подарунок", "🎁 Создать подарок", "🎁 Create a gift"),
+            callback_data="prod_manifestation",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🍽 Створити меню", "🍽 Создать меню", "🍽 Create a menu"),
+            callback_data="prod_food_porn",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "📦 Мої замовлення", "📦 Мои заказы", "📦 My orders"),
+            callback_data="home_orders",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "⚙️ Допомога та налаштування", "⚙️ Помощь и настройки", "⚙️ Help & settings"),
+            callback_data="home_services",
+        )],
     ]
-    buttons.extend([
-        [
-            InlineKeyboardButton(text=text_for(lang, "📦 Мої замовлення", "📦 Мои заказы", "📦 My orders"), callback_data="home_orders"),
-            InlineKeyboardButton(text=text_for(lang, "🎁 Запросити друга", "🎁 Пригласить друга", "🎁 Invite a friend"), callback_data="home_referral"),
-        ],
-        [
-            InlineKeyboardButton(text=text_for(lang, "📖 Інструкція", "📖 Инструкция", "📖 How it works"), callback_data="home_instruction"),
-            InlineKeyboardButton(text="FAQ", callback_data="home_faq"),
-        ],
-        [
-            InlineKeyboardButton(text=text_for(lang, "💬 Підтримка", "💬 Поддержка", "💬 Support"), callback_data="home_support"),
-            InlineKeyboardButton(text=text_for(lang, "🌐 Мова", "🌐 Язык", "🌐 Language"), callback_data="choose_language"),
-        ],
-    ])
     if is_admin or user_id in get_settings().admin_telegram_ids:
         buttons.append(
             [InlineKeyboardButton(text="👑 Панель керування (Адмін)", callback_data="admin_home")]
@@ -331,6 +317,44 @@ async def set_ui_language(callback: CallbackQuery, state: FSMContext) -> None:
             "All set 💛 Choose a gift:",
         ),
         reply_markup=await get_user_products_menu_keyboard(callback.from_user, lang),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "home_services")
+async def home_services(callback: CallbackQuery) -> None:
+    lang = language_for(callback.from_user)
+    buttons = [
+        [InlineKeyboardButton(
+            text=text_for(lang, "❓ Як це працює", "❓ Как это работает", "❓ How it works"),
+            callback_data="home_instruction",
+        )],
+        [InlineKeyboardButton(text="FAQ", callback_data="home_faq")],
+        [InlineKeyboardButton(
+            text=text_for(lang, "💬 Підтримка", "💬 Поддержка", "💬 Support"),
+            callback_data="home_support",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🌐 Мова", "🌐 Язык", "🌐 Language"),
+            callback_data="choose_language",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🎁 Запросити друга", "🎁 Пригласить друга", "🎁 Invite a friend"),
+            callback_data="home_referral",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "⬅️ На головну", "⬅️ На главную", "⬅️ Home"),
+            callback_data="back_to_products",
+        )],
+    ]
+    await callback.message.answer(
+        text_for(
+            lang,
+            "⚙️ <b>Допомога та налаштування</b>\\nОберіть потрібний розділ.",
+            "⚙️ <b>Помощь и настройки</b>\\nВыберите нужный раздел.",
+            "⚙️ <b>Help & settings</b>\\nChoose a section.",
+        ),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
     await callback.answer()
 
