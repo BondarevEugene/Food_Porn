@@ -234,14 +234,19 @@ def get_services_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+async def get_user_services_keyboard(user: object, lang: str = "uk") -> InlineKeyboardMarkup:
+    """Preserve VIP/admin permissions without showing admin among products."""
+    admin = await has_admin_access(
+        user.id, getattr(user, "username", None),
+        get_settings(), async_session_maker,
+    )
+    return get_services_keyboard(user.id, lang, is_admin=admin)
+
+
 @router.callback_query(F.data == "home_services")
 async def open_services(callback: CallbackQuery, state: FSMContext) -> None:
     lang = await preferred_language(callback.from_user, state)
-    admin = await has_admin_access(
-        callback.from_user.id, getattr(callback.from_user, "username", None),
-        get_settings(), async_session_maker,
-    )
-    keyboard = get_services_keyboard(callback.from_user.id, lang, is_admin=admin)
+    keyboard = await get_user_services_keyboard(callback.from_user, lang)
     # Do not leave an active wizard behind the account/help screen.
     selected = (await state.get_data()).get("lang_selected", False)
     await state.clear()
