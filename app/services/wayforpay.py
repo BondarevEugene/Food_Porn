@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import os
 import secrets
 import time
@@ -33,6 +34,8 @@ from app.config import Settings
 from app.crm.models import GiftPaymentReceipt, GiftPurchase
 from app.database.models import Menu, MenuStatus, VideoStoryOrder, WallpaperOrder, WayForPayPayment
 from app.database.repositories import WayForPayPaymentRepository
+
+logger = logging.getLogger(__name__)
 
 WAYFORPAY_CHECKOUT_URL = "https://secure.wayforpay.com/pay"
 WAYFORPAY_API_URL = "https://api.wayforpay.com/api"
@@ -279,8 +282,26 @@ class WayForPayService:
             response = await client.post(WAYFORPAY_API_URL, json=payload)
             response.raise_for_status()
         data = response.json()
-        if not isinstance(data, dict) or not self.verify_provider_payload(payment, data):
-            raise WayForPayError("WayForPay returned an invalid signed status")
+        if not isinstance(data, dict):
+            raise WayForPayError("WayForPay status response is not an object")
+        if not self.verify_provider_payload(payment, data):
+            # Diagnostic metadata is deliberately limited to response keys and
+            # provider status/reason codes. Never log PAN, signatures, tokens,
+            # API credentials or the complete provider response.
+            reason_code = str(data.get("reasonCode", ""))[:24]
+            transaction_status = str(data.get("transactionStatus", ""))[:40]
+            has_signature = bool(data.get("merchantSignature"))
+            logger.warning(
+                "WayForPay CHECK_STATUS could not be authenticated: "
+                "order=%s signed=%s reason_code=%s transaction_status=%s",
+                payment.order_reference,
+                has_signature,
+                reason_code or "-",
+                transaction_status or "-",
+            )
+            raise WayForPayError(
+                "WayForPay status reply has no valid payment signature"
+            )
         return data
 
 
