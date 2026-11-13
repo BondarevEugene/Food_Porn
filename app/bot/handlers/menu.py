@@ -576,6 +576,13 @@ async def receive_photo(
     current_state = await state.get_state()
     role = "cover" if current_state == PremiumMenuStates.waiting_for_cover.state else "spread"
 
+    role_label = "обложки" if role == "cover" else "разворота"
+    # Send feedback before either the Neon query or Telegram download.
+    await _photo_status_notice(
+        message,
+        f"📥 Фото для {role_label} получено. "
+        "Проверяю заказ и загружаю файл…",
+    )
     async with session_factory() as session:
         existing = await MenuRepository(session).get(menu_id, full=True)
     if not _owned_by(existing, message.from_user.id):
@@ -583,13 +590,6 @@ async def receive_photo(
         await message.answer("Сет не найден. Вернитесь в /start.")
         return
 
-    role_label = "обложки" if role == "cover" else "разворота"
-    # Acknowledge the Telegram update before slow network download.
-    await _photo_status_notice(
-        message,
-        f"📥 Фото для {role_label} получено Telegram. "
-        "Загружаю и проверяю файл…",
-    )
     try:
         path = await StorageService(settings).save_telegram_photo(
             bot, message.photo[-1].file_id, menu_id=menu_id, role=role
