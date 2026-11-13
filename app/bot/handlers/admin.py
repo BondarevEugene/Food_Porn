@@ -19,6 +19,7 @@ from aiogram.types import (
 
 from app.config import get_settings
 from app.crm import service
+from app.crm.login_tickets import issue_crm_login_url
 from app.database import async_session_maker
 from app.services.admin_access import crm_url, has_admin_access
 from app.services.settings_service import get_paid_test_user_ids
@@ -115,11 +116,15 @@ async def save_vip_list(names: list[str], actor_id: int, action: str) -> list[st
     return normalized
 
 
-def get_admin_main_keyboard() -> InlineKeyboardMarkup:
+def get_admin_main_keyboard(secure_url: str | None = None) -> InlineKeyboardMarkup:
     rows = []
     url = crm_url(get_settings())
     if url:
-        rows.append([InlineKeyboardButton(text="✦ Открыть Mini CRM", web_app=WebAppInfo(url=url))])
+        rows.append([InlineKeyboardButton(
+            text="✦ Открыть Mini CRM",
+            web_app=WebAppInfo(url=secure_url) if secure_url else None,
+            callback_data=None if secure_url else "crm_secure_login",
+        )])
     rows.extend(
         [
             [
@@ -260,18 +265,51 @@ async def summary_text() -> str:
 @router.message(F.text.in_({"/admin", "👑 Админка", "✦ Mini CRM"}))
 async def admin_panel_command(message: Message, state: FSMContext):
     await state.clear()
+    secure_url = await issue_crm_login_url(async_session_maker, message.from_user.id)
     await message.answer(
-        await summary_text(), reply_markup=get_admin_main_keyboard(), parse_mode="HTML"
+        await summary_text(),
+        reply_markup=get_admin_main_keyboard(secure_url),
+        parse_mode="HTML",
     )
+
+
+@router.callback_query(F.data == "crm_secure_login")
+async def crm_secure_login_callback(callback: CallbackQuery):
+    secure_url = await issue_crm_login_url(async_session_maker, callback.from_user.id)
+    if not secure_url:
+        await callback.answer(
+            "Доступ к Mini CRM разрешён только Telegram ID из "
+            "ADMIN_TELEGRAM_IDS или CRM_VIP_TELEGRAM_IDS.",
+            show_alert=True,
+        )
+        return
+    await callback.message.answer(
+        "🔐 <b>Mini CRM</b>\\nНажмите кнопку для безопасного входа без пароля. "
+        "Ссылка действует 2 минуты и только один раз.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text="✦ Открыть Mini CRM",
+                web_app=WebAppInfo(url=secure_url),
+            )
+        ]]),
+    )
+    await callback.answer()
 
 
 @router.callback_query(F.data.in_({"admin_home", "admin_stats"}))
 async def admin_home_callback(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.clear()
+    caller = getattr(callback, "from_user", None)
+    secure_url = (
+        await issue_crm_login_url(async_session_maker, caller.id)
+        if caller is not None else None
+    )
     try:
         await callback.message.edit_text(
-            await summary_text(), reply_markup=get_admin_main_keyboard(), parse_mode="HTML"
+            await summary_text(),
+            reply_markup=(get_admin_main_keyboard(secure_url) if secure_url else get_admin_main_keyboard()),
+            parse_mode="HTML"
         )
     except TelegramBadRequest as exc:
         # A repeated click can result in identical text and keyboard. Telegram

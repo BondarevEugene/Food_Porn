@@ -11,13 +11,14 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, inspect, select
 from sqlalchemy.exc import IntegrityError
 
 from app.config import get_settings
 from app.crm import integrations, service
+from app.crm.login_tickets import consume_crm_login_ticket
 from app.crm.models import Audit, CustomerNote, Expense, Integration
 from app.crm.security import crm_identity, decrypt_credentials, encrypt_credentials, require_owner
 from app.database.models import AppSetting, Customer, WallpaperOrder
@@ -66,6 +67,31 @@ class IntegrationUpdate(Payload):
     config: dict[str, str]
     credentials: dict[str, str] = Field(default_factory=dict)
     clear_credentials: bool = False
+
+
+@router.get("/entry/{ticket}", include_in_schema=False)
+async def crm_telegram_entry(ticket: str, request: Request):
+    """Consume a private-chat login ticket and establish a signed CRM session.
+
+    Telegram WebApp initData remains the first option. This path is a fallback
+    for Telegram clients with empty initData; it grants no access without a
+    one-time ticket issued to a numeric allowlisted Telegram user.
+    """
+    telegram_id = await consume_crm_login_ticket(async_session_maker, ticket)
+    if telegram_id is None:
+        raise HTTPException(401, "Ссылка устарела. Откройте Mini CRM заново через /admin.")
+    request.session.pop("admin_authenticated", None)
+    request.session.pop("admin_login_at", None)
+    request.session["crm_telegram_id"] = telegram_id
+    request.session["crm_telegram_issued"] = int(datetime.now(UTC).timestamp())
+    request.session["crm_csrf"] = secrets.token_urlsafe(32)
+    return RedirectResponse(
+        "/crm", status_code=303,
+        headers={
+            "Cache-Control": "no-store, private",
+            "Referrer-Policy": "no-referrer",
+        },
+    )
 
 
 @router.get("", include_in_schema=False)
