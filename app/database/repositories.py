@@ -386,6 +386,31 @@ class MenuRepository:
         await self._commit()
         return True
 
+    async def grant_vip_menu_access(self, menu_id: int) -> bool:
+        """Grant an already-verified VIP order without a fake provider invoice.
+
+        Call only after the caller has independently checked VIP eligibility.
+        Ordinary payment receipts still require a verified checkout.
+        """
+        menu = (await self.session.execute(
+            select(Menu).where(Menu.id == menu_id).with_for_update()
+        )).scalar_one_or_none()
+        if menu is None:
+            raise LookupError(f"Menu {menu_id} not found")
+        if menu.is_paid:
+            if menu.payment_system != "vip_bypass":
+                return False
+            return True
+        if menu.status not in {MenuStatus.QUEUED, MenuStatus.IMAGES_READY}:
+            raise ValueError(f"Menu {menu_id} cannot receive VIP bypass in {menu.status}")
+        menu.is_paid = True
+        menu.payment_id = f"VIP_PASS_{menu_id}"
+        menu.payment_system = "vip_bypass"
+        menu.paid_at = menu.paid_at or datetime.now(UTC)
+        menu.status = MenuStatus.PAID
+        await self._commit()
+        return True
+
     async def mark_sent_to_printshop(self, menu_id: int) -> None:
         menu = await self.get(menu_id)
         if menu is None:

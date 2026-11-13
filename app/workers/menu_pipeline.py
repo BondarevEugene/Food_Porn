@@ -22,11 +22,19 @@ from decimal import Decimal
 from pathlib import Path
 
 from aiogram.types import FSInputFile
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.bot.keyboards import add_wayforpay_option, get_payment_keyboard
 from app.config import Settings
-from app.database.models import FileKind, GenerationStatus, MenuStatus
+from app.database.models import (
+    Customer,
+    FileKind,
+    GeneratedFile,
+    GenerationStatus,
+    Menu,
+    MenuStatus,
+)
 from app.database.repositories import MenuRepository
 from app.render.booklet import BookletRenderer, menu_render_snapshot
 from app.render.recipes import render_recipe_sheet
@@ -299,7 +307,9 @@ class MenuPipeline:
                 if is_vip or menu.is_paid:
                     # ВИП-режим: сразу отмечаем как оплаченное и выдаем чистые файлы без эквайринга
                     if not menu.is_paid:
-                        await repo.mark_as_paid(menu_id, payment_id=f"VIP_PASS_{menu_id}", payment_system="vip_bypass")
+                        granted = await repo.grant_vip_menu_access(menu_id)
+                        if not granted:
+                            raise RuntimeError("VIP bypass refused for a commercially paid menu")
 
                     if preview_image_path and Path(preview_image_path).exists() and chat_id:
                         vip_msg = (
@@ -515,29 +525,64 @@ class MenuPipeline:
                 logger.info(f"Pipeline successfully finished for Menu ID:{menu_id}")
 
             except Exception as proc_exc:
+                # A failed transaction expires its ORM instances. Never read
+                # menu.files/menu.customer/menu.is_paid after a rollback:
+                # implicit async ORM I/O raises MissingGreenlet and hides the
+                # original error (this happened to menu #98).
+                logger.exception("Pipeline processing failed for Menu ID:%s", menu_id)
                 try:
                     await lease.assert_owned()
                 except RuntimeError:
-                    logger.warning("Menu %s lease lost; refusing stale failure status update", menu_id)
+                    logger.warning(
+                        "Menu %s lease lost; refusing stale failure status update", menu_id
+                    )
                     return
-                logger.error(f"Pipeline processing failed for Menu ID:{menu_id}: {proc_exc}", exc_info=True)
-                # A delivery failure must not invalidate an already paid order.
-                # Generated artifacts remain available for a separate delivery retry.
-                has_ready_files = any(
-                    Path(generated.path).is_file() for generated in menu.files
-                )
-                failure_status = (
-                    MenuStatus.PARTIAL_SUCCESS
-                    if menu.is_paid and has_ready_files
-                    else MenuStatus.FAILED
-                )
-                await repo.set_status(
-                    menu_id, failure_status, error_message=str(proc_exc)
-                )
-                if menu.source_channel == "telegram":
+
+                try:
+                    async with self.session_factory() as recovery_session:
+                        record = (await recovery_session.execute(
+                            select(
+                                Menu.is_paid, Menu.source_channel,
+                                Customer.telegram_user_id,
+                            )
+                            .join(Customer, Menu.customer_id == Customer.id)
+                            .where(Menu.id == menu_id)
+                        )).one_or_none()
+                        paths = (await recovery_session.scalars(
+                            select(GeneratedFile.path).where(
+                                GeneratedFile.menu_id == menu_id
+                            )
+                        )).all()
+                        if record is None:
+                            logger.error("Menu %s vanished during recovery", menu_id)
+                            return
+                        is_paid, source_channel, telegram_user_id = record
+                        has_ready_files = any(
+                            path and Path(path).is_file() for path in paths
+                        )
+                        failure_status = (
+                            MenuStatus.PARTIAL_SUCCESS
+                            if is_paid and has_ready_files else MenuStatus.FAILED
+                        )
+                        recovery_repo = MenuRepository(
+                            recovery_session,
+                            processing_token=lease.token,
+                            processing_menu_id=menu_id,
+                        )
+                        await recovery_repo.set_status(
+                            menu_id, failure_status, error_message=str(proc_exc)[:2000]
+                        )
+                except Exception:
+                    logger.exception(
+                        "Menu %s error recovery failed; original cause retained above",
+                        menu_id,
+                    )
+                    return
+
+                if source_channel == "telegram":
                     try:
                         await self.bot.send_message(
-                            menu.customer.telegram_user_id,
+                            telegram_user_id,
                             (
                                 "Комплект подготовлен, но доставка не завершилась. "
                                 "Ваш оплаченный заказ сохранён; повторная оплата не требуется."
@@ -548,7 +593,9 @@ class MenuPipeline:
                             ),
                         )
                     except Exception:
-                        logger.exception("Could not notify customer about failed menu %s", menu_id)
+                        logger.exception(
+                            "Could not notify customer about failed menu %s", menu_id
+                        )
 
     @staticmethod
     def _format_shopping_list(shopping_list: dict | list, language: str) -> str:
