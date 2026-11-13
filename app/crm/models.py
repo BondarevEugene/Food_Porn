@@ -149,6 +149,20 @@ class GiftFulfillment(CRMBase):
     )
 
 
+class CRMLoginTicket(CRMBase):
+    """One-time short-lived CRM sign-in proof issued in a private Telegram chat.
+
+    Only a SHA-256 digest is stored; a stolen database row is not a login URL.
+    """
+
+    __tablename__ = "crm_login_tickets"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 async def initialize_schema(engine) -> None:
     # Only additive CRM-owned tables are created. Existing bot tables and Alembic head
     # are never altered, avoiding the differing local migration chains.
