@@ -49,7 +49,7 @@ from app.services.menu_wizard import (
     meal_slot_label,
     parse_menu_plan,
 )
-from app.services.storage import InvalidImageError, StorageService
+from app.services.storage import InvalidImageError, PhotoTransferUnavailable, StorageService
 from app.workers.menu_pipeline import MenuPipeline
 
 logger = logging.getLogger(__name__)
@@ -572,12 +572,31 @@ async def receive_photo(
         await message.answer("Сет не найден. Вернитесь в /start.")
         return
 
+    role_label = "обложки" if role == "cover" else "разворота"
+    # Acknowledge the Telegram update before slow network download.
+    await message.answer(
+        f"📥 Фото для {role_label} получено Telegram. "
+        "Загружаю и проверяю файл…"
+    )
     try:
         path = await StorageService(settings).save_telegram_photo(
             bot, message.photo[-1].file_id, menu_id=menu_id, role=role
         )
     except InvalidImageError:
-        await message.answer(f"⚠️ Ошибка формата. Загрузите корректное фото (до {settings.max_upload_mb} MB).")
+        await message.answer(
+            f"⚠️ Ошибка формата. Загрузите корректное фото (до {settings.max_upload_mb} MB)."
+        )
+        return
+    except PhotoTransferUnavailable:
+        logger.warning(
+            "Menu photo cannot be downloaded from Telegram: menu=%s role=%s",
+            menu_id, role,
+        )
+        await message.answer(
+            f"⚠️ Telegram не передал фото для {role_label}. "
+            "Сет сохранён, повторите отправку этого фото. "
+            "Повторно создавать заказ не нужно."
+        )
         return
 
     async with session_factory() as session:
@@ -591,6 +610,7 @@ async def receive_photo(
         menu = await repo.get(menu_id, full=True)
 
     await state.set_state(None)
+    await message.answer(f"✅ Фото для {role_label} сохранено. Обновляю карточку сета.")
     msg = await message.answer(
         format_premium_dashboard(menu),
         reply_markup=build_dashboard_kb(menu),
