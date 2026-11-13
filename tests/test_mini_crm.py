@@ -752,7 +752,7 @@ async def test_secure_telegram_crm_ticket_vip_scope_and_revocation(crm):
     crm.settings.crm_vip_telegram_ids = (12,)
     url = await login_tickets.issue_crm_login_url(crm.factory, 12)
     assert url is not None
-    assert (await crm.client.get("/" + url.split("/", 3)[3])).status_code == 200
+    assert (await crm.client.get("/" + url.split("/", 3)[3], follow_redirects=False)).status_code == 303
     assert (await crm.client.get("/crm/api/dashboard")).status_code == 200
     assert (await crm.client.get("/crm/api/customers")).status_code == 403
     crm.settings.crm_vip_telegram_ids = ()
