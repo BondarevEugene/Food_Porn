@@ -300,7 +300,11 @@ async def crm_secure_login_callback(callback: CallbackQuery):
 async def admin_home_callback(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.clear()
-    secure_url = await issue_crm_login_url(async_session_maker, callback.from_user.id)
+    caller = getattr(callback, "from_user", None)
+    secure_url = (
+        await issue_crm_login_url(async_session_maker, caller.id)
+        if caller is not None else None
+    )
     try:
         await callback.message.edit_text(
             await summary_text(),
