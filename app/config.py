@@ -158,6 +158,7 @@ class Settings(BaseSettings):
     )
 
     admin_telegram_ids: Annotated[tuple[int, ...], NoDecode] = ()
+    crm_vip_telegram_ids: Annotated[tuple[int, ...], NoDecode] = ()
     free_generation_telegram_ids: Annotated[tuple[int, ...], NoDecode] = ()
     default_vip_users: list[str] = Field(default_factory=lambda: ["Voloshka0602", "MenuDishesForLove", "bondarev_e"])
     admin_username: str = ""
@@ -193,7 +194,7 @@ class Settings(BaseSettings):
             query["ssl"] = ssl_mode
         return url.set(query=query).render_as_string(hide_password=False)
 
-    @field_validator("admin_telegram_ids", "free_generation_telegram_ids", mode="before")
+    @field_validator("admin_telegram_ids", "crm_vip_telegram_ids", "free_generation_telegram_ids", mode="before")
     @classmethod
     def parse_admin_ids(cls, value: object) -> tuple[int, ...]:
         if value in (None, "", (), []):
@@ -755,6 +756,11 @@ PRINT_DPI = 300
 # В .env формат:
 # ADMIN_TELEGRAM_IDS=725003786,123456789
 # Допускается также JSON-массив целых чисел.
+#
+# crm_vip_telegram_ids: tuple[int, ...]
+# VIP с правом входа в Mini CRM (режим только обзора) по Telegram ID.
+# Не путать с VIP для бесплатной генерации по username.
+# CRM_VIP_TELEGRAM_IDS=123456789,987654321
 #
 # free_generation_telegram_ids: tuple[int, ...]
 # Список Telegram ID пользователей, которым разрешена

@@ -78,7 +78,7 @@
   function closeDialog(){document.querySelector('#dialog').close();}
   document.addEventListener('click',async event=>{
     const el=event.target.closest('[data-nav],[data-action]');if(!el)return;
-    if(el.dataset.nav){state.tab=el.dataset.nav;state.page=1;state.search='';await render();return;}
+    if(el.dataset.nav){if(!state.owner && el.dataset.nav!=='dashboard'){toast('VIP: доступен обзор без персональных данных',true);return;}state.tab=el.dataset.nav;state.page=1;state.search='';await render();return;}
     const action=el.dataset.action;
     try{
       if(action==='refresh'){await render();return;}
@@ -109,5 +109,5 @@
       closeDialog();toast('Сохранено');await render();
     }catch(error){toast(error.message,true);}finally{if(submit)submit.disabled=false;}
   });
-  (async()=>{try{const info=await get('/session');state.csrf=info.csrf;state.owner=info.owner;document.querySelector('#profile-name').textContent=info.name;document.querySelector('.avatar').textContent=(info.name||'A').slice(0,1);await render();}catch(error){document.querySelector('#profile-name').textContent='Нет доступа';content.innerHTML=`<div class="auth-screen"><p class="eyebrow">FOOD_PORN / ДОСТУП</p><h1>Откройте CRM из бота</h1><p>${esc(error.message)}</p><a class="button primary" href="/admin/login">Войти через веб-админку</a><p class="field-help" style="margin-top:18px">В боте: /start → Mini CRM. Кнопка доступна администраторам и настроенным VIP-пользователям.</p></div>`;}})();
+  (async()=>{try{const info=await get('/session');state.csrf=info.csrf;state.owner=info.owner;if(!state.owner){document.querySelectorAll('[data-nav]').forEach(el=>{if(el.dataset.nav!=='dashboard')el.hidden=true;});}document.querySelector('#profile-name').textContent=info.name;document.querySelector('.avatar').textContent=(info.name||'A').slice(0,1);await render();}catch(error){document.querySelector('#profile-name').textContent='Нет доступа';content.innerHTML=`<div class="auth-screen"><p class="eyebrow">FOOD_PORN / ДОСТУП</p><h1>Откройте CRM из бота</h1><p>${esc(error.message)}</p><a class="button primary" href="/admin/login">Войти через веб-админку</a><p class="field-help" style="margin-top:18px">В боте: /start → Mini CRM. Кнопка доступна администраторам и настроенным VIP-пользователям.</p></div>`;}})();
 })();

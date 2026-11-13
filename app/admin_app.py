@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import secrets
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -22,7 +24,18 @@ from src.billing.models import Account, Transaction
 from src.orchestrator.models import ServiceInstance
 
 settings = get_settings()
-SESSION_SECRET = settings.admin_session_secret.get_secret_value() or secrets.token_urlsafe(48)
+# Prefer an independent stable secret from .env. When absent, derive a
+# distinct signing key from the already-secret Telegram bot token so a routine
+# server restart does not log every CRM user out.
+SESSION_SECRET = (
+    settings.admin_session_secret.get_secret_value()
+    or (
+        hashlib.sha256(
+            ("food-porn-crm-session-v1:" + settings.bot_token).encode()
+        ).hexdigest()
+        if settings.bot_token else secrets.token_urlsafe(48)
+    )
+)
 
 
 class AdminAuth(AuthenticationBackend):
@@ -37,7 +50,10 @@ class AdminAuth(AuthenticationBackend):
             username.encode(), (configured.admin_username or "admin").encode()
         ) and hmac.compare_digest(password.encode(), expected_password.encode()):
             request.session.clear()
-            request.session.update(admin_authenticated=True, crm_csrf=secrets.token_urlsafe(32))
+            request.session.update(
+                admin_authenticated=True, admin_login_at=int(time.time()),
+                crm_csrf=secrets.token_urlsafe(32),
+            )
             return True
         return False
 
@@ -46,7 +62,12 @@ class AdminAuth(AuthenticationBackend):
         return True
 
     async def authenticate(self, request) -> bool:
-        return request.session.get("admin_authenticated") is True
+        issued = request.session.get("admin_login_at")
+        return (
+            request.session.get("admin_authenticated") is True
+            and type(issued) is int
+            and 0 <= time.time() - issued < 8 * 3600
+        )
 
 
 class CRMLink(BaseView):
@@ -193,7 +214,9 @@ app.add_middleware(
     secret_key=SESSION_SECRET,
     same_site="lax",
     https_only=settings.app_env == "production",
-    max_age=8 * 3600,
+    # Telegram-signed Mini CRM session lasts seven days; password admin
+    # sessions still expire after eight hours in AdminAuth.authenticate.
+    max_age=7 * 24 * 3600,
 )
 app.include_router(crm_router)
 auth_backend = AdminAuth(secret_key=SESSION_SECRET)

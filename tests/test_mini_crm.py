@@ -426,6 +426,73 @@ async def test_web_login_and_csrf(crm):
     assert (await crm.client.get("/crm/api/dashboard")).status_code == 401
 
 
+async def test_telegram_owner_auto_login_survives_reload_and_stale_initdata(crm):
+    result = await crm.client.get("/crm/api/session", headers=signed(42))
+    assert result.status_code == 200
+    assert result.json()["owner"] is True
+    csrf = result.json()["csrf"]
+
+    # No Authorization header required after one verified Telegram launch.
+    assert (await crm.client.get("/crm/api/dashboard")).status_code == 200
+    assert (await crm.client.get(
+        "/crm/api/session", headers={"Authorization": "tma invalid"}
+    )).status_code == 200
+
+    # A remembered cookie must never bypass CSRF on writes.
+    assert (await crm.client.patch(
+        "/crm/api/settings", json={"values": {"gift_price_stars": 4}}
+    )).status_code == 403
+    assert (await crm.client.patch(
+        "/crm/api/settings", headers={"x-csrf-token": csrf},
+        json={"values": {"gift_price_stars": 4}}
+    )).status_code == 200
+
+
+async def test_vip_telegram_login_is_read_only_and_revocable(crm):
+    crm.settings.crm_vip_telegram_ids = (12,)
+    response = await crm.client.get(
+        "/crm/api/session", headers=signed(12, "VipPerson")
+    )
+    assert response.status_code == 200
+    assert response.json()["owner"] is False
+    assert (await crm.client.get("/crm/api/dashboard")).status_code == 200
+
+    # VIP cannot see customer PII, individual orders, exports or secrets.
+    for path in (
+        "/crm/api/customers", "/crm/api/orders",
+        "/crm/api/export/customers", "/crm/api/settings",
+        "/crm/api/ledger", "/crm/api/integrations",
+    ):
+        assert (await crm.client.get(path)).status_code == 403
+    assert (await crm.client.put(
+        "/crm/api/vip", headers={"x-csrf-token": response.json()["csrf"]},
+        json={"names": ["bad"]}
+    )).status_code == 403
+
+    # Revocation applies to an existing cookie, not just new launches.
+    crm.settings.crm_vip_telegram_ids = ()
+    assert (await crm.client.get("/crm/api/dashboard")).status_code == 401
+
+
+async def test_expired_telegram_cookie_requires_fresh_verified_launch(crm, monkeypatch):
+    response = await crm.client.get("/crm/api/session", headers=signed(42))
+    assert response.status_code == 200
+    actual_time = time.time()
+    monkeypatch.setattr(
+        security.time, "time",
+        lambda: actual_time + security.CRM_TELEGRAM_SESSION_SECONDS + 10,
+    )
+    assert (await crm.client.get("/crm/api/dashboard")).status_code == 401
+
+
+async def test_username_vip_cannot_auto_login_without_numeric_allowlist(crm):
+    response = await crm.client.get(
+        "/crm/api/session", headers=signed(12, "VipPerson")
+    )
+    assert response.status_code == 403
+    assert (await crm.client.get("/crm/api/dashboard")).status_code == 401
+
+
 async def test_browser_session_overrides_stale_telegram_initdata(crm):
     login = await crm.client.post(
         "/admin/login", data={"username": "owner", "password": "password-for-test"}
