@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.bot.handlers.menu import MenuAction, confirm_generation
 from app.database.models import (
     Base,
     Customer,
@@ -15,7 +16,6 @@ from app.database.models import (
     MenuStatus,
 )
 from app.database.repositories import MenuRepository
-from app.bot.handlers.menu import MenuAction, confirm_generation
 
 
 @pytest.fixture
