@@ -566,3 +566,52 @@ async def test_resume_keeps_saved_uploads_after_memory_state_was_lost(tmp_path):
     assert state.data["lang"] == "ru"
     assert len(wallpaper.upload_paths(settings, 42)) == 5
     assert "Сохранено 5 фото" in message.answer.await_args.args[0]
+
+
+def test_photo_upload_status_is_compact_and_localized():
+    from app.bot.handlers.wallpaper import photo_upload_status
+
+    assert "Фото · 2/7" in photo_upload_status("ru", 2)
+    assert "Добавьте ещё фото" in photo_upload_status("ru", 2)
+    assert "Продолжить" in photo_upload_status("ru", 7)
+    assert "Photos · 3/7" in photo_upload_status("en", 3)
+    assert "Крок 1" not in photo_upload_status("uk", 1)
+
+
+@pytest.mark.asyncio
+async def test_second_photo_updates_existing_progress_message(tmp_path):
+    settings = Settings(_env_file=None, storage_root=tmp_path)
+    image = BytesIO()
+    Image.new("RGB", (300, 420), "#ad996d").save(image, "JPEG")
+
+    class Bot:
+        def __init__(self):
+            self.edit_message_text = AsyncMock()
+
+        async def get_file(self, file_id):
+            return file_id
+
+        async def download(self, source, destination):
+            destination.write(image.getvalue())
+
+    bot = Bot()
+    state = FakeState(lang="ru")
+    await state.set_state(WallpaperStates.waiting_for_five_photos)
+
+    for index in (1, 2):
+        msg = SimpleNamespace(
+            message_id=index, photo=[SimpleNamespace(file_id=str(index), file_size=15000)],
+            document=None, caption=None,
+            from_user=SimpleNamespace(id=42),
+            chat=SimpleNamespace(id=42),
+            bot=bot,
+            answer=AsyncMock(return_value=SimpleNamespace(message_id=900)),
+        )
+        await wallpaper.collect_five_photos(msg, state, settings, None)
+        if index == 1:
+            msg.answer.assert_awaited_once()
+            assert state.data["gift_upload_status_message_id"] == 900
+        else:
+            msg.answer.assert_not_awaited()
+    bot.edit_message_text.assert_awaited_once()
+    assert "Фото · 2/7" in bot.edit_message_text.await_args.kwargs["text"]
