@@ -14,18 +14,28 @@ Responsibilities:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import logging
+import time
 from io import BytesIO
 from pathlib import Path
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramNetworkError
 from PIL import Image, UnidentifiedImageError
 
 from app.config import Settings
 
+logger = logging.getLogger(__name__)
+
 
 class InvalidImageError(ValueError):
     pass
+
+
+class PhotoTransferUnavailable(RuntimeError):
+    """Telegram API request timed out; a retry is needed."""
 
 
 class StorageService:
@@ -40,16 +50,40 @@ class StorageService:
         menu_id: int,
         role: str,
     ) -> Path:
-        telegram_file = await bot.get_file(file_id)
-        if telegram_file.file_size and telegram_file.file_size > self.settings.max_upload_mb * 1024**2:
-            raise InvalidImageError("Image exceeds configured size limit")
-
-        buffer = BytesIO()
-        await bot.download(telegram_file, destination=buffer)
-        payload = buffer.getvalue()
-        if len(payload) > self.settings.max_upload_mb * 1024**2:
-            raise InvalidImageError("Image exceeds configured size limit")
-        return self.save_validated_bytes(payload, menu_id=menu_id, role=role)
+        started = time.perf_counter()
+        max_bytes = self.settings.max_upload_mb * 1024**2
+        for attempt in range(2):
+            try:
+                telegram_file = await asyncio.wait_for(bot.get_file(file_id), timeout=12)
+                if telegram_file.file_size and telegram_file.file_size > max_bytes:
+                    raise InvalidImageError("Image exceeds configured size limit")
+                buffer = BytesIO()
+                await asyncio.wait_for(
+                    bot.download(telegram_file, destination=buffer), timeout=25
+                )
+                payload = buffer.getvalue()
+                if len(payload) > max_bytes:
+                    raise InvalidImageError("Image exceeds configured size limit")
+                path = await asyncio.to_thread(
+                    self.save_validated_bytes, payload, menu_id=menu_id, role=role
+                )
+                logger.info(
+                    "Menu photo ready: menu=%s role=%s bytes=%s elapsed=%.2fs attempts=%s",
+                    menu_id, role, len(payload),
+                    time.perf_counter() - started, attempt + 1,
+                )
+                return path
+            except (TelegramNetworkError, TimeoutError) as exc:
+                logger.warning(
+                    "Telegram photo transfer failed (menu=%s role=%s attempt=%s): %s",
+                    menu_id, role, attempt + 1, type(exc).__name__,
+                )
+                if attempt == 1:
+                    raise PhotoTransferUnavailable(
+                        "Telegram photo transfer timed out"
+                    ) from exc
+                await asyncio.sleep(1)
+        raise PhotoTransferUnavailable("Telegram photo transfer unavailable")
 
     def save_validated_bytes(self, payload: bytes, *, menu_id: int, role: str) -> Path:
         try:

@@ -17,6 +17,7 @@ from __future__ import annotations
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 from reportlab.lib.units import mm
@@ -39,6 +40,36 @@ class RenderedFiles:
             FileKind.PREVIEW_INSIDE: self.inside_preview,
             FileKind.PRINT_PDF: self.print_pdf,
         }
+
+
+def menu_render_snapshot(menu: Menu) -> SimpleNamespace:
+    """Freeze ORM values on the async side before sending the PDF job to a thread.
+
+    A renderer must never cause SQLAlchemy lazy loading or DB IO from the
+    Pillow/ReportLab worker thread.
+    """
+    customer = menu.customer
+    return SimpleNamespace(
+        id=menu.id,
+        cover_photo_path=menu.cover_photo_path,
+        spread_photo_path=menu.spread_photo_path,
+        meal_period=menu.meal_period,
+        customer=SimpleNamespace(
+            name=customer.name,
+            language=customer.language,
+        ),
+        items=[
+            SimpleNamespace(
+                id=item.id,
+                title=item.title,
+                category=item.category,
+                position=item.position,
+                image_path=item.image_path,
+                meal_slot=item.meal_slot,
+            )
+            for item in menu.items
+        ],
+    )
 
 
 class BookletRenderer:

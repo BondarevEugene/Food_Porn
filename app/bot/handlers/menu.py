@@ -16,10 +16,12 @@ Responsibilities:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from html import escape
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.filters import Command
 from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.context import FSMContext
@@ -33,6 +35,7 @@ from aiogram.types import (
     WebAppInfo,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.bot.handlers.wallpaper import text_for
@@ -49,11 +52,20 @@ from app.services.menu_wizard import (
     meal_slot_label,
     parse_menu_plan,
 )
-from app.services.storage import InvalidImageError, StorageService
+from app.services.storage import InvalidImageError, PhotoTransferUnavailable, StorageService
 from app.workers.menu_pipeline import MenuPipeline
 
 logger = logging.getLogger(__name__)
 router = Router(name="menu")
+
+
+async def _photo_status_notice(message: Message, text: str) -> None:
+    """An unreachable Telegram sendMessage must not abort photo persistence."""
+    try:
+        await asyncio.wait_for(message.answer(text), timeout=8)
+    except (TelegramNetworkError, TimeoutError):
+        logger.warning("Menu photo status notice timed out; continuing to save image")
+
 
 
 class PremiumMenuStates(StatesGroup):
@@ -565,8 +577,23 @@ async def receive_photo(
     current_state = await state.get_state()
     role = "cover" if current_state == PremiumMenuStates.waiting_for_cover.state else "spread"
 
-    async with session_factory() as session:
-        existing = await MenuRepository(session).get(menu_id, full=True)
+    role_label = "обложки" if role == "cover" else "разворота"
+    # Send feedback before either the Neon query or Telegram download.
+    await _photo_status_notice(
+        message,
+        f"📥 Фото для {role_label} получено. "
+        "Проверяю заказ и загружаю файл…",
+    )
+    try:
+        async with session_factory() as session:
+            existing = await MenuRepository(session).get(menu_id, full=True)
+    except SQLAlchemyError:
+        logger.exception("Menu photo ownership lookup failed for menu %s", menu_id)
+        await _photo_status_notice(
+            message, "⚠️ База данных временно недоступна. "
+            "Фото ещё не сохранено, повторите отправку позже.",
+        )
+        return
     if not _owned_by(existing, message.from_user.id):
         await state.clear()
         await message.answer("Сет не найден. Вернитесь в /start.")
@@ -577,20 +604,44 @@ async def receive_photo(
             bot, message.photo[-1].file_id, menu_id=menu_id, role=role
         )
     except InvalidImageError:
-        await message.answer(f"⚠️ Ошибка формата. Загрузите корректное фото (до {settings.max_upload_mb} MB).")
+        await message.answer(
+            f"⚠️ Ошибка формата. Загрузите корректное фото (до {settings.max_upload_mb} MB)."
+        )
+        return
+    except PhotoTransferUnavailable:
+        logger.warning(
+            "Menu photo cannot be downloaded from Telegram: menu=%s role=%s",
+            menu_id, role,
+        )
+        await message.answer(
+            f"⚠️ Telegram не передал фото для {role_label}. "
+            "Сет сохранён, повторите отправку этого фото. "
+            "Повторно создавать заказ не нужно."
+        )
         return
 
-    async with session_factory() as session:
-        repo = MenuRepository(session)
-        kwargs = (
-            {"cover": str(path), "cover_file_id": message.photo[-1].file_id}
-            if role == "cover"
-            else {"spread": str(path), "spread_file_id": message.photo[-1].file_id}
+    try:
+        async with session_factory() as session:
+            repo = MenuRepository(session)
+            kwargs = (
+                {"cover": str(path), "cover_file_id": message.photo[-1].file_id}
+                if role == "cover"
+                else {"spread": str(path), "spread_file_id": message.photo[-1].file_id}
+            )
+            await repo.set_photos(menu_id, **kwargs)
+            menu = await repo.get(menu_id, full=True)
+    except SQLAlchemyError:
+        logger.exception("Menu photo DB persistence failed for menu %s", menu_id)
+        await _photo_status_notice(
+            message, "⚠️ Фото получено, но база данных сейчас недоступна. "
+            "Попробуйте повторить отправку позже; новый заказ не нужен.",
         )
-        await repo.set_photos(menu_id, **kwargs)
-        menu = await repo.get(menu_id, full=True)
+        return
 
     await state.set_state(None)
+    await _photo_status_notice(
+        message, f"✅ Фото для {role_label} сохранено. Обновляю карточку сета."
+    )
     msg = await message.answer(
         format_premium_dashboard(menu),
         reply_markup=build_dashboard_kb(menu),
