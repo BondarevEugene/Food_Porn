@@ -103,10 +103,23 @@ def safety_recovery_keyboard(lang: str, photo_count: int) -> InlineKeyboardMarku
 def finish_photos_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text=text_for(lang, "✨ Готово, далі", "✨ Готово, дальше", "✨ Done, continue"),
+            text=text_for(lang, "Продовжити →", "Продолжить →", "Continue →"),
             callback_data="gift_photos_done",
         )],
     ])
+
+
+def photo_upload_status(lang: str, count: int, limit: int = MAX_GIFT_PHOTOS) -> str:
+    """Short per-photo progress text in the user's chosen language."""
+    return text_for(
+        lang,
+        f"📷 <b>Фото · {count}/{limit}</b>\n"
+        + ("Усі фото збережено. Натисніть «Продовжити»." if count >= limit else "Додайте ще фото або перейдіть далі."),
+        f"📷 <b>Фото · {count}/{limit}</b>\n"
+        + ("Все фото сохранены. Нажмите «Продолжить»." if count >= limit else "Добавьте ещё фото или переходите дальше."),
+        f"📷 <b>Photos · {count}/{limit}</b>\n"
+        + ("All photos saved. Tap Continue." if count >= limit else "Add another photo or continue."),
+    )
 
 
 def gift_product_keyboard(lang: str) -> InlineKeyboardMarkup:
@@ -296,9 +309,17 @@ async def start_wallpaper_from_start(message: Message, state: FSMContext,
     await state.set_state(WallpaperStates.waiting_for_photo)
     await message.answer(text_for(
         lang,
-        "🎁 Створімо візуалізацію ваших бажань. Надішліть <b>одне фото людини</b> та <b>від 5 до 9 цілей</b> у підписі (кожну з нового рядка). Якщо хочете додати ще фото, оберіть кнопку нижче й надішліть від 1 до 7 фото. Я сам поєднаю їх із цілями. Фото передам ШІ для обробки та видалю локальні копії після створення.",
-        "🎁 Давайте создадим визуализацию ваших желаний. Пришлите <b>одно фото человека</b> и <b>от 5 до 9 целей</b> в подписи (каждую с новой строки). Если хотите добавить фотографии, выберите кнопку ниже и пришлите от 1 до 7 фото. Я сам сопоставлю их с целями. Фото передам ИИ для обработки и удалю локальные копии после создания.",
-        "🎁 Let's visualize your wishes. Send <b>one photo of the person</b> and <b>5 to 9 goals</b> in the caption, one per line. To add more photos, use the button below and send 1 to 7 photos. I'll match them to your goals. Photos are processed by an AI service; local uploads are deleted after creation.",
+        "✨ <b>Ваша історія бажань</b>\n\n<b>Крок 1 із 3 · Фото</b>\n"
+        "Надішліть від 1 до 7 фотографій. Можна почати з однієї, "
+        "а додаткові додати кнопкою нижче.\n\n"
+        "Потім оберете формат, цілі та стиль.",
+        "✨ <b>Ваша история желаний</b>\n\n<b>Шаг 1 из 3 · Фото</b>\n"
+        "Пришлите от 1 до 7 фотографий. Можно начать с одной, "
+        "а остальные добавить кнопкой ниже.\n\n"
+        "Затем выберете формат, цели и стиль.",
+        "✨ <b>Your wish story</b>\n\n<b>Step 1 of 3 · Photos</b>\n"
+        "Send 1–7 photos. Start with one and add others using the button below.\n\n"
+        "Then choose the format, goals and style.",
     ), parse_mode="HTML", reply_markup=gift_keyboard(lang))
 
 
@@ -385,11 +406,15 @@ async def start_wallpaper(callback: CallbackQuery, state: FSMContext, settings: 
 async def start_five_photo_gift(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     await state.set_state(WallpaperStates.waiting_for_five_photos)
+    await state.update_data(gift_upload_status_message_id=None)
     await callback.message.answer(text_for(
         data.get("lang", "uk"),
-        "Чудово 💛 Надішліть від 1 до 7 фото альбомом або по одному, а потім натисніть «Готово». Бажано, щоб на одному було чітко видно обличчя.",
-        "Прекрасно 💛 Пришлите от 1 до 7 фото альбомом или по одному, а затем нажмите «Готово». Хорошо, если на одном отчётливо видно лицо.",
-        "Lovely 💛 Send 1 to 7 photos as an album or one by one, then tap Done. A clear face photo helps.",
+        "📷 <b>Крок 1 із 3 · Додайте фото</b>\nДо 7 фото — альбомом або по черзі. "
+        "Після завантаження натисніть «Продовжити».",
+        "📷 <b>Шаг 1 из 3 · Добавьте фото</b>\nДо 7 фото — альбомом или по одному. "
+        "После загрузки нажмите «Продолжить».",
+        "📷 <b>Step 1 of 3 · Add photos</b>\nUp to 7 photos in an album or separately. "
+        "Tap Continue when ready.",
     ), reply_markup=finish_photos_keyboard(data.get("lang", "uk")))
     await callback.answer()
 
@@ -404,7 +429,7 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
             await callback.answer("Надішліть від 1 до 7 фото 💛")
             return
         data = await state.get_data()
-        await state.update_data(gift_product=None)
+        await state.update_data(gift_product=None, gift_upload_status_message_id=None)
         await state.set_state(WallpaperStates.waiting_for_product)
         if session_factory is not None:
             try:
@@ -583,18 +608,25 @@ async def collect_five_photos(message: Message, state: FSMContext, settings: Set
                 await state.update_data(goals=parse_five_goals(message.caption))
             except ValueError:
                 pass
-        await message.answer(text_for(
-            lang,
-            f"Фото {count + 1}/{MAX_GIFT_PHOTOS} отримав 💛 "
-            + ("Ліміт досягнуто. Натисніть «Готово»." if count + 1 == MAX_GIFT_PHOTOS
-               else "Надішліть ще або натисніть «Готово»."),
-            f"Фото {count + 1}/{MAX_GIFT_PHOTOS} получил 💛 "
-            + ("Лимит достигнут. Нажмите «Готово»." if count + 1 == MAX_GIFT_PHOTOS
-               else "Пришлите ещё или нажмите «Готово»."),
-            f"Photo {count + 1}/{MAX_GIFT_PHOTOS} received 💛 "
-            + ("Limit reached. Tap Done." if count + 1 == MAX_GIFT_PHOTOS
-               else "Send another or tap Done."),
-        ), reply_markup=finish_photos_keyboard(lang))
+        status = photo_upload_status(lang, count + 1)
+        previous_id = data.get("gift_upload_status_message_id")
+        if type(previous_id) is int:
+            try:
+                await message.bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=previous_id,
+                    text=status,
+                    reply_markup=finish_photos_keyboard(lang),
+                )
+                return
+            except Exception:
+                logger.info("Photo progress message could not be updated; sending a new one")
+        response = await message.answer(
+            status, reply_markup=finish_photos_keyboard(lang),
+        )
+        response_id = getattr(response, "message_id", None)
+        if type(response_id) is int:
+            await state.update_data(gift_upload_status_message_id=response_id)
 
 
 @router.message(WallpaperStates.waiting_for_product)
