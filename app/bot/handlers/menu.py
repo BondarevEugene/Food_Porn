@@ -16,10 +16,12 @@ Responsibilities:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from html import escape
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.filters import Command
 from aiogram.filters.callback_data import CallbackData
 from aiogram.fsm.context import FSMContext
@@ -54,6 +56,15 @@ from app.workers.menu_pipeline import MenuPipeline
 
 logger = logging.getLogger(__name__)
 router = Router(name="menu")
+
+
+async def _photo_status_notice(message: Message, text: str) -> None:
+    """An unreachable Telegram sendMessage must not abort photo persistence."""
+    try:
+        await asyncio.wait_for(message.answer(text), timeout=8)
+    except (TelegramNetworkError, TimeoutError):
+        logger.warning("Menu photo status notice timed out; continuing to save image")
+
 
 
 class PremiumMenuStates(StatesGroup):
@@ -574,9 +585,10 @@ async def receive_photo(
 
     role_label = "обложки" if role == "cover" else "разворота"
     # Acknowledge the Telegram update before slow network download.
-    await message.answer(
+    await _photo_status_notice(
+        message,
         f"📥 Фото для {role_label} получено Telegram. "
-        "Загружаю и проверяю файл…"
+        "Загружаю и проверяю файл…",
     )
     try:
         path = await StorageService(settings).save_telegram_photo(
@@ -610,7 +622,9 @@ async def receive_photo(
         menu = await repo.get(menu_id, full=True)
 
     await state.set_state(None)
-    await message.answer(f"✅ Фото для {role_label} сохранено. Обновляю карточку сета.")
+    await _photo_status_notice(
+        message, f"✅ Фото для {role_label} сохранено. Обновляю карточку сета."
+    )
     msg = await message.answer(
         format_premium_dashboard(menu),
         reply_markup=build_dashboard_kb(menu),
