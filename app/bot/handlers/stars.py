@@ -12,6 +12,10 @@ from app.config import get_settings
 from app.database.models import FileKind, Menu
 from app.database.session import async_session_maker
 from app.services.stars import parse_payload, payment_is_available, record_payment
+from app.services.video_story_render import (
+    VideoStoryAlreadyProcessing,
+    render_verified_video_story,
+)
 
 router = Router(name="stars")
 logger = logging.getLogger(__name__)
@@ -70,7 +74,30 @@ async def stars_success(message: Message) -> None:
                 except Exception:
                     logger.exception("Could not send paid menu file %s", path)
     elif ref.kind == "video_story":
-        await message.answer("Оплата відеоісторії підтверджена 💛 Поверніться до Mini App для створення відео.")
+        await message.answer("Оплата відеоісторії підтверджена 💛 Створюю MP4.")
+        try:
+            output = await render_verified_video_story(
+                async_session_maker, get_settings(), ref.order_id, ref.owner_id,
+            )
+        except VideoStoryAlreadyProcessing:
+            await message.answer("Відео вже створюється. Перевірте замовлення трохи пізніше.")
+        except Exception:
+            logger.exception("Could not render paid video story %s", ref.order_id)
+            await message.answer(
+                "Оплату отримано, але створення відео не завершилося. "
+                "Вкажіть номер замовлення через /paysupport для відновлення."
+            )
+        else:
+            try:
+                await message.answer_video(
+                    FSInputFile(str(output)), caption="🎬 Ваша відеоісторія готова 💛"
+                )
+            except Exception:
+                logger.exception("Could not send paid video story %s", ref.order_id)
+                await message.answer(
+                    "MP4 створено, але Telegram не зміг надіслати файл. "
+                    "Він доступний у вашому замовленні в Mini App."
+                )
     else:
         # Update the durable Mini App job so an owner sees the files on refresh.
         root = get_settings().storage_root / "miniapp_jobs" / str(ref.owner_id)

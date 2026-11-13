@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Numeric, String, Text
+from sqlalchemy import JSON, BigInteger, Boolean, Date, DateTime, Numeric, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -61,8 +61,96 @@ class CustomerNote(CRMBase):
     updated_by: Mapped[str] = mapped_column(String(100))
 
 
+class GiftDraft(CRMBase):
+    """Recoverable pre-payment gift selection; never represents a paid entitlement."""
+
+    __tablename__ = "crm_gift_drafts"
+
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    product_choice: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    style: Mapped[str] = mapped_column(String(20), nullable=False, default="dark")
+    language: Mapped[str] = mapped_column(String(2), nullable=False, default="uk")
+    goals: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    photo_paths: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    stage: Mapped[str] = mapped_column(String(24), nullable=False, default="photos")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+
+class GiftPurchase(CRMBase):
+    """Immutable quoted price of a requested gift bundle.
+
+    This record is NOT a charge or a paid entitlement. Checkout integration
+    must verify a provider receipt before changing its payment state.
+    """
+
+    __tablename__ = "crm_gift_purchases"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    request_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    product_choice: Mapped[str] = mapped_column(String(16), nullable=False)
+    includes_collage: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    includes_video: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="UAH")
+    collage_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    video_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    goals: Mapped[list] = mapped_column(JSON, nullable=False)
+    photo_paths: Mapped[list] = mapped_column(JSON, nullable=False)
+    visual_style: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="quoted")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class GiftPaymentReceipt(CRMBase):
+    """One verified payment per quote, independent of delivery state.
+
+    Uniqueness protects both a purchase and a provider charge from duplicate
+    callback processing. Never insert this table from a client request.
+    """
+
+    __tablename__ = "crm_gift_payment_receipts"
+
+    purchase_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_payment_id: Mapped[str] = mapped_column(
+        String(180), unique=True, nullable=False
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    verified_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(UTC),
+    )
+
+
+class GiftFulfillment(CRMBase):
+    """Durable generation state for one verified gift purchase."""
+
+    __tablename__ = "crm_gift_fulfillments"
+
+    purchase_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    wallpaper_order_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    video_order_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    collage_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    video_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+
 async def initialize_schema(engine) -> None:
-    # Only these four tables are created. Existing bot tables and Alembic head
+    # Only additive CRM-owned tables are created. Existing bot tables and Alembic head
     # are never altered, avoiding the differing local migration chains.
     async with engine.begin() as connection:
         await connection.run_sync(CRMBase.metadata.create_all)

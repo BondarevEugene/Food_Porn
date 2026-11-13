@@ -28,9 +28,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.bot.keyboards import add_wayforpay_option
 from app.bot.states.wallpaper import WallpaperStates
 from app.config import Settings, get_settings
-from app.database.repositories import WallpaperOrderRepository
+from app.crm.models import GiftPaymentReceipt, GiftPurchase
+from app.database.repositories import WallpaperOrderRepository, WayForPayPaymentRepository
 from app.services.free_access import has_free_generation_access
+from app.services.gift_delivery import deliver_paid_gift
+from app.services.gift_drafts import load_gift_draft, store_gift_draft
+from app.services.gift_fulfillment import GiftFulfillmentBusy, process_paid_gift_purchase
 from app.services.gift_pricing import checkout_price_uah
+from app.services.gift_purchases import create_gift_quote
 from app.services.goal_story import GoalScenePlanner
 from app.services.payment import PaymentService
 from app.services.portmone_sandbox import send_portmone_sandbox_offer
@@ -39,7 +44,7 @@ from app.services.replicate_vision_board import ImageSafetyError, ReplicateVisio
 from app.services.stars import OrderRef, create_invoice
 from app.services.video_story_plans import VideoTier
 from app.services.wallpaper_studio import archive_source_photos
-from app.services.wayforpay import WayForPayService
+from app.services.wayforpay import WayForPayService, apply_verified_payment
 
 router = Router(name="wallpaper")
 logger = logging.getLogger(__name__)
@@ -298,7 +303,8 @@ async def start_wallpaper_from_start(message: Message, state: FSMContext,
 
 
 @router.message(F.text == "/resume")
-async def resume_saved_photos(message: Message, state: FSMContext, settings: Settings) -> None:
+async def resume_saved_photos(message: Message, state: FSMContext, settings: Settings,
+                              session_factory: async_sessionmaker[AsyncSession] | None = None) -> None:
     """Recover uploads after the bot restarts and its in-memory FSM is lost."""
     photos = upload_paths(settings, message.from_user.id)
     if not 1 <= len(photos) <= MAX_GIFT_PHOTOS:
@@ -306,13 +312,33 @@ async def resume_saved_photos(message: Message, state: FSMContext, settings: Set
         return
     lang = language_for(message.from_user)
     await state.clear()
-    await state.update_data(ui_lang=lang, lang=lang, style="dark")
-    await state.set_state(WallpaperStates.waiting_for_goals)
-    await message.answer(text_for(lang,
-                                  f"Ваші {len(photos)} фото збережені 💛 Після перезапуску потрібно ще раз надіслати від 5 до 9 цілей, кожну з нового рядка. Можна змінити стиль кнопками нижче.",
-                                  f"Ваши {len(photos)} фото сохранены 💛 После перезапуска нужно ещё раз отправить от 5 до 9 целей, каждую с новой строки. Стиль можно выбрать кнопками ниже.",
-                                  f"Your {len(photos)} photos are saved 💛 After restart, please send your 5 to 9 goals again, one per line. You can change style below."),
-                         reply_markup=gift_keyboard(lang))
+    draft = await load_gift_draft(session_factory, message.from_user.id) if session_factory else None
+    # Never reuse a previous product choice for a different batch of photos.
+    if draft and set(draft.photo_paths or []) != {str(photo) for photo in photos}:
+        draft = None
+    stored_choice = draft.product_choice if draft and draft.product_choice in {"collage", "video", "both"} else None
+    stored_goals = list(draft.goals or []) if draft else []
+    await state.update_data(
+        ui_lang=lang, lang=lang, style=draft.style if draft else "dark",
+        gift_product=stored_choice, goals=stored_goals,
+    )
+    if stored_choice:
+        await state.set_state(WallpaperStates.waiting_for_goals)
+        await message.answer(text_for(
+            lang,
+            "Фото та вибір продукту відновлено 💛 Надішліть цілі, щоб продовжити.",
+            "Фото и выбор продукта восстановлены 💛 Пришлите цели, чтобы продолжить.",
+            "Photos and product selection restored 💛 Send your goals to continue.",
+        ), reply_markup=gift_keyboard(lang, draft.style if draft else "dark"))
+        return
+    await state.set_state(WallpaperStates.waiting_for_product)
+    await message.answer(
+        text_for(lang,
+                 f"Збережено {len(photos)} фото 💛 Оберіть продукт, щоб продовжити.",
+                 f"Сохранено {len(photos)} фото 💛 Выберите продукт для продолжения.",
+                 f"Saved {len(photos)} photos 💛 Choose your product to continue."),
+        reply_markup=gift_product_keyboard(lang),
+    )
 
 
 @router.callback_query(F.data.startswith("gift_style:"))
@@ -379,6 +405,17 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
             return
         data = await state.get_data()
         await state.update_data(gift_product=None)
+        await state.set_state(WallpaperStates.waiting_for_product)
+        if session_factory is not None:
+            try:
+                await store_gift_draft(
+                    session_factory, user_id=user_id, product_choice=None,
+                    goals=data.get("goals"), photo_paths=upload_paths(settings, user_id),
+                    style=data.get("style", "dark"), language=data.get("lang", "uk"),
+                    stage="product",
+                )
+            except Exception:
+                logger.exception("Could not persist gift draft for %s", user_id)
     await callback.answer()
     await callback.message.answer(
         text_for(data.get("lang", "uk"),
@@ -390,23 +427,43 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
 
 
 @router.callback_query(F.data.startswith("gift_product:"))
-async def select_gift_product(callback: CallbackQuery, state: FSMContext) -> None:
+async def select_gift_product(callback: CallbackQuery, state: FSMContext,
+                              session_factory: async_sessionmaker[AsyncSession] | None = None) -> None:
     product = (callback.data or "").removeprefix("gift_product:")
     if product not in {"collage", "video", "both"} or (
         await state.get_state()
-    ) != WallpaperStates.waiting_for_five_photos.state:
+    ) != WallpaperStates.waiting_for_product.state:
         await callback.answer("Почніть новий подарунок через /start 💛", show_alert=True)
         return
     data = await state.get_data()
     await state.update_data(gift_product=product)
     await state.set_state(WallpaperStates.waiting_for_goals)
+    if session_factory is not None:
+        try:
+            await store_gift_draft(
+                session_factory, user_id=callback.from_user.id, product_choice=product,
+                goals=data.get("goals"), photo_paths=upload_paths(get_settings(), callback.from_user.id),
+                style=data.get("style", "dark"), language=data.get("lang", "uk"),
+                stage="goals",
+            )
+        except Exception:
+            logger.exception("Could not persist selected gift product for %s", callback.from_user.id)
     await callback.answer()
-    await callback.message.answer(text_for(
-        data.get("lang", "uk"),
-        "Вибір збережено 💛 Надішліть 5–9 цілей, кожну з нового рядка. Стиль можна обрати нижче.",
-        "Выбор сохранён 💛 Пришлите 5–9 целей, каждую с новой строки. Стиль можно выбрать ниже.",
-        "Choice saved 💛 Send 5–9 goals, one per line. Choose the style below.",
-    ), reply_markup=gift_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
+    goals_saved = isinstance(data.get("goals"), list) and 5 <= len(data["goals"]) <= 9
+    if goals_saved:
+        await callback.message.answer(text_for(
+            data.get("lang", "uk"),
+            "Вибір збережено 💛 Цілі вже є. Надішліть їх повторно, якщо хочете змінити.",
+            "Выбор сохранён 💛 Цели уже есть. Пришлите их повторно, если хотите изменить.",
+            "Choice saved 💛 Your goals are saved. Resend them only to change them.",
+        ), reply_markup=gift_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
+    else:
+        await callback.message.answer(text_for(
+            data.get("lang", "uk"),
+            "Вибір збережено 💛 Надішліть 5–9 цілей, кожну з нового рядка. Стиль можна обрати нижче.",
+            "Выбор сохранён 💛 Пришлите 5–9 целей, каждую с новой строки. Стиль можно выбрать ниже.",
+            "Choice saved 💛 Send 5–9 goals, one per line. Choose the style below.",
+        ), reply_markup=gift_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
 
 
 @router.callback_query(F.data == "gift_photos_done")
@@ -467,17 +524,24 @@ async def collect_photo(message: Message, state: FSMContext, settings: Settings,
                                           "Фото отримав 💛 Тепер надішліть від 5 до 9 цілей одним повідомленням, по одній на рядок.",
                                           "Фото получил 💛 Теперь пришлите от 5 до 9 целей одним сообщением, по одной на строку.",
                                           "Photo received 💛 Please send your 5 to 9 goals in one message, one per line."))
-    if (await state.get_data()).get("goals"):
-        await state.set_state(WallpaperStates.generating)
-        await generate_wallpapers(message, state, settings, session_factory)
-    else:
-        await state.set_state(WallpaperStates.waiting_for_goals)
-        if not message.caption:
-            await message.answer(text_for(lang,
-                                          "Фото отримав 💛 Надішліть від 5 до 9 цілей одним повідомленням, по одній на рядок.",
-                                          "Фото получил 💛 Пришлите от 5 до 9 целей одним сообщением, по одной на строку.",
-                                          "Photo received 💛 Send 5 to 9 goals in one message, one per line."))
-
+    await state.update_data(gift_product=None)
+    await state.set_state(WallpaperStates.waiting_for_product)
+    if session_factory is not None:
+        try:
+            current = await state.get_data()
+            await store_gift_draft(
+                session_factory, user_id=message.from_user.id, product_choice=None,
+                goals=current.get("goals"), photo_paths=upload_paths(settings, message.from_user.id),
+                style=current.get("style", "dark"), language=lang, stage="product",
+            )
+        except Exception:
+            logger.exception("Could not persist single-photo gift draft")
+    await message.answer(text_for(
+        lang,
+        "Фото збережено 💛 Оберіть, що створити:",
+        "Фото сохранено 💛 Выберите, что создать:",
+        "Photo saved 💛 Choose what to create:",
+    ), reply_markup=gift_product_keyboard(lang))
 
 @router.message(WallpaperStates.waiting_for_five_photos, F.photo | F.document)
 async def collect_five_photos(message: Message, state: FSMContext, settings: Settings,
@@ -533,6 +597,17 @@ async def collect_five_photos(message: Message, state: FSMContext, settings: Set
         ), reply_markup=finish_photos_keyboard(lang))
 
 
+@router.message(WallpaperStates.waiting_for_product)
+async def waiting_for_product_notice(message: Message, state: FSMContext) -> None:
+    lang = (await state.get_data()).get("lang", "uk")
+    await message.answer(text_for(
+        lang,
+        "Фото збережені 💛 Спочатку оберіть продукт кнопкою нижче.",
+        "Фото сохранены 💛 Сначала выберите продукт кнопкой ниже.",
+        "Your photos are saved 💛 Choose a product using the buttons below first.",
+    ), reply_markup=gift_product_keyboard(lang))
+
+
 @router.message(WallpaperStates.waiting_for_five_photos)
 async def waiting_for_five_notice(message: Message, state: FSMContext) -> None:
     lang = (await state.get_data()).get("lang", "uk")
@@ -586,8 +661,165 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
     if data.get("goals") != goals:
         await state.update_data(render_job=None, blocked_input=False)
     await state.update_data(goals=goals)
+    if session_factory is not None and data.get("gift_product") in {"collage", "video", "both"}:
+        try:
+            await store_gift_draft(
+                session_factory, user_id=message.from_user.id,
+                product_choice=data["gift_product"], goals=goals,
+                photo_paths=upload_paths(settings, message.from_user.id),
+                style=data.get("style", "dark"), language=data.get("lang", "uk"),
+                stage="ready",
+            )
+        except Exception:
+            logger.exception("Could not persist gift goals for %s", message.from_user.id)
+    if data.get("gift_product") in {"video", "both"} or (
+        settings.gift_unified_checkout_enabled and data.get("gift_product") == "collage"
+    ):
+        lang = data.get("lang", "uk")
+        if session_factory is None:
+            await message.answer(text_for(
+                lang,
+                "Замовлення не вдалося зберегти. Спробуйте пізніше.",
+                "Не удалось сохранить заказ. Попробуйте позже.",
+                "Could not save the order. Please try again later.",
+            ))
+            return
+        try:
+            quote = await create_gift_quote(
+                session_factory, settings=settings, user_id=message.from_user.id,
+                choice=data["gift_product"], goals=goals,
+                photo_paths=upload_paths(settings, message.from_user.id),
+                style=data.get("style", "dark"),
+            )
+        except ValueError:
+            await message.answer(text_for(
+                lang,
+                "🎬 Цілі та фото збережені, але тариф відео ще не налаштовано. "
+                "Оплату не запитуємо.",
+                "🎬 Цели и фото сохранены, но тариф видео ещё не настроен. "
+                "Оплату не запрашиваем.",
+                "🎬 Goals and photos saved, but video pricing is not configured. "
+                "No payment will be requested.",
+            ))
+            return
+        except Exception:
+            logger.exception("Could not quote gift purchase for %s", message.from_user.id)
+            await message.answer(text_for(
+                lang,
+                "Не вдалося зберегти розрахунок замовлення. Оплату не запитуємо.",
+                "Не удалось сохранить расчёт заказа. Оплату не запрашиваем.",
+                "Could not save the order quote. No payment will be requested.",
+            ))
+            return
+        await state.update_data(gift_quote_id=quote.id)
+        summary = (
+            f"Коллаж: {quote.collage_amount:.2f} UAH; "
+            f"Видео: {quote.video_amount:.2f} UAH; "
+            f"Итого: {quote.total_amount:.2f} UAH."
+        )
+        if settings.gift_unified_checkout_enabled:
+            wayforpay = WayForPayService(settings)
+            if wayforpay.ready:
+                try:
+                    async with session_factory() as session:
+                        _, checkout_url = await wayforpay.create_checkout(
+                            session,
+                            telegram_user_id=message.from_user.id,
+                            product="gift_purchase",
+                            reference_id=quote.id,
+                            description=f"Food Porn gift {quote.product_choice} #{quote.id[:8]}",
+                            amount_override=quote.total_amount,
+                        )
+                except Exception:
+                    logger.exception("Could not create unified gift payment for %s", quote.id)
+                else:
+                    await message.answer(text_for(
+                        lang,
+                        f"✨ Замовлення № {quote.id[:8]}. {summary} "
+                        "Оплатіть один раз — файли надійдуть після підтвердження.",
+                        f"✨ Заказ № {quote.id[:8]}. {summary} "
+                        "Оплатите один раз — файлы поступят после подтверждения.",
+                        f"✨ Order #{quote.id[:8]}. {summary} "
+                        "Pay once and receive files after confirmation.",
+                    ), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(
+                            text=text_for(lang, "💳 Оплатити замовлення", "💳 Оплатить заказ", "💳 Pay for order"),
+                            url=checkout_url,
+                        )],
+                        [InlineKeyboardButton(
+                            text=text_for(lang, "🔄 Перевірити оплату", "🔄 Проверить оплату", "🔄 Check payment"),
+                            callback_data=f"gift_purchase_status:{quote.id}",
+                        )],
+                    ]))
+                    return
+        await message.answer(text_for(
+            lang,
+            f"🎬 Розрахунок № {quote.id[:8]} збережено. {summary} "
+            "Оплата зараз недоступна. Кошти не списані.",
+            f"🎬 Расчёт № {quote.id[:8]} сохранён. {summary} "
+            "Оплата сейчас недоступна. Деньги не списаны.",
+            f"🎬 Quote #{quote.id[:8]} saved. {summary} "
+            "Payment is not currently available. No charge has been made.",
+        ))
+        return
     await state.set_state(WallpaperStates.generating)
     await generate_wallpapers(message, state, settings, session_factory)
+
+
+@router.callback_query(F.data.startswith("gift_purchase_status:"))
+async def verify_gift_purchase_callback(
+    callback: CallbackQuery,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    purchase_id = (callback.data or "").removeprefix("gift_purchase_status:")
+    if not re.fullmatch(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", purchase_id):
+        await callback.answer("Некоректний номер замовлення.", show_alert=True)
+        return
+    async with session_factory() as session:
+        purchase = await session.get(GiftPurchase, purchase_id)
+        if purchase is None or purchase.telegram_user_id != callback.from_user.id:
+            await callback.answer("Замовлення не знайдено.", show_alert=True)
+            return
+        paid = await session.get(GiftPaymentReceipt, purchase_id) is not None
+        attempt = await WayForPayPaymentRepository(session).latest_for_product(
+            "gift_purchase", purchase_id, callback.from_user.id,
+        )
+        if attempt is not None and attempt.test_mode:
+            await callback.answer(
+                "Тестову оплату збережено. Платний рендер вимкнено.",
+                show_alert=True,
+            )
+            return
+        if not paid:
+            if attempt is None:
+                await callback.answer("Оплату ще не знайдено.", show_alert=True)
+                return
+            service = WayForPayService(settings)
+            try:
+                verified_payload = await service.check_status(attempt)
+                paid = await apply_verified_payment(session, attempt, verified_payload)
+            except Exception:
+                logger.exception("Could not verify gift purchase %s", purchase_id)
+                await callback.answer("Платіж ще не підтверджено.", show_alert=True)
+                return
+    if not paid:
+        await callback.answer("Платіж ще не підтверджено.", show_alert=True)
+        return
+    await callback.answer("Оплату підтверджено 💛")
+    try:
+        await process_paid_gift_purchase(session_factory, settings, purchase_id)
+        await deliver_paid_gift(session_factory, callback.bot, purchase_id)
+    except GiftFulfillmentBusy:
+        await callback.message.answer(
+            "✨ Відео або колаж вже створюється. Перевірте статус трохи пізніше."
+        )
+    except Exception:
+        logger.exception("Could not resume paid gift %s", purchase_id)
+        await callback.message.answer(
+            "Оплату отримано, але видача затримується. "
+            "Скористайтеся /paysupport та вкажіть номер замовлення."
+        )
 
 
 @router.message(WallpaperStates.waiting_for_goals)
@@ -631,6 +863,8 @@ async def _send_full(message: Message, mobile: Path, desktop: Path, lang: str = 
 async def generate_wallpapers(message: Message, state: FSMContext, settings: Settings,
                               session_factory: async_sessionmaker[AsyncSession]) -> None:
     data = await state.get_data()
+    if data.get("gift_product") in {"video", "both"}:
+        raise RuntimeError("Video or bundle selection cannot use collage-only checkout")
     selected = data.get("lang_selected", False)
     photos = upload_paths(settings, message.from_user.id)
     goals = data.get("goals")

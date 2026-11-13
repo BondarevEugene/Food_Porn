@@ -18,13 +18,18 @@ import html
 import logging
 from typing import Any
 
+from aiogram import Bot
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.background import BackgroundTask
 
 from app.config import get_settings
+from app.crm.models import GiftPaymentReceipt, GiftPurchase
 from app.database.models import Menu, VideoStoryOrder, WallpaperOrder, WayForPayPayment
 from app.database.repositories import WayForPayPaymentRepository
 from app.database.session import async_session_maker
+from app.services.gift_delivery import deliver_paid_gift
+from app.services.gift_fulfillment import GiftFulfillmentBusy, process_paid_gift_purchase
 from app.services.wayforpay import (
     WAYFORPAY_CHECKOUT_URL,
     WayForPayError,
@@ -70,6 +75,14 @@ async def _payload(request: Request) -> dict[str, Any]:
 
 async def _product_is_paid(payment: WayForPayPayment) -> bool:
     async with async_session_maker() as session:
+        if payment.product == "gift_purchase":
+            purchase = await session.get(GiftPurchase, payment.reference_id)
+            receipt = await session.get(GiftPaymentReceipt, payment.reference_id)
+            return bool(
+                purchase and purchase.status == "paid"
+                and purchase.telegram_user_id == payment.telegram_user_id
+                and receipt is not None
+            )
         try:
             reference_id = int(payment.reference_id)
         except (TypeError, ValueError):
@@ -121,6 +134,29 @@ async def checkout(checkout_token: str) -> HTMLResponse:
     )
 
 
+async def _complete_paid_gift(purchase_id: str, bot) -> None:
+    """Post-response processing; failures remain recoverable in PostgreSQL."""
+    temporary_bot: Bot | None = None
+    try:
+        await process_paid_gift_purchase(
+            async_session_maker, get_settings(), purchase_id
+        )
+        if bot is None:
+            token = get_settings().bot_token
+            if token and ":" in token:
+                temporary_bot = Bot(token=token)
+                bot = temporary_bot
+        if bot is not None:
+            await deliver_paid_gift(async_session_maker, bot, purchase_id)
+    except GiftFulfillmentBusy:
+        logger.info("Gift fulfillment already running: %s", purchase_id)
+    except Exception:
+        logger.exception("Paid gift processing failed: %s", purchase_id)
+    finally:
+        if temporary_bot is not None:
+            await temporary_bot.session.close()
+
+
 @router.post("/webhook")
 async def webhook(request: Request) -> JSONResponse:
     payload = await _payload(request)
@@ -128,6 +164,7 @@ async def webhook(request: Request) -> JSONResponse:
     if not order_reference:
         raise HTTPException(400, "Missing orderReference")
     service = WayForPayService(get_settings())
+    pending_purchase: str | None = None
     async with async_session_maker() as session:
         repository = WayForPayPaymentRepository(session)
         payment = await repository.by_order_reference(order_reference, lock=True)
@@ -136,11 +173,27 @@ async def webhook(request: Request) -> JSONResponse:
             raise HTTPException(400, "Invalid payment signature")
 
         try:
-            await apply_verified_payment(session, payment, payload)
+            activated = await apply_verified_payment(session, payment, payload)
         except WayForPayError as exc:
             raise HTTPException(409, str(exc)) from exc
 
-    return JSONResponse(service.callback_ack(order_reference))
+        if (
+            activated
+            and getattr(payment, "product", None) == "gift_purchase"
+            and not payment.test_mode
+        ):
+            # Only a signed provider approval schedules generation. A sandbox
+            # callback must never initiate billable image API requests.
+            pending_purchase = payment.reference_id
+
+    background = (
+        BackgroundTask(
+            _complete_paid_gift, pending_purchase,
+            getattr(request.app.state, "bot", None),
+        )
+        if pending_purchase else None
+    )
+    return JSONResponse(service.callback_ack(order_reference), background=background)
 
 
 @router.get("/return", response_class=HTMLResponse)

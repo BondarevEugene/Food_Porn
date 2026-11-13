@@ -6,6 +6,7 @@ import re
 from html import escape
 
 from aiogram import BaseMiddleware, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -268,9 +269,15 @@ async def admin_panel_command(message: Message, state: FSMContext):
 async def admin_home_callback(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.clear()
-    await callback.message.edit_text(
-        await summary_text(), reply_markup=get_admin_main_keyboard(), parse_mode="HTML"
-    )
+    try:
+        await callback.message.edit_text(
+            await summary_text(), reply_markup=get_admin_main_keyboard(), parse_mode="HTML"
+        )
+    except TelegramBadRequest as exc:
+        # A repeated click can result in identical text and keyboard. Telegram
+        # returns an error for a no-op edit; other API errors must still surface.
+        if "message is not modified" not in str(exc).lower():
+            raise
 
 
 @router.callback_query(F.data == "admin_finance")
