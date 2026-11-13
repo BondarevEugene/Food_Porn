@@ -474,13 +474,13 @@ async def choose_cuisine(
     await callback.message.edit_text(
         text_for(
             str(language),
-            "🌍 <b>Оберіть кухню світу</b>\\n"
+            "🌍 <b>Оберіть кухню світу</b>\n"
             "Я запропоную цілісне меню із закускою, основною стравою, "
             "напоєм і десертом. Список можна змінити перед генерацією.",
-            "🌍 <b>Выберите кухню мира</b>\\n"
+            "🌍 <b>Выберите кухню мира</b>\n"
             "Я предложу цельный набор с закуской, основным блюдом, "
             "напитком и десертом. Список можно изменить до генерации.",
-            "🌍 <b>Choose a cuisine</b>\\n"
+            "🌍 <b>Choose a cuisine</b>\n"
             "I'll suggest a cohesive menu with starter, main course, "
             "drink and dessert. You can edit it before generation.",
         ),
@@ -511,14 +511,17 @@ async def apply_cuisine(
         except ValueError:
             await callback.answer("Кухня не найдена.", show_alert=True)
             return
+        # replace_menu_plan expires ORM instances; menu.id must not be accessed
+        # afterwards because async SQLAlchemy cannot lazy-refresh it here.
+        stable_menu_id = callback_data.menu_id
         await repo.replace_menu_plan(
-            menu_id=menu.id,
+            menu_id=stable_menu_id,
             entries=[(entry.meal_slot, entry.title, entry.category) for entry in entries],
         )
-        menu = await repo.get(menu.id, full=True)
+        menu = await repo.get(stable_menu_id, full=True)
     await callback.message.edit_text(
         "✅ " + format_premium_dashboard(menu)
-        + "\\n\\n<i>Состав предложен автоматически. "
+        + "\n\n<i>Состав предложен автоматически. "
         "При необходимости измените блюда вручную до генерации.</i>",
         reply_markup=build_dashboard_kb(menu), parse_mode="HTML",
     )
