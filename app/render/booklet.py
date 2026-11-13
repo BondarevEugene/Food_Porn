@@ -58,6 +58,9 @@ def menu_render_snapshot(menu: Menu) -> SimpleNamespace:
         cover_photo_path=menu.cover_photo_path,
         spread_photo_path=menu.spread_photo_path,
         meal_period=menu.meal_period,
+        visual_style=getattr(menu, "visual_style", None),
+        menu_mood=getattr(menu, "menu_mood", "romantic"),
+        servings=getattr(menu, "servings", 2),
         customer=SimpleNamespace(
             name=customer.name,
             language=customer.language,
@@ -88,8 +91,30 @@ class BookletRenderer:
     CREAM = (244, 232, 211)
     MUTED = (182, 169, 151)
 
-    def __init__(self, output_root: Path) -> None:
+    THEMES = {
+        "premium_dark": (
+            (20, 17, 17), (31, 27, 26), (214, 171, 92),
+            (244, 232, 211), (182, 169, 151),
+        ),
+        "premium_light": (
+            (247, 242, 234), (253, 249, 241), (138, 92, 47),
+            (60, 47, 43), (112, 93, 82),
+        ),
+        "premium_colorful": (
+            (48, 25, 40), (69, 34, 51), (246, 190, 124),
+            (255, 239, 220), (226, 174, 176),
+        ),
+    }
+
+    def __init__(self, output_root: Path, *, theme: str = "premium_dark") -> None:
         self.output_root = output_root
+        self.BG, self.PANEL, self.GOLD, self.CREAM, self.MUTED = self.THEMES.get(
+            theme, self.THEMES["premium_dark"]
+        )
+
+    def with_theme(self, theme: str | None) -> BookletRenderer:
+        """A new renderer per order avoids theme mutation across concurrent jobs."""
+        return type(self)(self.output_root, theme=theme or "premium_dark")
         self.bleed = self._px(self.BLEED_MM)
         self.trim_w = self._px(self.TRIM_W_MM)
         self.trim_h = self._px(self.TRIM_H_MM)
@@ -132,7 +157,10 @@ class BookletRenderer:
         for y in range(0, self.page_h, step):
             offset = (y // step % 2) * (step // 2)
             for x in range(offset, self.page_w, step):
-                draw.point((x, y), fill=(27, 23, 22))
+                draw.point(
+                    (x, y),
+                    fill=tuple(min(255, c + 5) for c in self.BG),
+                )
         return page
 
     @staticmethod
@@ -250,7 +278,7 @@ class BookletRenderer:
         right = (x0 + self.panel_w, y0, x0 + self.trim_w, y0 + self.trim_h)
         draw = ImageDraw.Draw(page)
         draw.rectangle(left, fill=self.BG)
-        draw.rectangle(right, fill=(24, 21, 20))
+        draw.rectangle(right, fill=self.PANEL)
 
         left_items = [
             item
