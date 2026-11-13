@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import secrets
 import time
@@ -23,7 +24,18 @@ from src.billing.models import Account, Transaction
 from src.orchestrator.models import ServiceInstance
 
 settings = get_settings()
-SESSION_SECRET = settings.admin_session_secret.get_secret_value() or secrets.token_urlsafe(48)
+# Prefer an independent stable secret from .env. When absent, derive a
+# distinct signing key from the already-secret Telegram bot token so a routine
+# server restart does not log every CRM user out.
+SESSION_SECRET = (
+    settings.admin_session_secret.get_secret_value()
+    or (
+        hashlib.sha256(
+            ("food-porn-crm-session-v1:" + settings.bot_token).encode()
+        ).hexdigest()
+        if settings.bot_token else secrets.token_urlsafe(48)
+    )
+)
 
 
 class AdminAuth(AuthenticationBackend):
