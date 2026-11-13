@@ -24,7 +24,7 @@ import app.admin_app as webadmin
 import main
 from app.bot.handlers import admin, start
 from app.config import Settings
-from app.crm import integrations, router, security, service
+from app.crm import integrations, login_tickets, router, security, service
 from app.crm.models import Audit, CRMBase, Expense, Integration
 from app.database.models import (
     AppSetting,
@@ -67,6 +67,7 @@ async def crm(tmp_path, monkeypatch):
         admin_username="owner",
         admin_password=SecretStr("password-for-test"),
     )
+    monkeypatch.setattr(login_tickets, "get_settings", lambda: settings)
     for module in (router, api, start, admin):
         monkeypatch.setattr(module, "async_session_maker", factory)
     for module in (router, security, service, api, start, admin, webadmin, auth):
@@ -718,3 +719,58 @@ async def test_empty_web_password_does_not_enable_default_login(crm):
         "/admin/login", data={"username": "admin", "password": "admin"}
     )
     assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_secure_telegram_crm_link_authenticates_without_initdata(crm):
+    # Only the bot can issue a ticket for an allowlisted numeric Telegram ID.
+    url = await login_tickets.issue_crm_login_url(crm.factory, 42)
+    assert url is not None and "/crm/entry/" in url
+    assert await login_tickets.issue_crm_login_url(crm.factory, 12) is None
+    path = "/" + url.split("/", 3)[3]
+
+    # Telegram WebView does not need to supply initData if this signed
+    # one-time link was issued inside its private bot conversation.
+    entry = await crm.client.get(path, follow_redirects=False)
+    assert entry.status_code == 303
+    assert entry.headers["location"] == "/crm"
+    assert entry.headers["referrer-policy"] == "no-referrer"
+    assert (await crm.client.get("/crm/api/session")).json()["owner"] is True
+    assert (await crm.client.get("/crm/api/customers")).status_code == 200
+
+    # The same ticket cannot authorize a different browser session.
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=main.app),
+        base_url="http://test", trust_env=False,
+    ) as fresh:
+        assert (await fresh.get(path, follow_redirects=False)).status_code == 401
+        assert (await fresh.get("/crm/api/session")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_secure_telegram_crm_ticket_vip_scope_and_revocation(crm):
+    crm.settings.crm_vip_telegram_ids = (12,)
+    url = await login_tickets.issue_crm_login_url(crm.factory, 12)
+    assert url is not None
+    assert (await crm.client.get("/" + url.split("/", 3)[3])).status_code == 200
+    assert (await crm.client.get("/crm/api/dashboard")).status_code == 200
+    assert (await crm.client.get("/crm/api/customers")).status_code == 403
+    crm.settings.crm_vip_telegram_ids = ()
+    assert (await crm.client.get("/crm/api/dashboard")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_secure_telegram_crm_ticket_expiration(crm, monkeypatch):
+    url = await login_tickets.issue_crm_login_url(crm.factory, 42)
+    assert url is not None
+    from app.crm.models import CRMLoginTicket
+    from sqlalchemy import update
+    from datetime import timedelta
+    async with crm.factory() as session:
+        await session.execute(
+            update(CRMLoginTicket).values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
+        )
+        await session.commit()
+    assert (await crm.client.get(
+        "/" + url.split("/", 3)[3], follow_redirects=False,
+    )).status_code == 401
