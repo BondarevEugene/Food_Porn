@@ -119,6 +119,21 @@ class MenuPipeline:
         finally:
             self._active_menu_ids.discard(menu_id)
 
+    async def _notify_menu_progress(self, chat_id: int, menu_id: int, text: str) -> None:
+        """Best-effort progress notice that never blocks paid generation."""
+        try:
+            await asyncio.wait_for(
+                self.bot.send_message(
+                    chat_id=chat_id, text=f"🍽 Сет #{menu_id}: {text}"
+                ),
+                timeout=8,
+            )
+        except Exception:
+            logger.info(
+                "Menu progress notice unavailable: menu=%s", menu_id,
+                exc_info=True,
+            )
+
     async def _process_unlocked(self, menu_id: int, *, lease: MenuProcessingLease) -> None:
         logger.info(f"Pipeline execution started for Menu ID:{menu_id}")
         async with self.session_factory() as session:
@@ -151,6 +166,8 @@ class MenuPipeline:
                 placeholder = self.settings.demo_dir / "placeholder.jpg"
                 mock_hash = hashlib.sha256(placeholder.read_bytes()).digest() if placeholder.is_file() else None
                 # Шаг 1: Генерация изображений блюд с защитой от дублирования
+                dishes_total = sum(1 for item in menu.items if item.title != "—")
+                dishes_done = 0
                 for item in menu.items:
                     if item.title == "—":
                         continue
@@ -158,6 +175,7 @@ class MenuPipeline:
                     if ready and mock_hash is not None:
                         ready = hashlib.sha256(Path(item.image_path).read_bytes()).digest() != mock_hash
                     if ready:
+                        dishes_done += 1
                         continue
 
                     await lease.assert_owned()
@@ -175,6 +193,17 @@ class MenuPipeline:
                         )
                         await lease.assert_owned()
                         await repo.set_item_done(item, str(path))
+                        dishes_done += 1
+                        if (
+                            is_telegram and customer_telegram_id
+                            and dishes_done % 4 == 0
+                            and dishes_done < dishes_total
+                        ):
+                            await self._notify_menu_progress(
+                                customer_telegram_id, menu_id,
+                                f"готовы изображения {dishes_done}/{dishes_total}. "
+                                "Продолжаю создание…",
+                            )
                     except Exception as img_exc:
                         logger.error(f"Image generation failed for item {item.id}: {img_exc}")
                         await lease.assert_owned()
@@ -186,6 +215,11 @@ class MenuPipeline:
                 if failed_titles:
                     raise RuntimeError(f"Menu images are incomplete: {', '.join(failed_titles[:3])}")
                 validate_menu_artwork(menu, placeholder)
+                if is_telegram and customer_telegram_id:
+                    await self._notify_menu_progress(
+                        customer_telegram_id, menu_id,
+                        "изображения блюд готовы. Готовлю рецепты и PDF…",
+                    )
 
                 # Шаг 2: Генерация рецептов через LLM или локальный фоллбэк
                 language = getattr(menu.customer, "language", "uk") or "uk"
