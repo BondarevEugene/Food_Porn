@@ -45,6 +45,7 @@ from app.config import Settings
 from app.database import async_session_maker
 from app.database.models import Customer, ItemCategory, Menu, MenuStatus
 from app.database.repositories import MenuRepository
+from app.services.cuisine_catalog import CUISINES, cuisine_menu
 from app.services.menu_delivery import MenuDeliveryUnavailable, paid_menu_documents
 from app.services.menu_wizard import (
     DEFAULT_VISUAL_STYLE,
@@ -165,7 +166,7 @@ def format_premium_dashboard(menu: Menu) -> str:
     lines.append("<b>Состав меню:</b>")
     for slot in ("breakfast", "lunch", "dinner", "other"):
         titles = grouped.get(slot, [])
-        if titles or slot != "other":
+        if titles:
             lines.append(f"  • <b>{meal_slot_label(slot, language)}</b>: {len(titles)}")
             lines.extend(
                 f"      {index}. {escape(title)}"
@@ -194,11 +195,12 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
         ),
     )
     builder.button(
-        text="📝 Ввести список блюд",
-        callback_data=MenuAction(
-            action="bulk_items",
-            menu_id=menu.id,
-        ),
+        text="✍️ Ввести блюда самостоятельно",
+        callback_data=MenuAction(action="bulk_items", menu_id=menu.id),
+    )
+    builder.button(
+        text="🌍 Выбрать кухню мира",
+        callback_data=MenuAction(action="choose_cuisine", menu_id=menu.id),
     )
     builder.button(
         text="ℹ️ Требования к генерации",
@@ -442,6 +444,85 @@ async def view_dashboard(
         parse_mode="HTML"
     )
     await callback.answer()
+
+
+@router.callback_query(MenuAction.filter(F.action == "choose_cuisine"))
+async def choose_cuisine(
+    callback: CallbackQuery,
+    callback_data: MenuAction,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        menu = await MenuRepository(session).get(callback_data.menu_id, full=True)
+    if not _owned_by(menu, callback.from_user.id):
+        await callback.answer("Сет не найден.", show_alert=True)
+        return
+    if menu.status not in (MenuStatus.DRAFT, MenuStatus.FAILED):
+        await callback.answer("Готовый заказ нельзя изменять.", show_alert=True)
+        return
+    language = getattr(menu.customer.language, "value", menu.customer.language) or "ru"
+    builder = InlineKeyboardBuilder()
+    for cuisine in CUISINES:
+        builder.button(
+            text=cuisine.label(str(language)),
+            callback_data=MenuAction(
+                action="cuisine", menu_id=menu.id, category=cuisine.code,
+            ),
+        )
+    builder.button(text="⬅️ Назад", callback_data=MenuAction(action="view", menu_id=menu.id))
+    builder.adjust(2, 2, 2, 2, 1)
+    await callback.message.edit_text(
+        text_for(
+            str(language),
+            "🌍 <b>Оберіть кухню світу</b>\\n"
+            "Я запропоную цілісне меню із закускою, основною стравою, "
+            "напоєм і десертом. Список можна змінити перед генерацією.",
+            "🌍 <b>Выберите кухню мира</b>\\n"
+            "Я предложу цельный набор с закуской, основным блюдом, "
+            "напитком и десертом. Список можно изменить до генерации.",
+            "🌍 <b>Choose a cuisine</b>\\n"
+            "I'll suggest a cohesive menu with starter, main course, "
+            "drink and dessert. You can edit it before generation.",
+        ),
+        parse_mode="HTML",
+        reply_markup=builder.as_markup(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(MenuAction.filter(F.action == "cuisine"))
+async def apply_cuisine(
+    callback: CallbackQuery,
+    callback_data: MenuAction,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        repo = MenuRepository(session)
+        menu = await repo.get(callback_data.menu_id, full=True)
+        if not _owned_by(menu, callback.from_user.id):
+            await callback.answer("Сет не найден.", show_alert=True)
+            return
+        if menu.status not in (MenuStatus.DRAFT, MenuStatus.FAILED):
+            await callback.answer("Готовый заказ нельзя изменять.", show_alert=True)
+            return
+        language = getattr(menu.customer.language, "value", menu.customer.language) or "ru"
+        try:
+            entries = cuisine_menu(callback_data.category or "", str(language))
+        except ValueError:
+            await callback.answer("Кухня не найдена.", show_alert=True)
+            return
+        await repo.replace_menu_plan(
+            menu_id=menu.id,
+            entries=[(entry.meal_slot, entry.title, entry.category) for entry in entries],
+        )
+        menu = await repo.get(menu.id, full=True)
+    await callback.message.edit_text(
+        "✅ " + format_premium_dashboard(menu)
+        + "\\n\\n<i>Состав предложен автоматически. "
+        "При необходимости измените блюда вручную до генерации.</i>",
+        reply_markup=build_dashboard_kb(menu), parse_mode="HTML",
+    )
+    await callback.answer("Подборка добавлена. Можно редактировать.")
 
 
 @router.callback_query(MenuAction.filter(F.action.in_(["edit_plan", "edit_category", "bulk_items"])))

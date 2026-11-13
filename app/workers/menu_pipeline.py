@@ -279,6 +279,11 @@ class MenuPipeline:
                         for item in menu.items
                         if item.title != "—"
                     ],
+                    dish_images={
+                        item.title: str(item.image_path)
+                        for item in menu.items
+                        if item.title != "—" and item.image_path
+                    },
                 )
                 validate_menu_files(menu, (production_pdf_path, recipe_path,
                                            rendered_artifacts.inside_preview,
