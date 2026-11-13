@@ -35,6 +35,7 @@ from aiogram.types import (
     WebAppInfo,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -673,7 +674,20 @@ async def confirm_generation(
             await callback.answer("Сет уже успешно завершен.", show_alert=True)
             return
         if menu.status == MenuStatus.QUEUED:
-            await callback.answer("Сет уже формируется.", show_alert=True)
+            # A crashed worker can leave QUEUED forever. Lease state, not
+            # QUEUED alone, determines whether another worker is active.
+            active = await session.scalar(
+                select(Menu.id).where(
+                    Menu.id == menu.id,
+                    Menu.processing_token.is_not(None),
+                    Menu.processing_lease_until > func.now(),
+                )
+            )
+            if active is not None:
+                await callback.answer("Сет уже формируется.", show_alert=True)
+                return
+            await pipeline.submit(menu.id, callback.from_user.id)
+            await callback.answer("Повторно запускаю обработку этого же сета.")
             return
         if not menu.items or not menu.cover_photo_path or not menu.spread_photo_path:
             await callback.answer("Добавьте блюда и загрузите два фото.", show_alert=True)
