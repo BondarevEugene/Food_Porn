@@ -1,6 +1,4 @@
 """Regression tests: VIP menu delivery and rollback-safe crash recovery."""
-from datetime import UTC, datetime, timedelta
-
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
