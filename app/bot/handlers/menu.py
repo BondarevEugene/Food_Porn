@@ -242,15 +242,21 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
 
 
 def build_menu_options_kb(menu: Menu) -> InlineKeyboardMarkup:
-    """Optional settings, never presented as required wizard steps."""
+    """Only optional actions that are valid at the current wizard step."""
+    count = sum(
+        getattr(item, "title", None) not in {None, "—"}
+        for item in (getattr(menu, "items", None) or [])
+    )
     options = [
         ("🌍 Подобрать кухню мира", "choose_cuisine"),
         ("🍽 Выбор по категориям", "pick_category"),
         ("✍️ Ввести блюда списком", "bulk_items"),
-        ("📷 Изменить фото обложки", "req_cover"),
-        ("📷 Изменить фото разворота", "req_spread"),
         ("ℹ️ Требования к меню", "requirements"),
     ]
+    if count:
+        options.append(("📷 Изменить фото обложки", "req_cover"))
+        if menu.cover_photo_path:
+            options.append(("📷 Изменить фото разворота", "req_spread"))
     rows = [
         [InlineKeyboardButton(
             text=label,
