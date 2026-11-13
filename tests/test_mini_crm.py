@@ -171,9 +171,15 @@ async def test_free_id_does_not_implicitly_grant_crm(crm):
 
 async def test_vip_button_in_legacy_menu_and_miniapp(crm, monkeypatch):
     user = SimpleNamespace(id=12, username="VipPerson", first_name="VIP")
+    # Product selection stays small; privileged actions move to Services.
     keyboard = await start.get_user_products_menu_keyboard(user, "ru")
+    assert [button.callback_data for row in keyboard.inline_keyboard for button in row] == [
+        "prod_food_porn", "prod_manifestation", "home_services",
+    ]
+    services = await start.get_user_services_keyboard(user, "ru")
     assert any(
-        button.callback_data == "admin_home" for row in keyboard.inline_keyboard for button in row
+        button.callback_data == "admin_home"
+        for row in services.inline_keyboard for button in row
     )
     state = SimpleNamespace(
         get_data=AsyncMock(return_value={}), clear=AsyncMock(), update_data=AsyncMock()
@@ -183,11 +189,21 @@ async def test_vip_button_in_legacy_menu_and_miniapp(crm, monkeypatch):
     await start.cmd_start(message, state)
     keyboard = message.answer.call_args.kwargs["reply_markup"]
     assert any(
+        button.callback_data == "home_services"
+        for row in keyboard.inline_keyboard
+        for button in row
+    )
+    assert not any(
         button.callback_data == "admin_home"
         for row in keyboard.inline_keyboard
         for button in row
     )
     user.username = "stranger"
+    services = await start.get_user_services_keyboard(user, "ru")
+    assert not any(
+        button.callback_data == "admin_home"
+        for row in services.inline_keyboard for button in row
+    )
     await start.cmd_start(message, state)
     keyboard = message.answer.call_args.kwargs["reply_markup"]
     assert not any(
