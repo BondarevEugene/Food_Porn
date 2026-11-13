@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import time
 from io import BytesIO
 from pathlib import Path
 
@@ -49,6 +50,7 @@ class StorageService:
         menu_id: int,
         role: str,
     ) -> Path:
+        started = time.perf_counter()
         max_bytes = self.settings.max_upload_mb * 1024**2
         for attempt in range(2):
             try:
@@ -62,9 +64,15 @@ class StorageService:
                 payload = buffer.getvalue()
                 if len(payload) > max_bytes:
                     raise InvalidImageError("Image exceeds configured size limit")
-                return await asyncio.to_thread(
+                path = await asyncio.to_thread(
                     self.save_validated_bytes, payload, menu_id=menu_id, role=role
                 )
+                logger.info(
+                    "Menu photo ready: menu=%s role=%s bytes=%s elapsed=%.2fs attempts=%s",
+                    menu_id, role, len(payload),
+                    time.perf_counter() - started, attempt + 1,
+                )
+                return path
             except (TelegramNetworkError, TimeoutError) as exc:
                 logger.warning(
                     "Telegram photo transfer failed (menu=%s role=%s attempt=%s): %s",
