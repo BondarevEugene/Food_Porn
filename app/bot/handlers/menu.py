@@ -35,6 +35,7 @@ from aiogram.types import (
     WebAppInfo,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.bot.handlers.wallpaper import text_for
@@ -583,8 +584,16 @@ async def receive_photo(
         f"📥 Фото для {role_label} получено. "
         "Проверяю заказ и загружаю файл…",
     )
-    async with session_factory() as session:
-        existing = await MenuRepository(session).get(menu_id, full=True)
+    try:
+        async with session_factory() as session:
+            existing = await MenuRepository(session).get(menu_id, full=True)
+    except SQLAlchemyError:
+        logger.exception("Menu photo ownership lookup failed for menu %s", menu_id)
+        await _photo_status_notice(
+            message, "⚠️ База данных временно недоступна. "
+            "Фото ещё не сохранено, повторите отправку позже.",
+        )
+        return
     if not _owned_by(existing, message.from_user.id):
         await state.clear()
         await message.answer("Сет не найден. Вернитесь в /start.")
@@ -611,15 +620,23 @@ async def receive_photo(
         )
         return
 
-    async with session_factory() as session:
-        repo = MenuRepository(session)
-        kwargs = (
-            {"cover": str(path), "cover_file_id": message.photo[-1].file_id}
-            if role == "cover"
-            else {"spread": str(path), "spread_file_id": message.photo[-1].file_id}
+    try:
+        async with session_factory() as session:
+            repo = MenuRepository(session)
+            kwargs = (
+                {"cover": str(path), "cover_file_id": message.photo[-1].file_id}
+                if role == "cover"
+                else {"spread": str(path), "spread_file_id": message.photo[-1].file_id}
+            )
+            await repo.set_photos(menu_id, **kwargs)
+            menu = await repo.get(menu_id, full=True)
+    except SQLAlchemyError:
+        logger.exception("Menu photo DB persistence failed for menu %s", menu_id)
+        await _photo_status_notice(
+            message, "⚠️ Фото получено, но база данных сейчас недоступна. "
+            "Попробуйте повторить отправку позже; новый заказ не нужен.",
         )
-        await repo.set_photos(menu_id, **kwargs)
-        menu = await repo.get(menu_id, full=True)
+        return
 
     await state.set_state(None)
     await _photo_status_notice(
