@@ -189,33 +189,78 @@ def get_products_menu_keyboard(
             InlineKeyboardButton(
                 text=text_for(
                     lang,
-                    "📱 Створити карту бажань на заставку",
-                    "📱 Создать карту желаний на заставку",
-                    "📱 Create a vision-board wallpaper",
+                    "🎁 Карта бажань · колаж / відео",
+                    "🎁 Карта желаний · коллаж / видео",
+                    "🎁 Vision board · collage / video",
                 ),
                 callback_data="prod_manifestation",
             )
         ],
     ]
-    buttons.extend([
-        [
-            InlineKeyboardButton(text=text_for(lang, "📦 Мої замовлення", "📦 Мои заказы", "📦 My orders"), callback_data="home_orders"),
-            InlineKeyboardButton(text=text_for(lang, "🎁 Запросити друга", "🎁 Пригласить друга", "🎁 Invite a friend"), callback_data="home_referral"),
-        ],
-        [
-            InlineKeyboardButton(text=text_for(lang, "📖 Інструкція", "📖 Инструкция", "📖 How it works"), callback_data="home_instruction"),
-            InlineKeyboardButton(text="FAQ", callback_data="home_faq"),
-        ],
-        [
-            InlineKeyboardButton(text=text_for(lang, "💬 Підтримка", "💬 Поддержка", "💬 Support"), callback_data="home_support"),
-            InlineKeyboardButton(text=text_for(lang, "🌐 Мова", "🌐 Язык", "🌐 Language"), callback_data="choose_language"),
-        ],
+    buttons.append([
+        InlineKeyboardButton(
+            text=text_for(lang, "⚙️ Мої замовлення та допомога", "⚙️ Мои заказы и помощь", "⚙️ Orders & help"),
+            callback_data="home_services",
+        ),
     ])
-    if is_admin or user_id in get_settings().admin_telegram_ids:
-        buttons.append(
-            [InlineKeyboardButton(text="👑 Панель керування (Адмін)", callback_data="admin_home")]
-        )
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_services_keyboard(
+    user_id: int | None = None, lang: str = "uk", *, is_admin: bool = False
+) -> InlineKeyboardMarkup:
+    """Secondary navigation; never mix account actions with product choices."""
+    entries = [
+        ("📦 Мої замовлення", "📦 Мои заказы", "📦 My orders", "home_orders"),
+        ("📖 Як це працює", "📖 Как это работает", "📖 How it works", "home_instruction"),
+        ("❓ Часті запитання", "❓ Частые вопросы", "❓ FAQ", "home_faq"),
+        ("💬 Підтримка", "💬 Поддержка", "💬 Support", "home_support"),
+        ("🎁 Запросити друга", "🎁 Пригласить друга", "🎁 Invite a friend", "home_referral"),
+        ("🌐 Мова", "🌐 Язык", "🌐 Language", "choose_language"),
+    ]
+    rows = [
+        [InlineKeyboardButton(text=text_for(lang, uk, ru, en), callback_data=callback)]
+        for uk, ru, en, callback in entries
+    ]
+    if is_admin or user_id in get_settings().admin_telegram_ids:
+        rows.append([InlineKeyboardButton(
+            text=text_for(lang, "👑 Адміністрування", "👑 Администрирование", "👑 Admin"),
+            callback_data="admin_home",
+        )])
+    rows.append([InlineKeyboardButton(
+        text=text_for(lang, "⬅️ До вибору продукту", "⬅️ К выбору продукта", "⬅️ Choose a product"),
+        callback_data="back_to_products",
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def get_user_services_keyboard(user: object, lang: str = "uk") -> InlineKeyboardMarkup:
+    """Preserve VIP/admin permissions without showing admin among products."""
+    admin = await has_admin_access(
+        user.id, getattr(user, "username", None),
+        get_settings(), async_session_maker,
+    )
+    return get_services_keyboard(user.id, lang, is_admin=admin)
+
+
+@router.callback_query(F.data == "home_services")
+async def open_services(callback: CallbackQuery, state: FSMContext) -> None:
+    lang = await preferred_language(callback.from_user, state)
+    keyboard = await get_user_services_keyboard(callback.from_user, lang)
+    # Do not leave an active wizard behind the account/help screen.
+    selected = (await state.get_data()).get("lang_selected", False)
+    await state.clear()
+    await state.update_data(ui_lang=lang, lang_selected=selected)
+    prompt = text_for(
+        lang, "⚙️ <b>Замовлення й допомога</b>\nОберіть потрібний розділ.",
+        "⚙️ <b>Заказы и помощь</b>\nВыберите нужный раздел.",
+        "⚙️ <b>Orders & help</b>\nChoose an option.",
+    )
+    try:
+        await callback.message.edit_text(prompt, reply_markup=keyboard, parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(prompt, reply_markup=keyboard, parse_mode="HTML")
+    await callback.answer()
 
 
 async def get_user_products_menu_keyboard(user: object, lang: str = "uk") -> InlineKeyboardMarkup:

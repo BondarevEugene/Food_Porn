@@ -92,7 +92,7 @@ async def test_optional_style_selection_updates_render_job(tmp_path):
     assert state.data["render_job"] is None
     assert "цветную" in callback.answer.await_args.args[0]
     keyboard = callback.message.edit_reply_markup.await_args.kwargs["reply_markup"]
-    assert keyboard.inline_keyboard[1][2].text.startswith("✓ ")
+    assert keyboard.inline_keyboard[0][2].text.startswith("✓ ")
 
 
 def test_gift_image_model_has_its_own_quality_settings():

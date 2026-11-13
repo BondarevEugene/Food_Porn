@@ -62,24 +62,51 @@ def get_user_lock(user_id: int) -> asyncio.Lock:
 MAX_GIFT_PHOTOS = 7
 
 
+async def retire_gift_step_buttons(callback: CallbackQuery) -> None:
+    """Remove buttons for a completed step so old Telegram messages cannot mislead."""
+    editor = getattr(getattr(callback, "message", None), "edit_reply_markup", None)
+    if not callable(editor):
+        return
+    try:
+        await editor(reply_markup=None)
+    except Exception:
+        logger.debug("Could not hide completed gift step buttons", exc_info=True)
+
+
 def text_for(lang: str, uk: str, ru: str, en: str) -> str:
     return {"ru": ru, "en": en}.get(lang, uk)
 
 
 def gift_keyboard(lang: str, selected: str = "dark") -> InlineKeyboardMarkup:
+    """Step 1 is ONLY about uploading photos, not choosing visual settings."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=text_for(lang, "📷 Завантажити фото", "📷 Загрузить фото", "📷 Upload photos"),
+            callback_data="gift_five_photos",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🏠 На головну", "🏠 На главную", "🏠 Home"),
+            callback_data="back_to_products",
+        )],
+    ])
+
+
+def gift_goals_keyboard(lang: str, selected: str = "dark") -> InlineKeyboardMarkup:
+    """Step 3: optional visual mood + back to the previous product choice."""
     styles = (
         ("dark", "🌙 Темна", "🌙 Тёмная", "🌙 Dark"),
         ("light", "☀️ Світла", "☀️ Светлая", "☀️ Light"),
         ("color", "🌈 Кольорова", "🌈 Цветная", "🌈 Color"),
     )
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=text_for(lang, "✨ Додати до 7 фото", "✨ Добавить до 7 фото", "✨ Add up to 7 photos"),
-                              callback_data="gift_five_photos")],
-        [InlineKeyboardButton(text=("✓ " if key == selected else "")
-                                   + text_for(lang, uk, ru, en), callback_data=f"gift_style:{key}")
-         for key, uk, ru, en in styles],
-        [InlineKeyboardButton(text=text_for(lang, "⬅️ До меню", "⬅️ В меню", "⬅️ Back"),
-                              callback_data="back_to_products")],
+        [InlineKeyboardButton(
+            text=("✓ " if key == selected else "") + text_for(lang, uk, ru, en),
+            callback_data=f"gift_style:{key}",
+        ) for key, uk, ru, en in styles],
+        [InlineKeyboardButton(
+            text=text_for(lang, "⬅️ Змінити формат", "⬅️ Изменить формат", "⬅️ Change format"),
+            callback_data="gift_back_to_product",
+        )],
     ])
 
 
@@ -350,7 +377,7 @@ async def resume_saved_photos(message: Message, state: FSMContext, settings: Set
             "Фото та вибір продукту відновлено 💛 Надішліть цілі, щоб продовжити.",
             "Фото и выбор продукта восстановлены 💛 Пришлите цели, чтобы продолжить.",
             "Photos and product selection restored 💛 Send your goals to continue.",
-        ), reply_markup=gift_keyboard(lang, draft.style if draft else "dark"))
+        ), reply_markup=gift_goals_keyboard(lang, draft.style if draft else "dark"))
         return
     await state.set_state(WallpaperStates.waiting_for_product)
     await message.answer(
@@ -383,7 +410,11 @@ async def select_gift_style(callback: CallbackQuery, state: FSMContext) -> None:
     lang = data.get("lang", "uk")
     if callback.message:
         try:
-            await callback.message.edit_reply_markup(reply_markup=gift_keyboard(lang, style))
+            await callback.message.edit_reply_markup(reply_markup=(
+                gift_goals_keyboard(lang, style)
+                if current == WallpaperStates.waiting_for_goals.state
+                else gift_keyboard(lang, style)
+            ))
         except Exception:
             logger.debug("Could not update gift style buttons for user %s", callback.from_user.id)
     await callback.answer(text_for(lang,
@@ -409,11 +440,11 @@ async def start_five_photo_gift(callback: CallbackQuery, state: FSMContext) -> N
     await state.update_data(gift_upload_status_message_id=None)
     await callback.message.answer(text_for(
         data.get("lang", "uk"),
-        "📷 <b>Крок 1 із 3 · Додайте фото</b>\nДо 7 фото — альбомом або по черзі. "
+        "📷 <b>Крок 1 із 4 · Додайте фото</b>\nДо 7 фото — альбомом або по черзі. "
         "Після завантаження натисніть «Продовжити».",
-        "📷 <b>Шаг 1 из 3 · Добавьте фото</b>\nДо 7 фото — альбомом или по одному. "
+        "📷 <b>Шаг 1 из 4 · Добавьте фото</b>\nДо 7 фото — альбомом или по одному. "
         "После загрузки нажмите «Продолжить».",
-        "📷 <b>Step 1 of 3 · Add photos</b>\nUp to 7 photos in an album or separately. "
+        "📷 <b>Step 1 of 4 · Add photos</b>\nUp to 7 photos in an album or separately. "
         "Tap Continue when ready.",
     ), reply_markup=finish_photos_keyboard(data.get("lang", "uk")))
     await callback.answer()
@@ -441,13 +472,15 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
                 )
             except Exception:
                 logger.exception("Could not persist gift draft for %s", user_id)
+    await retire_gift_step_buttons(callback)
     await callback.answer()
     await callback.message.answer(
         text_for(data.get("lang", "uk"),
-                 "Фото збережено 💛 Оберіть, що створити:",
-                 "Фото сохранены 💛 Выберите, что создать:",
-                 "Photos saved 💛 Choose what to create:"),
+                 "② <b>Формат подарунка</b> · Оберіть, що створити:",
+                 "② <b>Формат подарка</b> · Выберите, что создать:",
+                 "② <b>Gift format</b> · Choose what to create:"),
         reply_markup=gift_product_keyboard(data.get("lang", "uk")),
+        parse_mode="HTML",
     )
 
 
@@ -473,22 +506,49 @@ async def select_gift_product(callback: CallbackQuery, state: FSMContext,
             )
         except Exception:
             logger.exception("Could not persist selected gift product for %s", callback.from_user.id)
+    await retire_gift_step_buttons(callback)
     await callback.answer()
     goals_saved = isinstance(data.get("goals"), list) and 5 <= len(data["goals"]) <= 9
     if goals_saved:
         await callback.message.answer(text_for(
             data.get("lang", "uk"),
-            "Вибір збережено 💛 Цілі вже є. Надішліть їх повторно, якщо хочете змінити.",
-            "Выбор сохранён 💛 Цели уже есть. Пришлите их повторно, если хотите изменить.",
-            "Choice saved 💛 Your goals are saved. Resend them only to change them.",
-        ), reply_markup=gift_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
+            "③ <b>Цілі й стиль</b> · цілі збережено. Надішліть їх ще раз для підтвердження або зміни.",
+            "③ <b>Цели и стиль</b> · цели сохранены. Отправьте их снова для подтверждения или изменения.",
+            "③ <b>Goals & style</b> · goals saved. Send them again to confirm or change.",
+        ), reply_markup=gift_goals_keyboard(data.get("lang", "uk"), data.get("style", "dark")), parse_mode="HTML")
     else:
         await callback.message.answer(text_for(
             data.get("lang", "uk"),
-            "Вибір збережено 💛 Надішліть 5–9 цілей, кожну з нового рядка. Стиль можна обрати нижче.",
-            "Выбор сохранён 💛 Пришлите 5–9 целей, каждую с новой строки. Стиль можно выбрать ниже.",
-            "Choice saved 💛 Send 5–9 goals, one per line. Choose the style below.",
+            "③ <b>Цілі й стиль</b> · надішліть 5–9 цілей окремими рядками. За бажанням оберіть стиль нижче.",
+            "③ <b>Цели и стиль</b> · пришлите 5–9 целей отдельными строками. При желании выберите стиль ниже.",
+            "③ <b>Goals & style</b> · send 5–9 goals on separate lines. You can choose a style below.",
         ), reply_markup=gift_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
+
+
+@router.callback_query(F.data == "gift_back_to_product")
+async def go_back_to_gift_product(
+    callback: CallbackQuery, state: FSMContext, settings: Settings,
+) -> None:
+    if (await state.get_state()) != WallpaperStates.waiting_for_goals.state:
+        await callback.answer("Цей крок уже завершено.", show_alert=True)
+        return
+    count = len(upload_paths(settings, callback.from_user.id))
+    if not 1 <= count <= MAX_GIFT_PHOTOS:
+        await callback.answer("Фото не знайдено. Почніть із /start.", show_alert=True)
+        return
+    data = await state.get_data()
+    await state.update_data(gift_product=None, gift_quote_id=None)
+    await state.set_state(WallpaperStates.waiting_for_product)
+    await retire_gift_step_buttons(callback)
+    await callback.message.answer(
+        text_for(data.get("lang", "uk"),
+                 "② <b>Формат подарунка</b> · оберіть один варіант.",
+                 "② <b>Формат подарка</b> · выберите один вариант.",
+                 "② <b>Gift format</b> · choose one option."),
+        parse_mode="HTML",
+        reply_markup=gift_product_keyboard(data.get("lang", "uk")),
+    )
+    await callback.answer()
 
 
 @router.callback_query(F.data == "gift_photos_done")
@@ -564,9 +624,9 @@ async def collect_photo(message: Message, state: FSMContext, settings: Settings,
     await message.answer(text_for(
         lang,
         "Фото збережено 💛 Оберіть, що створити:",
-        "Фото сохранено 💛 Выберите, что создать:",
-        "Photo saved 💛 Choose what to create:",
-    ), reply_markup=gift_product_keyboard(lang))
+        "② <b>Формат подарка</b> · Выберите, что создать:",
+        "② <b>Gift format</b> · Choose what to create:",
+    ), parse_mode="HTML", reply_markup=gift_product_keyboard(lang))
 
 @router.message(WallpaperStates.waiting_for_five_photos, F.photo | F.document)
 async def collect_five_photos(message: Message, state: FSMContext, settings: Settings,
