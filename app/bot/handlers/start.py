@@ -189,9 +189,9 @@ def get_products_menu_keyboard(
             InlineKeyboardButton(
                 text=text_for(
                     lang,
-                    "📱 Створити карту бажань на заставку",
-                    "📱 Создать карту желаний на заставку",
-                    "📱 Create a vision-board wallpaper",
+                    "🎁 Карта бажань · колаж / відео",
+                    "🎁 Карта желаний · коллаж / видео",
+                    "🎁 Vision board · collage / video",
                 ),
                 callback_data="prod_manifestation",
             )
@@ -242,6 +242,10 @@ async def open_services(callback: CallbackQuery, state: FSMContext) -> None:
         get_settings(), async_session_maker,
     )
     keyboard = get_services_keyboard(callback.from_user.id, lang, is_admin=admin)
+    # Do not leave an active wizard behind the account/help screen.
+    selected = (await state.get_data()).get("lang_selected", False)
+    await state.clear()
+    await state.update_data(ui_lang=lang, lang_selected=selected)
     prompt = text_for(
         lang, "⚙️ <b>Замовлення й допомога</b>\nОберіть потрібний розділ.",
         "⚙️ <b>Заказы и помощь</b>\nВыберите нужный раздел.",
