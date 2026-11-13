@@ -1,15 +1,21 @@
 """Regression tests: VIP menu delivery and rollback-safe crash recovery."""
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.database.models import (
     Base,
     Customer,
+    ItemCategory,
     Language,
     Menu,
+    MenuItem,
     MenuStatus,
 )
 from app.database.repositories import MenuRepository
+from app.bot.handlers.menu import MenuAction, confirm_generation
 
 
 @pytest.fixture
@@ -86,3 +92,57 @@ async def test_regular_payment_still_requires_verified_invoice(db):
             await repo.mark_as_paid(
                 98, payment_id="unverified", payment_system="wayforpay",
             )
+
+
+@pytest.mark.asyncio
+async def test_stale_queued_menu_can_be_resumed_without_new_order(db):
+    async with db() as session:
+        menu = await MenuRepository(session).get(98)
+        menu.cover_photo_path = "/uploads/cover.jpg"
+        menu.spread_photo_path = "/uploads/spread.jpg"
+        session.add(MenuItem(
+            menu_id=98, category=ItemCategory.MAIN,
+            title="Soup", position=1,
+        ))
+        await session.commit()
+
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=725003786),
+        answer=AsyncMock(),
+        message=SimpleNamespace(edit_text=AsyncMock()),
+    )
+    pipeline = SimpleNamespace(submit=AsyncMock(return_value=True))
+    state = SimpleNamespace(clear=AsyncMock())
+    await confirm_generation(
+        callback, MenuAction(action="generate", menu_id=98),
+        state, db, pipeline,
+    )
+    pipeline.submit.assert_awaited_once_with(98, 725003786)
+    callback.answer.assert_awaited_once()
+    assert "Повторно" in callback.answer.await_args.args[0]
+    callback.message.edit_text.assert_not_awaited()
+    async with db() as session:
+        assert (await MenuRepository(session).get(98)).status == MenuStatus.QUEUED
+
+
+@pytest.mark.asyncio
+async def test_active_queued_menu_is_not_resubmitted(db):
+    from datetime import UTC, datetime, timedelta
+
+    async with db() as session:
+        menu = await MenuRepository(session).get(98)
+        menu.processing_token = "active-lease"
+        menu.processing_lease_until = datetime.now(UTC) + timedelta(minutes=4)
+        await session.commit()
+
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=725003786),
+        answer=AsyncMock(),
+    )
+    pipeline = SimpleNamespace(submit=AsyncMock())
+    await confirm_generation(
+        callback, MenuAction(action="generate", menu_id=98),
+        SimpleNamespace(clear=AsyncMock()), db, pipeline,
+    )
+    pipeline.submit.assert_not_awaited()
+    assert "уже формируется" in callback.answer.await_args.args[0]
