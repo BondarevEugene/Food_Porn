@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import os
 import secrets
 import time
@@ -33,6 +34,8 @@ from app.config import Settings
 from app.crm.models import GiftPaymentReceipt, GiftPurchase
 from app.database.models import Menu, MenuStatus, VideoStoryOrder, WallpaperOrder, WayForPayPayment
 from app.database.repositories import WayForPayPaymentRepository
+
+logger = logging.getLogger(__name__)
 
 WAYFORPAY_CHECKOUT_URL = "https://secure.wayforpay.com/pay"
 WAYFORPAY_API_URL = "https://api.wayforpay.com/api"
