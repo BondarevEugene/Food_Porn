@@ -308,7 +308,8 @@ async def admin_home_callback(callback: CallbackQuery, state: FSMContext):
     try:
         await callback.message.edit_text(
             await summary_text(),
-            reply_markup=get_admin_main_keyboard(secure_url), parse_mode="HTML"
+            reply_markup=(get_admin_main_keyboard(secure_url) if secure_url else get_admin_main_keyboard()),
+            parse_mode="HTML"
         )
     except TelegramBadRequest as exc:
         # A repeated click can result in identical text and keyboard. Telegram
