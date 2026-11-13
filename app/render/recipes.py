@@ -5,7 +5,6 @@ produces searchable Unicode copy, with one consistent Food_Porn brand system.
 """
 from __future__ import annotations
 
-import re
 from html import escape
 from pathlib import Path
 
