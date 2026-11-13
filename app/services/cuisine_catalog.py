@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.database.models import ItemCategory
-from app.services.menu_wizard import MenuPlanEntry, SLOT_DINNER
+from app.services.menu_wizard import SLOT_DINNER, MenuPlanEntry
 
 
 @dataclass(frozen=True, slots=True)
