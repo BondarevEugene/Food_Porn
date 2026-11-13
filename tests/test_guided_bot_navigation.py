@@ -3,7 +3,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from app.bot.handlers.menu import build_dashboard_kb, build_menu_options_kb, format_premium_dashboard
+from app.bot.handlers.menu import (
+    build_dashboard_kb,
+    build_menu_options_kb,
+    format_premium_dashboard,
+)
 from app.bot.handlers.start import get_products_menu_keyboard, get_services_keyboard
 from app.bot.handlers.wallpaper import gift_goals_keyboard, gift_keyboard, gift_product_keyboard
 from app.database.models import MenuStatus
