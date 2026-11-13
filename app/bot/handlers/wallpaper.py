@@ -626,7 +626,7 @@ async def collect_five_photos(message: Message, state: FSMContext, settings: Set
         )
         response_id = getattr(response, "message_id", None)
         if type(response_id) is int:
-            await state.update_data(gift_upload_status_message_id=response_id), reply_markup=finish_photos_keyboard(lang))
+            await state.update_data(gift_upload_status_message_id=response_id)
 
 
 @router.message(WallpaperStates.waiting_for_product)
