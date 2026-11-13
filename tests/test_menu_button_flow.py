@@ -11,7 +11,7 @@ Responsibilities:
 ==========================================================
 """
 
-from app.bot.handlers.start import (get_products_menu_keyboard, get_services_keyboard, language_menu)
+from app.bot.handlers.start import get_products_menu_keyboard, get_services_keyboard, language_menu
 
 
 def _callbacks(keyboard) -> list[str | None]:
