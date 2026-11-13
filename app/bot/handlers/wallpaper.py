@@ -406,6 +406,7 @@ async def start_wallpaper(callback: CallbackQuery, state: FSMContext, settings: 
 async def start_five_photo_gift(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     await state.set_state(WallpaperStates.waiting_for_five_photos)
+    await state.update_data(gift_upload_status_message_id=None)
     await callback.message.answer(text_for(
         data.get("lang", "uk"),
         "📷 <b>Крок 1 із 3 · Додайте фото</b>\nДо 7 фото — альбомом або по черзі. "
@@ -428,7 +429,7 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
             await callback.answer("Надішліть від 1 до 7 фото 💛")
             return
         data = await state.get_data()
-        await state.update_data(gift_product=None)
+        await state.update_data(gift_product=None, gift_upload_status_message_id=None)
         await state.set_state(WallpaperStates.waiting_for_product)
         if session_factory is not None:
             try:
@@ -607,10 +608,25 @@ async def collect_five_photos(message: Message, state: FSMContext, settings: Set
                 await state.update_data(goals=parse_five_goals(message.caption))
             except ValueError:
                 pass
-        await message.answer(
-            photo_upload_status(lang, count + 1),
-            reply_markup=finish_photos_keyboard(lang),
-        ), reply_markup=finish_photos_keyboard(lang))
+        status = photo_upload_status(lang, count + 1)
+        previous_id = data.get("gift_upload_status_message_id")
+        if type(previous_id) is int:
+            try:
+                await message.bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=previous_id,
+                    text=status,
+                    reply_markup=finish_photos_keyboard(lang),
+                )
+                return
+            except Exception:
+                logger.info("Photo progress message could not be updated; sending a new one")
+        response = await message.answer(
+            status, reply_markup=finish_photos_keyboard(lang),
+        )
+        response_id = getattr(response, "message_id", None)
+        if type(response_id) is int:
+            await state.update_data(gift_upload_status_message_id=response_id), reply_markup=finish_photos_keyboard(lang))
 
 
 @router.message(WallpaperStates.waiting_for_product)
