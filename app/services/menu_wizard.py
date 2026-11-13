@@ -75,7 +75,7 @@ MEAL_SLOT_LABELS = {
     SLOT_BREAKFAST: {"uk": "Сніданок", "ru": "Завтрак", "en": "Breakfast"},
     SLOT_LUNCH: {"uk": "Обід", "ru": "Обед", "en": "Lunch"},
     SLOT_DINNER: {"uk": "Вечеря", "ru": "Ужин", "en": "Dinner"},
-    SLOT_OTHER: {"uk": "Інше", "ru": "Без раздела", "en": "Other"},
+    SLOT_OTHER: {"uk": "Страви", "ru": "Блюда", "en": "Dishes"},
 }
 
 CYRILLIC_TO_LATIN = str.maketrans({
@@ -149,6 +149,41 @@ def meal_label(meal_period: str | None, language: str = "ru") -> str:
 def meal_slot_label(meal_slot: str | None, language: str = "ru") -> str:
     labels = MEAL_SLOT_LABELS.get(str(meal_slot), MEAL_SLOT_LABELS[SLOT_OTHER])
     return labels.get(language, labels["ru"])
+
+
+# Display-only normalization. Preserve the original dish title in the DB and
+# generation prompt; never silently replace the customer's requested recipe.
+TITLE_FIXES = {
+    "котлета по киевски": "Котлета по-киевски",
+    "котлета по київськи": "Котлета по-київськи",
+}
+
+
+def display_dish_title(title: str) -> str:
+    """Correct accidental casing and common orthography for the printed menu."""
+    value = re.sub(r"\\s+", " ", str(title).strip())
+    if not value:
+        return ""
+    fixed = TITLE_FIXES.get(value.casefold())
+    if fixed:
+        return fixed
+    return value[0].upper() + value[1:] if value[0].islower() else value
+
+
+def category_label(category: ItemCategory | str, language: str = "ru") -> str:
+    labels = {
+        ItemCategory.MAIN: ("Основні страви", "Основные блюда", "Main courses"),
+        ItemCategory.APPETIZER: ("Закуски", "Закуски", "Starters"),
+        ItemCategory.SALAD: ("Салати", "Салаты", "Salads"),
+        ItemCategory.SOUP: ("Супи", "Супы", "Soups"),
+        ItemCategory.DESSERT: ("Десерти", "Десерты", "Desserts"),
+        ItemCategory.DRINK: ("Напої", "Напитки", "Drinks"),
+    }
+    try:
+        value = category if isinstance(category, ItemCategory) else ItemCategory(category)
+    except ValueError:
+        return ""
+    return labels[value][{"uk": 0, "ru": 1, "en": 2}.get(language, 1)]
 
 
 def _normalize_words(value: str) -> str:
