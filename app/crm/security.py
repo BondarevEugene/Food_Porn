@@ -172,7 +172,12 @@ async def crm_identity(
     VIP usernames are never sufficient to access sensitive CRM data.
     """
     settings = get_settings()
-    if request.session.get("admin_authenticated") is True:
+    admin_issued = request.session.get("admin_login_at")
+    if (
+        request.session.get("admin_authenticated") is True
+        and type(admin_issued) is int
+        and 0 <= time.time() - admin_issued < 8 * 3600
+    ):
         _require_crm_csrf(request)
         return {
             "actor": "web:admin", "owner": True, "first_name": "Администратор"
