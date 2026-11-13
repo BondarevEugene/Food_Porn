@@ -34,6 +34,7 @@ from app.services.free_access import has_free_generation_access
 from app.services.gift_delivery import deliver_paid_gift
 from app.services.gift_drafts import load_gift_draft, store_gift_draft
 from app.services.gift_fulfillment import GiftFulfillmentBusy, process_paid_gift_purchase
+from app.services.gift_photo_archive import stage_paid_gift_photos
 from app.services.gift_pricing import checkout_price_uah
 from app.services.gift_purchases import create_gift_quote
 from app.services.goal_story import GoalScenePlanner
@@ -717,10 +718,15 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
             ))
             return
         try:
+            archived_photos = await asyncio.to_thread(
+                stage_paid_gift_photos, settings,
+                user_id=message.from_user.id,
+                uploads=upload_paths(settings, message.from_user.id),
+            )
             quote = await create_gift_quote(
                 session_factory, settings=settings, user_id=message.from_user.id,
                 choice=data["gift_product"], goals=goals,
-                photo_paths=upload_paths(settings, message.from_user.id),
+                photo_paths=archived_photos,
                 style=data.get("style", "dark"),
             )
         except ValueError:
