@@ -246,6 +246,7 @@ class MenuPipeline:
                         language,
                         user_id=customer_telegram_id,
                         order_id=menu.id,
+                        servings=menu.servings,
                     )
                     await lease.assert_owned()
                     for item in menu.items:
@@ -262,8 +263,12 @@ class MenuPipeline:
                 # Resolve every ORM attribute on the event loop before the
                 # CPU-bound Pillow/ReportLab renderer enters its worker thread.
                 render_input = menu_render_snapshot(menu)
+                themed_renderer = (
+                    self.renderer.with_theme(getattr(menu, "visual_style", None))
+                    if hasattr(self.renderer, "with_theme") else self.renderer
+                )
                 rendered_artifacts = await asyncio.to_thread(
-                    self.renderer.render, render_input
+                    themed_renderer.render, render_input
                 )
                 preview_image_path = rendered_artifacts.outside_preview
                 production_pdf_path = rendered_artifacts.print_pdf
