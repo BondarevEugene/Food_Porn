@@ -173,92 +173,118 @@ def format_premium_dashboard(menu: Menu) -> str:
                 for index, title in enumerate(titles, start=1)
             )
 
+    item_count = sum(bool(getattr(item, "title", None) and item.title != "—") for item in menu.items)
+    if menu.status in (MenuStatus.DRAFT, MenuStatus.FAILED, MenuStatus.QUEUED):
+        if not item_count:
+            step = "① <b>Сейчас: добавьте блюда.</b> Выберите один из двух способов ниже."
+        elif not menu.cover_photo_path:
+            step = "② <b>Сейчас: загрузите фото обложки.</b>"
+        elif not menu.spread_photo_path:
+            step = "③ <b>Сейчас: загрузите фото разворота.</b>"
+        else:
+            step = "④ <b>Всё готово.</b> Нажмите «Сформировать меню»."
+        lines.extend(["", step])
+    else:
+        lines.extend(["", "📦 <b>Оформленный заказ</b> · изменения недоступны"])
     lines.extend([
         "",
-        "<i>Нейросеть автоматически подберет рецептуру, сформирует</i>",
-        "<i>консолидированный лист закупок и стилизует иллюстрации.</i>"
+        "<i>Рецепты и список покупок будут подготовлены автоматически.</i>",
     ])
 
     return "\n".join(lines)
 
 
 def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
-    """Генерирует инлайн-клавиатуру для управления сетом."""
+    """One customer task at a time; secondary options remain one level away."""
     builder = InlineKeyboardBuilder()
+    items = getattr(menu, "items", []) or []
+    count = sum(getattr(item, "title", None) != "—" for item in items)
+    editable = menu.status in (MenuStatus.DRAFT, MenuStatus.FAILED, MenuStatus.QUEUED)
+    complete = bool(count and menu.cover_photo_path and menu.spread_photo_path)
 
-    # Основные действия меню. Каждая кнопка добавляется ровно один раз.
-    builder.button(
-        text="🍽 Выбрать категорию",
-        callback_data=MenuAction(
-            action="pick_category",
-            menu_id=menu.id,
-        ),
-    )
-    builder.button(
-        text="✍️ Ввести блюда самостоятельно",
-        callback_data=MenuAction(action="bulk_items", menu_id=menu.id),
-    )
-    builder.button(
-        text="🌍 Выбрать кухню мира",
-        callback_data=MenuAction(action="choose_cuisine", menu_id=menu.id),
-    )
-    builder.button(
-        text="ℹ️ Требования к генерации",
-        callback_data=MenuAction(
-            action="requirements",
-            menu_id=menu.id,
-        ),
-    )
-
-    builder.button(
-        text=("✅ Фото обложки" if menu.cover_photo_path else "🖼 Загрузить фото обложки"),
-        callback_data=MenuAction(action="req_cover", menu_id=menu.id)
-    )
-    builder.button(
-        text=("✅ Фото разворота" if menu.spread_photo_path else "📔 Загрузить фото разворота"),
-        callback_data=MenuAction(action="req_spread", menu_id=menu.id)
-    )
-
-    item_count = sum(item.title != "—" for item in menu.items)
-    builder.button(
-        text=f"{'✅' if item_count else '📝'} Ввести меню · {item_count} блюд",
-        callback_data=MenuAction(action="edit_plan", menu_id=menu.id),
-    )
-
-    can_generate = bool(menu.items and menu.cover_photo_path and menu.spread_photo_path)
-
-    if menu.status in (MenuStatus.DRAFT, MenuStatus.FAILED, MenuStatus.QUEUED):
-        if can_generate:
-            builder.button(
-                text="✨ Сформировать",
-                callback_data=MenuAction(action="generate", menu_id=menu.id)
-            )
-        else:
-            # Кнопка открывает понятную подсказку; не используем устаревший
-            # Старый callback без идентификатора меню больше не используется.
-            builder.button(
-                text="⚠️ Добавьте блюда и два фото",
-                callback_data=MenuAction(
-                    action="requirements",
-                    menu_id=menu.id,
-                ),
-            )
-
+    if editable and not count:
+        # Step 1: choose HOW to add dishes. No photo, payment or service clutter.
+        builder.button(text="① 🍽 Выбирать блюда по категориям",
+                       callback_data=MenuAction(action="pick_category", menu_id=menu.id))
+        builder.button(text="① ✍️ Ввести список блюд",
+                       callback_data=MenuAction(action="bulk_items", menu_id=menu.id))
+        builder.button(text="❓ Что понадобится?",
+                       callback_data=MenuAction(action="requirements", menu_id=menu.id))
+    elif editable and not menu.cover_photo_path:
+        # Step 2: make the next missing upload unambiguous.
+        builder.button(text="② 📷 Загрузить фото обложки",
+                       callback_data=MenuAction(action="req_cover", menu_id=menu.id))
+        builder.button(text="✏️ Изменить блюда",
+                       callback_data=MenuAction(action="edit_plan", menu_id=menu.id))
+    elif editable and not menu.spread_photo_path:
+        # Step 3: request exactly the remaining image.
+        builder.button(text="③ 📷 Загрузить фото разворота",
+                       callback_data=MenuAction(action="req_spread", menu_id=menu.id))
+        builder.button(text="✏️ Изменить блюда",
+                       callback_data=MenuAction(action="edit_plan", menu_id=menu.id))
+    elif editable and complete:
+        builder.button(text="④ ✨ Сформировать меню",
+                       callback_data=MenuAction(action="generate", menu_id=menu.id))
+        builder.button(text="✏️ Изменить состав",
+                       callback_data=MenuAction(action="edit_plan", menu_id=menu.id))
     if getattr(menu, "is_paid", False) and menu.status in (
-        MenuStatus.PAID,
-        MenuStatus.PARTIAL_SUCCESS,
-        MenuStatus.COMPLETED,
-        MenuStatus.FAILED,
+        MenuStatus.PAID, MenuStatus.PARTIAL_SUCCESS,
+        MenuStatus.COMPLETED, MenuStatus.FAILED,
     ):
-        builder.button(
-            text="📩 Получить готовые файлы повторно",
-            callback_data=MenuAction(action="resend", menu_id=menu.id),
-        )
-
-    builder.button(text="⬅️ Назад", callback_data="prod_food_porn")
-    builder.button(text="🏠 В начало", callback_data="back_to_products")
+        builder.button(text="📩 Получить готовые файлы",
+                       callback_data=MenuAction(action="resend", menu_id=menu.id))
+    if editable:
+        builder.button(text="⚙️ Дополнительные варианты",
+                       callback_data=MenuAction(action="options", menu_id=menu.id))
+    builder.button(text="🏠 Главное меню", callback_data="back_to_products")
     builder.adjust(1)
     return builder.as_markup()
+
+
+def build_menu_options_kb(menu: Menu) -> InlineKeyboardMarkup:
+    """Optional settings, never presented as required wizard steps."""
+    options = [
+        ("🌍 Подобрать кухню мира", "choose_cuisine"),
+        ("🍽 Выбор по категориям", "pick_category"),
+        ("✍️ Ввести блюда списком", "bulk_items"),
+        ("📷 Изменить фото обложки", "req_cover"),
+        ("📷 Изменить фото разворота", "req_spread"),
+        ("ℹ️ Требования к меню", "requirements"),
+    ]
+    rows = [
+        [InlineKeyboardButton(
+            text=label,
+            callback_data=MenuAction(action=action, menu_id=menu.id).pack(),
+        )]
+        for label, action in options
+    ]
+    rows.append([InlineKeyboardButton(
+        text="⬅️ К текущему шагу",
+        callback_data=MenuAction(action="view", menu_id=menu.id).pack(),
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.callback_query(MenuAction.filter(F.action == "options"))
+async def show_menu_options(
+    callback: CallbackQuery,
+    callback_data: MenuAction,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        menu = await MenuRepository(session).get(callback_data.menu_id, full=True)
+    if not _owned_by(menu, callback.from_user.id):
+        await callback.answer("Заказ не найден.", show_alert=True)
+        return
+    if menu.status not in (MenuStatus.DRAFT, MenuStatus.FAILED, MenuStatus.QUEUED):
+        await callback.answer("Это меню уже нельзя изменять.", show_alert=True)
+        return
+    await callback.message.edit_text(
+        "⚙️ <b>Дополнительные варианты</b>\n"
+        "Это необязательные действия. Вернитесь назад, чтобы продолжить создание.",
+        reply_markup=build_menu_options_kb(menu), parse_mode="HTML",
+    )
+    await callback.answer()
 
 
 @router.callback_query(MenuAction.filter(F.action == "resend"))
