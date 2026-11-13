@@ -763,9 +763,11 @@ async def test_secure_telegram_crm_ticket_vip_scope_and_revocation(crm):
 async def test_secure_telegram_crm_ticket_expiration(crm, monkeypatch):
     url = await login_tickets.issue_crm_login_url(crm.factory, 42)
     assert url is not None
-    from app.crm.models import CRMLoginTicket
-    from sqlalchemy import update
     from datetime import timedelta
+
+    from sqlalchemy import update
+
+    from app.crm.models import CRMLoginTicket
     async with crm.factory() as session:
         await session.execute(
             update(CRMLoginTicket).values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
