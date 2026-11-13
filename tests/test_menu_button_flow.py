@@ -11,7 +11,7 @@ Responsibilities:
 ==========================================================
 """
 
-from app.bot.handlers.start import get_products_menu_keyboard, language_menu
+from app.bot.handlers.start import (get_products_menu_keyboard, get_services_keyboard, language_menu)
 
 
 def _callbacks(keyboard) -> list[str | None]:
@@ -23,9 +23,12 @@ def test_start_language_and_two_products_are_button_driven() -> None:
     keyboard = get_products_menu_keyboard(user_id=1, lang="ru")
     callbacks = _callbacks(keyboard)
     assert callbacks[:2] == ["prod_food_porn", "prod_manifestation"]
-    assert "home_orders" in callbacks
-    assert "home_instruction" in callbacks
-    assert "home_support" in callbacks
+    assert callbacks == ["prod_food_porn", "prod_manifestation", "home_services"]
+    services = _callbacks(get_services_keyboard(user_id=1, lang="ru"))
+    assert "home_orders" in services
+    assert "home_instruction" in services
+    assert "home_support" in services
+    assert "back_to_products" in services
 
 
 def test_product_selection_has_no_redundant_meal_or_style_callbacks() -> None:
