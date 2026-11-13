@@ -152,6 +152,12 @@ def format_premium_dashboard(menu: Menu) -> str:
         ""
     ]
 
+    lines.append(
+        f"⚙️ Персон: {getattr(menu, 'servings', 2)} · "
+        f"Настроение: {getattr(menu, 'menu_mood', 'romantic')} · "
+        f"Тема: {getattr(menu, 'visual_style', 'premium_dark')}"
+    )
+    lines.append("")
     cover_status = "✅ Загружена" if menu.cover_photo_path else "❌ Отсутствует"
     spread_status = "✅ Загружен" if menu.spread_photo_path else "❌ Отсутствует"
     lines.append(f"🖼 Обложка: {cover_status}")
@@ -201,6 +207,10 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
     builder.button(
         text="🌍 Выбрать кухню мира",
         callback_data=MenuAction(action="choose_cuisine", menu_id=menu.id),
+    )
+    builder.button(
+        text="⚙️ Настроить вечер",
+        callback_data=MenuAction(action="preferences", menu_id=menu.id),
     )
     builder.button(
         text="ℹ️ Требования к генерации",
@@ -507,10 +517,18 @@ async def apply_cuisine(
             return
         language = getattr(menu.customer.language, "value", menu.customer.language) or "ru"
         try:
-            entries = cuisine_menu(callback_data.category or "", str(language))
+            entries = cuisine_menu(
+                callback_data.category or "", str(language),
+                drinks=menu.include_drinks, dessert=menu.include_dessert,
+            )
         except ValueError:
             await callback.answer("Кухня не найдена.", show_alert=True)
             return
+        await repo.set_premium_preferences(
+            menu.id,
+            selection_mode="cuisine",
+            selected_cuisine=callback_data.category,
+        )
         await repo.replace_menu_plan(
             menu_id=menu.id,
             entries=[(entry.meal_slot, entry.title, entry.category) for entry in entries],
@@ -523,6 +541,140 @@ async def apply_cuisine(
         reply_markup=build_dashboard_kb(menu), parse_mode="HTML",
     )
     await callback.answer("Подборка добавлена. Можно редактировать.")
+
+
+def _premium_preferences_keyboard(menu: Menu) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for number in (1, 2, 4, 6):
+        builder.button(
+            text=("✅ " if menu.servings == number else "") + f"{number} персон",
+            callback_data=MenuAction(
+                action="pref", menu_id=menu.id, category=f"servings:{number}",
+            ),
+        )
+    for mood, label in (
+        ("romantic", "💌 Романтический"), ("cozy", "🏡 Уютный"),
+        ("festive", "🎉 Праздничный"), ("light", "🌿 Лёгкий"),
+        ("refined", "✨ Изысканный"),
+    ):
+        builder.button(
+            text=("✅ " if menu.menu_mood == mood else "") + label,
+            callback_data=MenuAction(
+                action="pref", menu_id=menu.id, category=f"mood:{mood}",
+            ),
+        )
+    for theme, label in (
+        ("premium_dark", "🌙 Тёмный"),
+        ("premium_light", "☀️ Светлый"),
+        ("premium_colorful", "🎨 Цветной"),
+    ):
+        builder.button(
+            text=("✅ " if menu.visual_style == theme else "") + label,
+            callback_data=MenuAction(
+                action="pref", menu_id=menu.id, category=f"style:{theme}",
+            ),
+        )
+    if menu.selection_mode == "cuisine" and menu.selected_cuisine:
+        for key, label, enabled in (
+            ("drinks", "🥂 Напитки", menu.include_drinks),
+            ("dessert", "🍰 Десерт", menu.include_dessert),
+        ):
+            builder.button(
+                text=("✅ " if enabled else "⬜ ") + label,
+                callback_data=MenuAction(
+                    action="pref", menu_id=menu.id, category=f"{key}:toggle",
+                ),
+            )
+    builder.button(
+        text="⬅️ Вернуться к меню",
+        callback_data=MenuAction(action="view", menu_id=menu.id),
+    )
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+@router.callback_query(MenuAction.filter(F.action == "preferences"))
+async def show_premium_preferences(
+    callback: CallbackQuery,
+    callback_data: MenuAction,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        menu = await MenuRepository(session).get(callback_data.menu_id, full=True)
+    if not _owned_by(menu, callback.from_user.id):
+        await callback.answer("Сет не найден.", show_alert=True)
+        return
+    if menu.status not in (MenuStatus.DRAFT, MenuStatus.FAILED) or menu.is_paid:
+        await callback.answer("Оплаченный или выполняемый заказ нельзя изменить.", show_alert=True)
+        return
+    await callback.message.edit_text(
+        "<b>⚙️ Настройте ваш вечер</b>\\n"
+        "Выберите количество гостей, настроение и оформление.\\n"
+        "<i>В подборке кухни мира можно включить или отключить напитки и десерт.</i>",
+        parse_mode="HTML",
+        reply_markup=_premium_preferences_keyboard(menu),
+    )
+    await callback.answer()
+
+
+@router.callback_query(MenuAction.filter(F.action == "pref"))
+async def change_premium_preference(
+    callback: CallbackQuery,
+    callback_data: MenuAction,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    value = callback_data.category or ""
+    predefined = {
+        **{f"servings:{n}": {"servings": n} for n in (1, 2, 4, 6)},
+        **{f"mood:{m}": {"menu_mood": m} for m in (
+            "romantic", "cozy", "festive", "light", "refined",
+        )},
+        **{f"style:{theme}": {"visual_style": theme} for theme in (
+            "premium_dark", "premium_light", "premium_colorful",
+        )},
+    }
+    async with session_factory() as session:
+        repo = MenuRepository(session)
+        menu = await repo.get(callback_data.menu_id, full=True)
+        if not _owned_by(menu, callback.from_user.id):
+            await callback.answer("Сет не найден.", show_alert=True)
+            return
+        if menu.status not in (MenuStatus.DRAFT, MenuStatus.FAILED) or menu.is_paid:
+            await callback.answer("Заказ нельзя изменить.", show_alert=True)
+            return
+        if value == "drinks:toggle" and menu.selection_mode == "cuisine":
+            changes = {"include_drinks": not menu.include_drinks}
+        elif value == "dessert:toggle" and menu.selection_mode == "cuisine":
+            changes = {"include_dessert": not menu.include_dessert}
+        else:
+            changes = predefined.get(value)
+        if not changes:
+            await callback.answer("Неизвестная настройка.", show_alert=True)
+            return
+        await repo.set_premium_preferences(menu.id, **changes)
+        # Toggling optional courses updates the proposed cuisine menu;
+        # do not modify custom, manually entered dishes.
+        if (
+            menu.selection_mode == "cuisine"
+            and menu.selected_cuisine
+            and ("include_drinks" in changes or "include_dessert" in changes)
+        ):
+            entries = cuisine_menu(
+                menu.selected_cuisine,
+                str(getattr(menu.customer.language, "value", menu.customer.language)),
+                drinks=menu.include_drinks, dessert=menu.include_dessert,
+            )
+            await repo.replace_menu_plan(
+                menu_id=menu.id,
+                entries=[(e.meal_slot, e.title, e.category) for e in entries],
+            )
+        menu = await repo.get(menu.id, full=True)
+    await callback.message.edit_text(
+        "<b>⚙️ Настройте ваш вечер</b>\\n"
+        "Выберите количество гостей, настроение и оформление.",
+        parse_mode="HTML", reply_markup=_premium_preferences_keyboard(menu),
+    )
+    await callback.answer("Сохранено")
 
 
 @router.callback_query(MenuAction.filter(F.action.in_(["edit_plan", "edit_category", "bulk_items"])))
@@ -599,6 +751,9 @@ async def receive_dish_list(
             await state.clear()
             await message.answer("Сет не найден. Вернитесь в /start.")
             return
+        await repo.set_premium_preferences(
+            menu_id, selection_mode="manual", selected_cuisine=None,
+        )
         await repo.replace_menu_plan(
             menu_id=menu_id,
             entries=[(entry.meal_slot, entry.title, entry.category) for entry in entries],
