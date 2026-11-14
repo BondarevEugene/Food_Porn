@@ -899,28 +899,16 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
             ))
             return
         await state.update_data(gift_quote_id=quote.id)
-        summary = (
-            f"Коллаж: {quote.collage_amount:.2f} UAH; "
-            f"Видео: {quote.video_amount:.2f} UAH; "
-            f"Итого: {quote.total_amount:.2f} UAH."
-        )
         if settings.gift_unified_checkout_enabled:
             await state.set_state(WallpaperStates.waiting_for_confirmation)
-            await message.answer(text_for(
-                lang,
-                f"✅ <b>Крок 4/4 · Перевірте замовлення</b>\n"
-                f"Фото: {len(upload_paths(settings, message.from_user.id))} · "
-                f"Цілі: {len(goals)} · Стиль: {data.get('style', 'dark')}\n"
-                f"{summary}\nПеревірте дані перед оплатою.",
-                f"✅ <b>Шаг 4/4 · Проверьте заказ</b>\n"
-                f"Фото: {len(upload_paths(settings, message.from_user.id))} · "
-                f"Цели: {len(goals)} · Стиль: {data.get('style', 'dark')}\n"
-                f"{summary}\nПроверьте данные перед оплатой.",
-                f"✅ <b>Step 4/4 · Review your order</b>\n"
-                f"Photos: {len(upload_paths(settings, message.from_user.id))} · "
-                f"Goals: {len(goals)} · Style: {data.get('style', 'dark')}\n"
-                f"{summary}\nCheck all details before payment.",
-            ), reply_markup=gift_review_keyboard(lang))
+            await message.answer(
+                gift_review_text(
+                    lang, quote,
+                    photo_count=len(upload_paths(settings, message.from_user.id)),
+                ),
+                parse_mode="HTML",
+                reply_markup=gift_review_keyboard(lang),
+            )
             return
         await message.answer(text_for(
             lang,
