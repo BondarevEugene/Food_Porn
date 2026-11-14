@@ -163,6 +163,24 @@ class CRMLoginTicket(CRMBase):
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class FactoryIncident(CRMBase):
+    """Sanitized operational incident; no customer data or stack traces."""
+
+    __tablename__ = "crm_factory_incidents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    fingerprint: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(60), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)
+    summary: Mapped[str] = mapped_column(String(300), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", index=True)
+    occurrences: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+
 async def initialize_schema(engine) -> None:
     # Only additive CRM-owned tables are created. Existing bot tables and Alembic head
     # are never altered, avoiding the differing local migration chains.
