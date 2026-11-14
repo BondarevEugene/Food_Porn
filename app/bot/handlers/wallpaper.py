@@ -75,9 +75,13 @@ def gift_keyboard(lang: str, selected: str = "dark") -> InlineKeyboardMarkup:
     # This keyboard is used only after the photo and product stages.
     # Never offer to restart photo upload from the style selection step.
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=("✓ " if key == selected else "")
-                                   + text_for(lang, uk, ru, en), callback_data=f"gift_style:{key}")]
-        for key, uk, ru, en in styles],
+        *[
+            [InlineKeyboardButton(
+                text=("✓ " if key == selected else "") + text_for(lang, uk, ru, en),
+                callback_data=f"gift_style:{key}",
+            )]
+            for key, uk, ru, en in styles
+        ],
         [InlineKeyboardButton(
             text=text_for(lang, "⬅️ Головне меню", "⬅️ Главное меню", "⬅️ Main menu"),
             callback_data="back_to_products",
