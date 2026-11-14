@@ -32,7 +32,7 @@ def test_both_light_five_goals_review(lang):
         for row in gift_review_keyboard(lang).inline_keyboard
         for button in row
     ]
-    assert callbacks == ["gift_review_confirm", "gift_review_edit", "back_to_products"]
+    assert callbacks == ["gift_review_confirm", "gift_review_edit", "gift_review_change_product", "back_to_products"]
 
 
 def test_both_quote_adds_prices_without_rounding_or_hidden_fees():
