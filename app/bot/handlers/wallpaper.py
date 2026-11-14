@@ -90,6 +90,25 @@ def gift_keyboard(lang: str, selected: str = "dark") -> InlineKeyboardMarkup:
     ])
 
 
+def gift_review_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Customer confirms the exact quote before a checkout is created."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=text_for(lang, "✅ Підтвердити замовлення", "✅ Подтвердить заказ", "✅ Confirm order"),
+            callback_data="gift_review_confirm",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "✏️ Змінити цілі або стиль", "✏️ Изменить цели или стиль",
+                          "✏️ Edit goals or style"),
+            callback_data="gift_review_edit",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🏠 Головна", "🏠 Главная", "🏠 Home"),
+            callback_data="back_to_products",
+        )],
+    ])
+
+
 def gift_photo_start_keyboard(lang: str) -> InlineKeyboardMarkup:
     """Photo stage: no style or checkout actions."""
     return InlineKeyboardMarkup(inline_keyboard=[
