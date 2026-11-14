@@ -24,8 +24,9 @@ def test_start_language_and_two_products_are_button_driven() -> None:
     callbacks = _callbacks(keyboard)
     assert callbacks[:2] == ["prod_food_porn", "prod_manifestation"]
     assert "home_orders" in callbacks
-    assert "home_instruction" in callbacks
-    assert "home_support" in callbacks
+    assert "home_services" in callbacks
+    assert "home_instruction" not in callbacks
+    assert "home_support" not in callbacks
 
 
 def test_product_selection_has_no_redundant_meal_or_style_callbacks() -> None:
