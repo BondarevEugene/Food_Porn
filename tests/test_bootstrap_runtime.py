@@ -84,6 +84,8 @@ async def test_resources_close_on_startup_failure_and_normal_exit(monkeypatch, f
         miniapp_port=listener.getsockname()[1],
         app_env="test",
         bot_token="123:test",
+        storage_root=__import__("pathlib").Path.cwd(),
+        admin_telegram_ids=(),
         validate_runtime=lambda: None,
         ensure_directories=lambda: None,
     )
