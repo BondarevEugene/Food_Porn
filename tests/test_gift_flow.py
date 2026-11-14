@@ -92,7 +92,7 @@ async def test_optional_style_selection_updates_render_job(tmp_path):
     assert state.data["render_job"] is None
     assert "цветную" in callback.answer.await_args.args[0]
     keyboard = callback.message.edit_reply_markup.await_args.kwargs["reply_markup"]
-    assert keyboard.inline_keyboard[1][2].text.startswith("✓ ")
+    assert keyboard.inline_keyboard[0][2].text.startswith("✓ ")
 
 
 def test_gift_image_model_has_its_own_quality_settings():
@@ -237,7 +237,7 @@ async def test_five_photo_album_waits_for_required_goals(tmp_path, monkeypatch):
     assert state.state == WallpaperStates.waiting_for_product
     keyboard = callback.message.answer.await_args.kwargs["reply_markup"]
     assert {button.callback_data for row in keyboard.inline_keyboard for button in row} == {
-        "gift_product:collage", "gift_product:video", "gift_product:both"
+        "gift_product:collage", "gift_product:video", "gift_product:both", "gift_back_to_photos", "back_to_products"
     }
     callback.data = "gift_product:collage"
     await wallpaper.select_gift_product(callback, state)
@@ -278,7 +278,7 @@ async def test_album_accepts_one_to_seven_photos(tmp_path, monkeypatch, count):
     assert state.state == WallpaperStates.waiting_for_product
     keyboard = callback.message.answer.await_args.kwargs["reply_markup"]
     assert {button.callback_data for row in keyboard.inline_keyboard for button in row} == {
-        "gift_product:collage", "gift_product:video", "gift_product:both"
+        "gift_product:collage", "gift_product:video", "gift_product:both", "gift_back_to_photos", "back_to_products"
     }
     callback.data = "gift_product:both"
     await wallpaper.select_gift_product(callback, state)
@@ -326,7 +326,7 @@ async def test_one_photo_also_requires_goals_and_supports_caption(tmp_path, monk
         assert generated == []
         keyboard = message.answer.await_args.kwargs["reply_markup"]
         assert {button.callback_data for row in keyboard.inline_keyboard for button in row} == {
-            "gift_product:collage", "gift_product:video", "gift_product:both"
+            "gift_product:collage", "gift_product:video", "gift_product:both", "gift_back_to_photos", "back_to_products"
         }
     assert state.data["goals"] == GOALS
 

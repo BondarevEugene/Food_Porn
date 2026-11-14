@@ -15,4 +15,5 @@ class WallpaperStates(StatesGroup):
     waiting_for_five_photos = State()
     waiting_for_product = State()
     waiting_for_goals = State()
+    waiting_for_confirmation = State()
     generating = State()

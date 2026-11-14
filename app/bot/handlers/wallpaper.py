@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import os
 import re
@@ -72,14 +73,106 @@ def gift_keyboard(lang: str, selected: str = "dark") -> InlineKeyboardMarkup:
         ("light", "☀️ Світла", "☀️ Светлая", "☀️ Light"),
         ("color", "🌈 Кольорова", "🌈 Цветная", "🌈 Color"),
     )
+    # This keyboard is used only after the photo and product stages.
+    # Never offer to restart photo upload from the style selection step.
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=text_for(lang, "✨ Додати до 7 фото", "✨ Добавить до 7 фото", "✨ Add up to 7 photos"),
-                              callback_data="gift_five_photos")],
-        [InlineKeyboardButton(text=("✓ " if key == selected else "")
-                                   + text_for(lang, uk, ru, en), callback_data=f"gift_style:{key}")
-         for key, uk, ru, en in styles],
-        [InlineKeyboardButton(text=text_for(lang, "⬅️ До меню", "⬅️ В меню", "⬅️ Back"),
-                              callback_data="back_to_products")],
+        [InlineKeyboardButton(
+            text=("✓ " if key == selected else "") + text_for(lang, uk, ru, en),
+            callback_data=f"gift_style:{key}",
+        ) for key, uk, ru, en in styles],
+        [InlineKeyboardButton(
+            text=text_for(lang, "⬅️ Обрати формат", "⬅️ Выбрать формат", "⬅️ Choose format"),
+            callback_data="gift_back_to_product",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🏠 Головна", "🏠 Главная", "🏠 Home"),
+            callback_data="back_to_products",
+        )],
+    ])
+
+
+def gift_review_text(
+    lang: str, quote: GiftPurchase, *, photo_count: int,
+) -> str:
+    """Readable, escaped, localized order summary before any charge."""
+    product = {
+        "collage": ("🖼 Колаж", "🖼 Коллаж", "🖼 Collage"),
+        "video": ("🎬 Відеоісторія", "🎬 Видеоистория", "🎬 Video story"),
+        "both": ("✨ Колаж + відео", "✨ Коллаж + видео", "✨ Collage + video"),
+    }[quote.product_choice]
+    style = {
+        "dark": ("🌙 Темний", "🌙 Тёмный", "🌙 Dark"),
+        "light": ("☀️ Світлий", "☀️ Светлый", "☀️ Light"),
+        "color": ("🌈 Кольоровий", "🌈 Цветной", "🌈 Colorful"),
+    }[quote.visual_style]
+    goals = "\\n".join(
+        f"{index}. {html.escape(str(goal))}"
+        for index, goal in enumerate(quote.goals, 1)
+    )
+    return (
+        text_for(
+            lang,
+            "✅ <b>Крок 4/4 · Перевірте замовлення</b>",
+            "✅ <b>Шаг 4/4 · Проверьте заказ</b>",
+            "✅ <b>Step 4/4 · Review your order</b>",
+        )
+        + "\\n\\n"
+        + text_for(lang, *product)
+        + "\\n"
+        + text_for(lang, "📷 Фото", "📷 Фото", "📷 Photos")
+        + f": {photo_count}\\n"
+        + text_for(lang, "🎨 Стиль", "🎨 Стиль", "🎨 Style")
+        + ": " + text_for(lang, *style) + "\\n\\n"
+        + text_for(lang, "🎯 <b>Ваші цілі</b>", "🎯 <b>Ваши цели</b>",
+                   "🎯 <b>Your goals</b>")
+        + "\\n" + goals + "\\n\\n"
+        + text_for(lang, "💳 <b>Вартість</b>", "💳 <b>Стоимость</b>",
+                   "💳 <b>Price</b>")
+        + "\\n"
+        + text_for(lang, "Колаж", "Коллаж", "Collage")
+        + f": {quote.collage_amount:.2f} UAH\\n"
+        + text_for(lang, "Відео", "Видео", "Video")
+        + f": {quote.video_amount:.2f} UAH\\n"
+        + text_for(lang, "<b>Разом", "<b>Итого", "<b>Total")
+        + f": {quote.total_amount:.2f} UAH</b>\\n\\n"
+        + text_for(
+            lang, "Все правильно? Підтвердіть замовлення.",
+            "Всё правильно? Подтвердите заказ.",
+            "Everything correct? Confirm your order.",
+        )
+    )
+
+
+def gift_review_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Customer confirms the exact quote before a checkout is created."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=text_for(lang, "✅ Підтвердити замовлення", "✅ Подтвердить заказ", "✅ Confirm order"),
+            callback_data="gift_review_confirm",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "✏️ Змінити цілі або стиль", "✏️ Изменить цели или стиль",
+                          "✏️ Edit goals or style"),
+            callback_data="gift_review_edit",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🏠 Головна", "🏠 Главная", "🏠 Home"),
+            callback_data="back_to_products",
+        )],
+    ])
+
+
+def gift_photo_start_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Photo stage: no style or checkout actions."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=text_for(lang, "📷 Додати фото", "📷 Добавить фото", "📷 Add photos"),
+            callback_data="gift_five_photos",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🏠 Головна", "🏠 Главная", "🏠 Home"),
+            callback_data="back_to_products",
+        )],
     ])
 
 
@@ -103,8 +196,12 @@ def safety_recovery_keyboard(lang: str, photo_count: int) -> InlineKeyboardMarku
 def finish_photos_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text=text_for(lang, "Продовжити →", "Продолжить →", "Continue →"),
+            text=text_for(lang, "Далі → Обрати формат", "Далее → Выбрать формат", "Next → Choose format"),
             callback_data="gift_photos_done",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🏠 Головна", "🏠 Главная", "🏠 Home"),
+            callback_data="back_to_products",
         )],
     ])
 
@@ -129,11 +226,23 @@ def gift_product_keyboard(lang: str) -> InlineKeyboardMarkup:
         ("video", "🎬 Лише відеоісторія", "🎬 Только видеоистория", "🎬 Video only"),
         ("both", "✨ Колаж + відео", "✨ Коллаж + видео", "✨ Collage + video"),
     )
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=text_for(lang, uk, ru, en),
-                              callback_data=f"gift_product:{key}")]
+    rows = [
+        [InlineKeyboardButton(
+            text=text_for(lang, uk, ru, en), callback_data=f"gift_product:{key}"
+        )]
         for key, uk, ru, en in choices
+    ]
+    rows.extend([
+        [InlineKeyboardButton(
+            text=text_for(lang, "⬅️ До фото", "⬅️ К фото", "⬅️ Photos"),
+            callback_data="gift_back_to_photos",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🏠 Головна", "🏠 Главная", "🏠 Home"),
+            callback_data="back_to_products",
+        )],
     ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def video_story_entry_keyboard(settings: Settings, lang: str) -> InlineKeyboardMarkup | None:
@@ -309,18 +418,18 @@ async def start_wallpaper_from_start(message: Message, state: FSMContext,
     await state.set_state(WallpaperStates.waiting_for_photo)
     await message.answer(text_for(
         lang,
-        "✨ <b>Ваша історія бажань</b>\n\n<b>Крок 1 із 3 · Фото</b>\n"
+        "✨ <b>Ваша історія бажань</b>\n\n<b>Крок 1/4 · Фото</b>\n"
         "Надішліть від 1 до 7 фотографій. Можна почати з однієї, "
         "а додаткові додати кнопкою нижче.\n\n"
         "Потім оберете формат, цілі та стиль.",
-        "✨ <b>Ваша история желаний</b>\n\n<b>Шаг 1 из 3 · Фото</b>\n"
+        "✨ <b>Ваша история желаний</b>\n\n<b>Шаг 1/4 · Фото</b>\n"
         "Пришлите от 1 до 7 фотографий. Можно начать с одной, "
         "а остальные добавить кнопкой ниже.\n\n"
         "Затем выберете формат, цели и стиль.",
-        "✨ <b>Your wish story</b>\n\n<b>Step 1 of 3 · Photos</b>\n"
+        "✨ <b>Your wish story</b>\n\n<b>Step 1/4 · Photos</b>\n"
         "Send 1–7 photos. Start with one and add others using the button below.\n\n"
         "Then choose the format, goals and style.",
-    ), parse_mode="HTML", reply_markup=gift_keyboard(lang))
+    ), parse_mode="HTML", reply_markup=gift_photo_start_keyboard(lang))
 
 
 @router.message(F.text == "/resume")
@@ -366,9 +475,9 @@ async def resume_saved_photos(message: Message, state: FSMContext, settings: Set
 async def select_gift_style(callback: CallbackQuery, state: FSMContext) -> None:
     style = (callback.data or "").removeprefix("gift_style:")
     current = await state.get_state()
-    allowed = {WallpaperStates.waiting_for_photo.state,
-               WallpaperStates.waiting_for_five_photos.state,
-               WallpaperStates.waiting_for_goals.state}
+    # Old Telegram buttons can survive a new step or a Railway restart.
+    # Style is a decision only at the goals/style stage.
+    allowed = {WallpaperStates.waiting_for_goals.state}
     if style not in {"dark", "light", "color"} or current not in allowed:
         await callback.answer("Почніть новий подарунок через /start 💛")
         return
@@ -409,11 +518,11 @@ async def start_five_photo_gift(callback: CallbackQuery, state: FSMContext) -> N
     await state.update_data(gift_upload_status_message_id=None)
     await callback.message.answer(text_for(
         data.get("lang", "uk"),
-        "📷 <b>Крок 1 із 3 · Додайте фото</b>\nДо 7 фото — альбомом або по черзі. "
+        "📷 <b>Крок 1/4 · Додайте фото</b>\nДо 7 фото — альбомом або по черзі. "
         "Після завантаження натисніть «Продовжити».",
-        "📷 <b>Шаг 1 из 3 · Добавьте фото</b>\nДо 7 фото — альбомом или по одному. "
+        "📷 <b>Шаг 1/4 · Добавьте фото</b>\nДо 7 фото — альбомом или по одному. "
         "После загрузки нажмите «Продолжить».",
-        "📷 <b>Step 1 of 3 · Add photos</b>\nUp to 7 photos in an album or separately. "
+        "📷 <b>Step 1/4 · Add photos</b>\nUp to 7 photos in an album or separately. "
         "Tap Continue when ready.",
     ), reply_markup=finish_photos_keyboard(data.get("lang", "uk")))
     await callback.answer()
@@ -444,10 +553,56 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
     await callback.answer()
     await callback.message.answer(
         text_for(data.get("lang", "uk"),
-                 "Фото збережено 💛 Оберіть, що створити:",
-                 "Фото сохранены 💛 Выберите, что создать:",
-                 "Photos saved 💛 Choose what to create:"),
+                 "🎁 <b>Крок 2/4 · Формат</b>\\nОберіть, що створити:",
+                 "🎁 <b>Шаг 2/4 · Формат</b>\\nВыберите, что создать:",
+                 "🎁 <b>Step 2/4 · Format</b>\\nChoose what to create:"),
         reply_markup=gift_product_keyboard(data.get("lang", "uk")),
+    )
+
+
+@router.callback_query(F.data == "gift_back_to_photos")
+async def gift_back_to_photos(
+    callback: CallbackQuery, state: FSMContext, settings: Settings,
+) -> None:
+    if await state.get_state() != WallpaperStates.waiting_for_product.state:
+        await callback.answer("Цей крок вже завершено. Скористайтеся /resume.", show_alert=True)
+        return
+    count = len(upload_paths(settings, callback.from_user.id))
+    if not 1 <= count <= MAX_GIFT_PHOTOS:
+        await callback.answer("Фото не знайдені. Почніть з /start.", show_alert=True)
+        return
+    await state.set_state(WallpaperStates.waiting_for_five_photos)
+    lang = (await state.get_data()).get("lang", "uk")
+    await callback.answer()
+    await callback.message.answer(
+        text_for(
+            lang,
+            f"📷 <b>Крок 1/4 · Фото ({count}/7)</b>\\nДодайте фото або продовжуйте.",
+            f"📷 <b>Шаг 1/4 · Фото ({count}/7)</b>\\nДобавьте фото или продолжайте.",
+            f"📷 <b>Step 1/4 · Photos ({count}/7)</b>\\nAdd photos or continue.",
+        ),
+        reply_markup=finish_photos_keyboard(lang),
+    )
+
+
+@router.callback_query(F.data == "gift_back_to_product")
+async def gift_back_to_product(
+    callback: CallbackQuery, state: FSMContext,
+) -> None:
+    if await state.get_state() != WallpaperStates.waiting_for_goals.state:
+        await callback.answer("Цей крок вже завершено. Скористайтеся /resume.", show_alert=True)
+        return
+    lang = (await state.get_data()).get("lang", "uk")
+    await state.set_state(WallpaperStates.waiting_for_product)
+    await callback.answer()
+    await callback.message.answer(
+        text_for(
+            lang,
+            "🎁 <b>Крок 2/4 · Формат</b>\\nОберіть, що отримаєте після оплати.",
+            "🎁 <b>Шаг 2/4 · Формат</b>\\nВыберите, что получите после оплаты.",
+            "🎁 <b>Step 2/4 · Format</b>\\nChoose your deliverable.",
+        ),
+        reply_markup=gift_product_keyboard(lang),
     )
 
 
@@ -478,16 +633,16 @@ async def select_gift_product(callback: CallbackQuery, state: FSMContext,
     if goals_saved:
         await callback.message.answer(text_for(
             data.get("lang", "uk"),
-            "Вибір збережено 💛 Цілі вже є. Надішліть їх повторно, якщо хочете змінити.",
-            "Выбор сохранён 💛 Цели уже есть. Пришлите их повторно, если хотите изменить.",
-            "Choice saved 💛 Your goals are saved. Resend them only to change them.",
+            "✍️ Крок 3/4 · Цілі та стиль. Надішліть збережені цілі ще раз, щоб продовжити, або змініть їх.",
+            "✍️ Шаг 3/4 · Цели и стиль. Пришлите сохранённые цели повторно для продолжения или измените их.",
+            "✍️ Step 3/4 · Goals and style. Resend your saved goals to continue or edit them.",
         ), reply_markup=gift_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
     else:
         await callback.message.answer(text_for(
             data.get("lang", "uk"),
-            "Вибір збережено 💛 Надішліть 5–9 цілей, кожну з нового рядка. Стиль можна обрати нижче.",
-            "Выбор сохранён 💛 Пришлите 5–9 целей, каждую с новой строки. Стиль можно выбрать ниже.",
-            "Choice saved 💛 Send 5–9 goals, one per line. Choose the style below.",
+            "✍️ Крок 3/4 · Цілі та стиль. Надішліть 5–9 цілей з нового рядка. Стиль оберіть нижче.",
+            "✍️ Шаг 3/4 · Цели и стиль. Пришлите 5–9 целей по одной на строку. Стиль выберите ниже.",
+            "✍️ Step 3/4 · Goals and style. Send 5–9 goals, one per line; select style below.",
         ), reply_markup=gift_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
 
 
@@ -750,40 +905,23 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
             f"Итого: {quote.total_amount:.2f} UAH."
         )
         if settings.gift_unified_checkout_enabled:
-            wayforpay = WayForPayService(settings)
-            if wayforpay.ready:
-                try:
-                    async with session_factory() as session:
-                        _, checkout_url = await wayforpay.create_checkout(
-                            session,
-                            telegram_user_id=message.from_user.id,
-                            product="gift_purchase",
-                            reference_id=quote.id,
-                            description=f"Food Porn gift {quote.product_choice} #{quote.id[:8]}",
-                            amount_override=quote.total_amount,
-                        )
-                except Exception:
-                    logger.exception("Could not create unified gift payment for %s", quote.id)
-                else:
-                    await message.answer(text_for(
-                        lang,
-                        f"✨ Замовлення № {quote.id[:8]}. {summary} "
-                        "Оплатіть один раз — файли надійдуть після підтвердження.",
-                        f"✨ Заказ № {quote.id[:8]}. {summary} "
-                        "Оплатите один раз — файлы поступят после подтверждения.",
-                        f"✨ Order #{quote.id[:8]}. {summary} "
-                        "Pay once and receive files after confirmation.",
-                    ), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(
-                            text=text_for(lang, "💳 Оплатити замовлення", "💳 Оплатить заказ", "💳 Pay for order"),
-                            url=checkout_url,
-                        )],
-                        [InlineKeyboardButton(
-                            text=text_for(lang, "🔄 Перевірити оплату", "🔄 Проверить оплату", "🔄 Check payment"),
-                            callback_data=f"gift_purchase_status:{quote.id}",
-                        )],
-                    ]))
-                    return
+            await state.set_state(WallpaperStates.waiting_for_confirmation)
+            await message.answer(text_for(
+                lang,
+                f"✅ <b>Крок 4/4 · Перевірте замовлення</b>\\n"
+                f"Фото: {len(upload_paths(settings, message.from_user.id))} · "
+                f"Цілі: {len(goals)} · Стиль: {data.get('style', 'dark')}\\n"
+                f"{summary}\\nПеревірте дані перед оплатою.",
+                f"✅ <b>Шаг 4/4 · Проверьте заказ</b>\\n"
+                f"Фото: {len(upload_paths(settings, message.from_user.id))} · "
+                f"Цели: {len(goals)} · Стиль: {data.get('style', 'dark')}\\n"
+                f"{summary}\\nПроверьте данные перед оплатой.",
+                f"✅ <b>Step 4/4 · Review your order</b>\\n"
+                f"Photos: {len(upload_paths(settings, message.from_user.id))} · "
+                f"Goals: {len(goals)} · Style: {data.get('style', 'dark')}\\n"
+                f"{summary}\\nCheck all details before payment.",
+            ), reply_markup=gift_review_keyboard(lang))
+            return
         await message.answer(text_for(
             lang,
             f"🎬 Розрахунок № {quote.id[:8]} збережено. {summary} "
@@ -796,6 +934,90 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
         return
     await state.set_state(WallpaperStates.generating)
     await generate_wallpapers(message, state, settings, session_factory)
+
+
+@router.callback_query(F.data == "gift_review_edit")
+async def edit_gift_review(callback: CallbackQuery, state: FSMContext) -> None:
+    if await state.get_state() != WallpaperStates.waiting_for_confirmation.state:
+        await callback.answer("Цей крок застарів. Скористайтеся /resume.", show_alert=True)
+        return
+    data = await state.get_data()
+    lang = data.get("lang", "uk")
+    await state.update_data(gift_quote_id=None)
+    await state.set_state(WallpaperStates.waiting_for_goals)
+    await callback.answer()
+    await callback.message.answer(text_for(
+        lang,
+        "✍️ <b>Крок 3/4 · Цілі та стиль</b>\\nЗмініть стиль та надішліть 5–9 цілей ще раз.",
+        "✍️ <b>Шаг 3/4 · Цели и стиль</b>\\nВыберите стиль и отправьте 5–9 целей снова.",
+        "✍️ <b>Step 3/4 · Goals and style</b>\\nAdjust style and resend 5–9 goals.",
+    ), reply_markup=gift_keyboard(lang, data.get("style", "dark")))
+
+
+@router.callback_query(F.data == "gift_review_confirm")
+async def confirm_gift_review(
+    callback: CallbackQuery,
+    state: FSMContext,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    if (
+        await state.get_state() != WallpaperStates.waiting_for_confirmation.state
+        or not settings.gift_unified_checkout_enabled
+    ):
+        await callback.answer("Цей крок вже неактивний.", show_alert=True)
+        return
+    data = await state.get_data()
+    lang = data.get("lang", "uk")
+    purchase_id = data.get("gift_quote_id")
+    if not purchase_id:
+        await callback.answer("Замовлення не знайдено. Надішліть цілі повторно.", show_alert=True)
+        return
+    service = WayForPayService(settings)
+    if not service.ready:
+        await callback.answer("Оплата тимчасово недоступна.", show_alert=True)
+        return
+    try:
+        async with session_factory() as session:
+            quote = await session.get(GiftPurchase, purchase_id)
+            if (
+                quote is None or quote.telegram_user_id != callback.from_user.id
+                or quote.status != "quoted"
+                or quote.product_choice != data.get("gift_product")
+                or quote.visual_style != data.get("style", "dark")
+                or quote.goals != data.get("goals")
+            ):
+                await callback.answer("Дані змінилися. Повторіть крок замовлення.", show_alert=True)
+                return
+            _, checkout_url = await service.create_checkout(
+                session, telegram_user_id=callback.from_user.id,
+                product="gift_purchase", reference_id=quote.id,
+                description=f"Food Porn gift {quote.product_choice} #{quote.id[:8]}",
+                amount_override=quote.total_amount,
+            )
+    except Exception:
+        logger.exception("Could not create checkout for reviewed gift %s", purchase_id)
+        await callback.answer("Оплата тимчасово недоступна.", show_alert=True)
+        return
+    await callback.answer()
+    await callback.message.answer(text_for(
+        lang,
+        f"💳 <b>Оплата замовлення № {quote.id[:8]}</b>\\n"
+        f"До сплати: {quote.total_amount:.2f} UAH. Оплачуйте лише один раз.",
+        f"💳 <b>Оплата заказа № {quote.id[:8]}</b>\\n"
+        f"К оплате: {quote.total_amount:.2f} UAH. Оплачивайте только один раз.",
+        f"💳 <b>Pay for order #{quote.id[:8]}</b>\\n"
+        f"Total: {quote.total_amount:.2f} UAH. Pay only once.",
+    ), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=text_for(lang, "💳 Перейти до оплати", "💳 Перейти к оплате", "💳 Open checkout"),
+            url=checkout_url,
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🔄 Перевірити оплату", "🔄 Проверить оплату", "🔄 Check payment"),
+            callback_data=f"gift_purchase_status:{quote.id}",
+        )],
+    ]))
 
 
 @router.callback_query(F.data.startswith("gift_purchase_status:"))
