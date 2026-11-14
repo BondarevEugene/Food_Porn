@@ -1192,7 +1192,7 @@ async def verify_gift_purchase_callback(
     except GiftFulfillmentBusy:
         await callback.message.answer(
             "✨ Відео або колаж вже створюється. Перевірте статус трохи пізніше.",
-            reply_markup=gift_progress_keyboard((await state.get_data()).get("lang", "uk"), purchase_id),
+            reply_markup=gift_progress_keyboard(language_for(callback.from_user), purchase_id),
         )
     except Exception:
         logger.exception("Could not resume paid gift %s", purchase_id)
