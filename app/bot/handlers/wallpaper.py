@@ -342,15 +342,15 @@ async def start_wallpaper_from_start(message: Message, state: FSMContext,
     await state.set_state(WallpaperStates.waiting_for_photo)
     await message.answer(text_for(
         lang,
-        "✨ <b>Ваша історія бажань</b>\n\n<b>Крок 1 із 3 · Фото</b>\n"
+        "✨ <b>Ваша історія бажань</b>\n\n<b>Крок 1/4 · Фото</b>\n"
         "Надішліть від 1 до 7 фотографій. Можна почати з однієї, "
         "а додаткові додати кнопкою нижче.\n\n"
         "Потім оберете формат, цілі та стиль.",
-        "✨ <b>Ваша история желаний</b>\n\n<b>Шаг 1 из 3 · Фото</b>\n"
+        "✨ <b>Ваша история желаний</b>\n\n<b>Шаг 1/4 · Фото</b>\n"
         "Пришлите от 1 до 7 фотографий. Можно начать с одной, "
         "а остальные добавить кнопкой ниже.\n\n"
         "Затем выберете формат, цели и стиль.",
-        "✨ <b>Your wish story</b>\n\n<b>Step 1 of 3 · Photos</b>\n"
+        "✨ <b>Your wish story</b>\n\n<b>Step 1/4 · Photos</b>\n"
         "Send 1–7 photos. Start with one and add others using the button below.\n\n"
         "Then choose the format, goals and style.",
     ), parse_mode="HTML", reply_markup=gift_photo_start_keyboard(lang))
@@ -442,11 +442,11 @@ async def start_five_photo_gift(callback: CallbackQuery, state: FSMContext) -> N
     await state.update_data(gift_upload_status_message_id=None)
     await callback.message.answer(text_for(
         data.get("lang", "uk"),
-        "📷 <b>Крок 1 із 3 · Додайте фото</b>\nДо 7 фото — альбомом або по черзі. "
+        "📷 <b>Крок 1/4 · Додайте фото</b>\nДо 7 фото — альбомом або по черзі. "
         "Після завантаження натисніть «Продовжити».",
-        "📷 <b>Шаг 1 из 3 · Добавьте фото</b>\nДо 7 фото — альбомом или по одному. "
+        "📷 <b>Шаг 1/4 · Добавьте фото</b>\nДо 7 фото — альбомом или по одному. "
         "После загрузки нажмите «Продолжить».",
-        "📷 <b>Step 1 of 3 · Add photos</b>\nUp to 7 photos in an album or separately. "
+        "📷 <b>Step 1/4 · Add photos</b>\nUp to 7 photos in an album or separately. "
         "Tap Continue when ready.",
     ), reply_markup=finish_photos_keyboard(data.get("lang", "uk")))
     await callback.answer()
@@ -477,9 +477,9 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
     await callback.answer()
     await callback.message.answer(
         text_for(data.get("lang", "uk"),
-                 "Фото збережено 💛 Оберіть, що створити:",
-                 "Фото сохранены 💛 Выберите, что создать:",
-                 "Photos saved 💛 Choose what to create:"),
+                 "🎁 <b>Крок 2/4 · Формат</b>\\nОберіть, що створити:",
+                 "🎁 <b>Шаг 2/4 · Формат</b>\\nВыберите, что создать:",
+                 "🎁 <b>Step 2/4 · Format</b>\\nChoose what to create:"),
         reply_markup=gift_product_keyboard(data.get("lang", "uk")),
     )
 
@@ -557,16 +557,16 @@ async def select_gift_product(callback: CallbackQuery, state: FSMContext,
     if goals_saved:
         await callback.message.answer(text_for(
             data.get("lang", "uk"),
-            "Вибір збережено 💛 Цілі вже є. Надішліть їх повторно, якщо хочете змінити.",
-            "Выбор сохранён 💛 Цели уже есть. Пришлите их повторно, если хотите изменить.",
-            "Choice saved 💛 Your goals are saved. Resend them only to change them.",
+            "✍️ Крок 3/4 · Цілі та стиль. Надішліть збережені цілі ще раз, щоб продовжити, або змініть їх.",
+            "✍️ Шаг 3/4 · Цели и стиль. Пришлите сохранённые цели повторно для продолжения или измените их.",
+            "✍️ Step 3/4 · Goals and style. Resend your saved goals to continue or edit them.",
         ), reply_markup=gift_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
     else:
         await callback.message.answer(text_for(
             data.get("lang", "uk"),
-            "Вибір збережено 💛 Надішліть 5–9 цілей, кожну з нового рядка. Стиль можна обрати нижче.",
-            "Выбор сохранён 💛 Пришлите 5–9 целей, каждую с новой строки. Стиль можно выбрать ниже.",
-            "Choice saved 💛 Send 5–9 goals, one per line. Choose the style below.",
+            "✍️ Крок 3/4 · Цілі та стиль. Надішліть 5–9 цілей з нового рядка. Стиль оберіть нижче.",
+            "✍️ Шаг 3/4 · Цели и стиль. Пришлите 5–9 целей по одной на строку. Стиль выберите ниже.",
+            "✍️ Step 3/4 · Goals and style. Send 5–9 goals, one per line; select style below.",
         ), reply_markup=gift_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
 
 
