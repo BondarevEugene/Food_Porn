@@ -105,7 +105,7 @@ def gift_review_text(
         "light": ("☀️ Світлий", "☀️ Светлый", "☀️ Light"),
         "color": ("🌈 Кольоровий", "🌈 Цветной", "🌈 Colorful"),
     }[quote.visual_style]
-    goals = "\\n".join(
+    goals = "\n".join(
         f"{index}. {html.escape(str(goal))}"
         for index, goal in enumerate(quote.goals, 1)
     )
@@ -116,25 +116,25 @@ def gift_review_text(
             "✅ <b>Шаг 4/4 · Проверьте заказ</b>",
             "✅ <b>Step 4/4 · Review your order</b>",
         )
-        + "\\n\\n"
+        + "\n\n"
         + text_for(lang, *product)
-        + "\\n"
+        + "\n"
         + text_for(lang, "📷 Фото", "📷 Фото", "📷 Photos")
-        + f": {photo_count}\\n"
+        + f": {photo_count}\n"
         + text_for(lang, "🎨 Стиль", "🎨 Стиль", "🎨 Style")
-        + ": " + text_for(lang, *style) + "\\n\\n"
+        + ": " + text_for(lang, *style) + "\n\n"
         + text_for(lang, "🎯 <b>Ваші цілі</b>", "🎯 <b>Ваши цели</b>",
                    "🎯 <b>Your goals</b>")
-        + "\\n" + goals + "\\n\\n"
+        + "\n" + goals + "\n\n"
         + text_for(lang, "💳 <b>Вартість</b>", "💳 <b>Стоимость</b>",
                    "💳 <b>Price</b>")
-        + "\\n"
+        + "\n"
         + text_for(lang, "Колаж", "Коллаж", "Collage")
-        + f": {quote.collage_amount:.2f} UAH\\n"
+        + f": {quote.collage_amount:.2f} UAH\n"
         + text_for(lang, "Відео", "Видео", "Video")
-        + f": {quote.video_amount:.2f} UAH\\n"
+        + f": {quote.video_amount:.2f} UAH\n"
         + text_for(lang, "<b>Разом", "<b>Итого", "<b>Total")
-        + f": {quote.total_amount:.2f} UAH</b>\\n\\n"
+        + f": {quote.total_amount:.2f} UAH</b>\n\n"
         + text_for(
             lang, "Все правильно? Підтвердіть замовлення.",
             "Всё правильно? Подтвердите заказ.",
@@ -906,21 +906,14 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
         )
         if settings.gift_unified_checkout_enabled:
             await state.set_state(WallpaperStates.waiting_for_confirmation)
-            await message.answer(text_for(
-                lang,
-                f"✅ <b>Крок 4/4 · Перевірте замовлення</b>\\n"
-                f"Фото: {len(upload_paths(settings, message.from_user.id))} · "
-                f"Цілі: {len(goals)} · Стиль: {data.get('style', 'dark')}\\n"
-                f"{summary}\\nПеревірте дані перед оплатою.",
-                f"✅ <b>Шаг 4/4 · Проверьте заказ</b>\\n"
-                f"Фото: {len(upload_paths(settings, message.from_user.id))} · "
-                f"Цели: {len(goals)} · Стиль: {data.get('style', 'dark')}\\n"
-                f"{summary}\\nПроверьте данные перед оплатой.",
-                f"✅ <b>Step 4/4 · Review your order</b>\\n"
-                f"Photos: {len(upload_paths(settings, message.from_user.id))} · "
-                f"Goals: {len(goals)} · Style: {data.get('style', 'dark')}\\n"
-                f"{summary}\\nCheck all details before payment.",
-            ), reply_markup=gift_review_keyboard(lang))
+            await message.answer(
+                gift_review_text(
+                    lang, quote,
+                    photo_count=len(upload_paths(settings, message.from_user.id)),
+                ),
+                parse_mode="HTML",
+                reply_markup=gift_review_keyboard(lang),
+            )
             return
         await message.answer(text_for(
             lang,
