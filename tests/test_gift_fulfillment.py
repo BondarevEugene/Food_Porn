@@ -220,3 +220,62 @@ async def test_failed_video_send_can_resume_without_resending_collage(
     assert await gift_delivery.deliver_paid_gift(factory, bot, purchase.id)
     bot.send_media_group.assert_awaited_once()
     bot.send_video.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_bundle_delivers_collage_before_video_finishes(fulfillment_factory, monkeypatch):
+    factory, settings, photo, calls = fulfillment_factory
+    purchase = await _purchase(factory, settings, photo, "both")
+    bot = SimpleNamespace(send_media_group=AsyncMock(), send_video=AsyncMock())
+    async def render_after_collage(factory, settings, order_id, owner_id):
+        assert bot.send_media_group.await_count == 1
+        assert bot.send_video.await_count == 0
+        async with factory() as session:
+            checkpoint = await session.get(GiftFulfillment, purchase.id)
+            assert checkpoint.collage_sent is True
+            assert checkpoint.video_sent is False
+            assert checkpoint.status == "processing"
+            video = await session.get(VideoStoryOrder, order_id)
+            output = settings.storage_root / "early-film.mp4"
+            output.write_bytes(b"movie")
+            video.output_path = str(output)
+            video.status = "ready"
+            await session.commit()
+    monkeypatch.setattr(gift_fulfillment, "render_verified_video_story", render_after_collage)
+    await gift_fulfillment.process_paid_gift_purchase(
+        factory, settings, purchase.id, bot=bot
+    )
+    assert await gift_delivery.deliver_paid_gift(factory, bot, purchase.id)
+    assert bot.send_media_group.await_count == 1
+    assert bot.send_video.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_video_only_does_not_deliver_internal_artwork_early(fulfillment_factory):
+    factory, settings, photo, calls = fulfillment_factory
+    purchase = await _purchase(factory, settings, photo, "video")
+    bot = SimpleNamespace(send_media_group=AsyncMock(), send_video=AsyncMock())
+    await gift_fulfillment.process_paid_gift_purchase(factory, settings, purchase.id, bot=bot)
+    bot.send_media_group.assert_not_awaited()
+    assert await gift_delivery.deliver_paid_gift(factory, bot, purchase.id)
+    bot.send_media_group.assert_not_awaited()
+    bot.send_video.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_early_collage_send_failure_does_not_block_video(fulfillment_factory):
+    factory, settings, photo, calls = fulfillment_factory
+    purchase = await _purchase(factory, settings, photo, "both")
+    bot = SimpleNamespace(
+        send_media_group=AsyncMock(side_effect=RuntimeError("Telegram unavailable")),
+        send_video=AsyncMock(),
+    )
+    result = await gift_fulfillment.process_paid_gift_purchase(
+        factory, settings, purchase.id, bot=bot
+    )
+    assert result.status == "ready"
+    assert calls["video"] == 1
+    bot.send_media_group = AsyncMock()
+    assert await gift_delivery.deliver_paid_gift(factory, bot, purchase.id)
+    bot.send_media_group.assert_awaited_once()
+    bot.send_video.assert_awaited_once()
