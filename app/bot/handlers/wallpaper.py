@@ -33,11 +33,11 @@ from app.crm.models import GiftPaymentReceipt, GiftPurchase
 from app.database.repositories import WallpaperOrderRepository, WayForPayPaymentRepository
 from app.services.free_access import has_free_generation_access
 from app.services.gift_delivery import deliver_paid_gift
-from app.services.gift_storage import GiftStorageUnavailable, require_gift_storage
 from app.services.gift_drafts import load_gift_draft, store_gift_draft
 from app.services.gift_fulfillment import GiftFulfillmentBusy, process_paid_gift_purchase
 from app.services.gift_pricing import checkout_price_uah
 from app.services.gift_purchases import create_gift_quote
+from app.services.gift_storage import GiftStorageUnavailable, require_gift_storage
 from app.services.goal_story import GoalScenePlanner
 from app.services.payment import PaymentService
 from app.services.portmone_sandbox import send_portmone_sandbox_offer
