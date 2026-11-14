@@ -1,6 +1,10 @@
 """Client navigation keeps product choices separate from service actions."""
 from app.bot.handlers.start import get_products_menu_keyboard
-from app.bot.handlers.wallpaper import (gift_keyboard, gift_photo_start_keyboard, gift_product_keyboard)
+from app.bot.handlers.wallpaper import (
+    gift_keyboard,
+    gift_photo_start_keyboard,
+    gift_product_keyboard,
+)
 
 
 def _actions(markup):
