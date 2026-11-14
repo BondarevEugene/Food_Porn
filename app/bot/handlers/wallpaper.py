@@ -879,6 +879,90 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
     await generate_wallpapers(message, state, settings, session_factory)
 
 
+@router.callback_query(F.data == "gift_review_edit")
+async def edit_gift_review(callback: CallbackQuery, state: FSMContext) -> None:
+    if await state.get_state() != WallpaperStates.waiting_for_confirmation.state:
+        await callback.answer("Цей крок застарів. Скористайтеся /resume.", show_alert=True)
+        return
+    data = await state.get_data()
+    lang = data.get("lang", "uk")
+    await state.update_data(gift_quote_id=None)
+    await state.set_state(WallpaperStates.waiting_for_goals)
+    await callback.answer()
+    await callback.message.answer(text_for(
+        lang,
+        "✍️ <b>Крок 3/4 · Цілі та стиль</b>\\nЗмініть стиль та надішліть 5–9 цілей ще раз.",
+        "✍️ <b>Шаг 3/4 · Цели и стиль</b>\\nВыберите стиль и отправьте 5–9 целей снова.",
+        "✍️ <b>Step 3/4 · Goals and style</b>\\nAdjust style and resend 5–9 goals.",
+    ), reply_markup=gift_keyboard(lang, data.get("style", "dark")))
+
+
+@router.callback_query(F.data == "gift_review_confirm")
+async def confirm_gift_review(
+    callback: CallbackQuery,
+    state: FSMContext,
+    settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    if (
+        await state.get_state() != WallpaperStates.waiting_for_confirmation.state
+        or not settings.gift_unified_checkout_enabled
+    ):
+        await callback.answer("Цей крок вже неактивний.", show_alert=True)
+        return
+    data = await state.get_data()
+    lang = data.get("lang", "uk")
+    purchase_id = data.get("gift_quote_id")
+    if not purchase_id:
+        await callback.answer("Замовлення не знайдено. Надішліть цілі повторно.", show_alert=True)
+        return
+    service = WayForPayService(settings)
+    if not service.ready:
+        await callback.answer("Оплата тимчасово недоступна.", show_alert=True)
+        return
+    try:
+        async with session_factory() as session:
+            quote = await session.get(GiftPurchase, purchase_id)
+            if (
+                quote is None or quote.telegram_user_id != callback.from_user.id
+                or quote.status != "quoted"
+                or quote.product_choice != data.get("gift_product")
+                or quote.visual_style != data.get("style", "dark")
+                or quote.goals != data.get("goals")
+            ):
+                await callback.answer("Дані змінилися. Повторіть крок замовлення.", show_alert=True)
+                return
+            _, checkout_url = await service.create_checkout(
+                session, telegram_user_id=callback.from_user.id,
+                product="gift_purchase", reference_id=quote.id,
+                description=f"Food Porn gift {quote.product_choice} #{quote.id[:8]}",
+                amount_override=quote.total_amount,
+            )
+    except Exception:
+        logger.exception("Could not create checkout for reviewed gift %s", purchase_id)
+        await callback.answer("Оплата тимчасово недоступна.", show_alert=True)
+        return
+    await callback.answer()
+    await callback.message.answer(text_for(
+        lang,
+        f"💳 <b>Оплата замовлення № {quote.id[:8]}</b>\\n"
+        f"До сплати: {quote.total_amount:.2f} UAH. Оплачуйте лише один раз.",
+        f"💳 <b>Оплата заказа № {quote.id[:8]}</b>\\n"
+        f"К оплате: {quote.total_amount:.2f} UAH. Оплачивайте только один раз.",
+        f"💳 <b>Pay for order #{quote.id[:8]}</b>\\n"
+        f"Total: {quote.total_amount:.2f} UAH. Pay only once.",
+    ), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=text_for(lang, "💳 Перейти до оплати", "💳 Перейти к оплате", "💳 Open checkout"),
+            url=checkout_url,
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🔄 Перевірити оплату", "🔄 Проверить оплату", "🔄 Check payment"),
+            callback_data=f"gift_purchase_status:{quote.id}",
+        )],
+    ]))
+
+
 @router.callback_query(F.data.startswith("gift_purchase_status:"))
 async def verify_gift_purchase_callback(
     callback: CallbackQuery,
