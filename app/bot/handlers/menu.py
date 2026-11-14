@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from html import escape
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramNetworkError
@@ -51,7 +50,6 @@ from app.services.menu_wizard import (
     DEFAULT_VISUAL_STYLE,
     MEAL_FULL_DAY,
     meal_label,
-    meal_slot_label,
     parse_menu_plan,
 )
 from app.services.storage import InvalidImageError, PhotoTransferUnavailable, StorageService
@@ -155,7 +153,7 @@ def format_premium_dashboard(menu: Menu) -> str:
         next_step = "Загрузите фотографию для разворота."
     else:
         next_step = "Всё готово. Проверьте заказ и запустите создание."
-    return "\\n".join([
+    return "\n".join([
         f"⚜️ <b>{meal_label(menu.meal_period, language)} · #{menu.id}</b>",
         "<i>Персональная гастрономическая студия</i>",
         "",
@@ -177,7 +175,7 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
     can_generate = count > 0 and bool(menu.cover_photo_path and menu.spread_photo_path)
     if not count:
         builder.button(text="🍽️ Шаг 1 · Выбрать блюда",
-                       callback_data=MenuAction(action="pick_category", menu_id=menu.id))
+                       callback_data=MenuAction(action="menu_dish_methods", menu_id=menu.id))
     elif not menu.cover_photo_path:
         builder.button(text="📷 Шаг 2 · Добавить обложку",
                        callback_data=MenuAction(action="req_cover", menu_id=menu.id))
@@ -199,6 +197,35 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
     builder.button(text="⬅️ Назад", callback_data="prod_food_porn")
     builder.adjust(1)
     return builder.as_markup()
+
+
+@router.callback_query(MenuAction.filter(F.action == "menu_dish_methods"))
+async def choose_menu_dish_method(
+    callback: CallbackQuery, callback_data: MenuAction,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """One decision per screen: select how to add dishes."""
+    async with session_factory() as session:
+        menu = await MenuRepository(session).get(callback_data.menu_id, full=True)
+    if not _owned_by(menu, callback.from_user.id):
+        await callback.answer("Сет не найден.", show_alert=True)
+        return
+    builder = InlineKeyboardBuilder()
+    for label, action in (
+        ("🍽️ По категориям", "pick_category"),
+        ("✍️ Своим списком", "bulk_items"),
+        ("🌍 По кухне мира", "choose_cuisine"),
+    ):
+        builder.button(text=label, callback_data=MenuAction(action=action, menu_id=menu.id))
+    builder.button(text="⬅️ К заказу", callback_data=MenuAction(action="menu_dashboard", menu_id=menu.id))
+    builder.adjust(1)
+    await callback.answer()
+    await callback.message.answer(
+        "⚜️ <b>Шаг 1/3 · Ваше меню</b>\n\n"
+        "Как удобнее выбрать блюда?\n"
+        "<i>Все три способа ведут к одному результату. Выберите любой.</i>",
+        reply_markup=builder.as_markup(), parse_mode="HTML",
+    )
 
 
 @router.callback_query(MenuAction.filter(F.action == "menu_more"))
@@ -225,7 +252,7 @@ async def show_menu_edit_options(
     builder.adjust(1)
     await callback.answer()
     await callback.message.answer(
-        "⚙️ <b>Настройки гастрономического сета</b>\\nВыберите, что хотите изменить.",
+        "⚙️ <b>Настройки гастрономического сета</b>\nВыберите, что хотите изменить.",
         reply_markup=builder.as_markup(), parse_mode="HTML",
     )
 
