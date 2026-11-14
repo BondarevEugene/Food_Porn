@@ -709,20 +709,25 @@ async def select_gift_product(callback: CallbackQuery, state: FSMContext,
             logger.exception("Could not persist selected gift product for %s", callback.from_user.id)
     await callback.answer()
     goals_saved = isinstance(data.get("goals"), list) and 5 <= len(data["goals"]) <= 9
+    lang = data.get("lang", "uk")
+    heading = gift_route_header(lang, 3, "Цілі та стиль", "Цели и стиль", "Goals and style")
     if goals_saved:
-        await callback.message.answer(text_for(
-            data.get("lang", "uk"),
-            "✍️ Крок 3/4 · Цілі збережено. Можете продовжити або змінити їх.",
-            "✍️ Шаг 3/4 · Цели сохранены. Можно продолжить или изменить их.",
-            "✍️ Step 3/4 · Goals saved. Continue or edit them.",
-        ), reply_markup=gift_saved_goals_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
+        description = text_for(
+            lang,
+            "✅ Цілі збережено. Продовжуйте або змініть стиль.",
+            "✅ Цели сохранены. Продолжайте или измените стиль.",
+            "✅ Goals saved. Continue or change the style.",
+        )
+        keyboard = gift_saved_goals_keyboard(lang, data.get("style", "dark"))
     else:
-        await callback.message.answer(text_for(
-            data.get("lang", "uk"),
-            "✍️ Крок 3/4 · Цілі та стиль. Надішліть 5–9 цілей з нового рядка. Стиль оберіть нижче.",
-            "✍️ Шаг 3/4 · Цели и стиль. Пришлите 5–9 целей по одной на строку. Стиль выберите ниже.",
-            "✍️ Step 3/4 · Goals and style. Send 5–9 goals, one per line; select style below.",
-        ), reply_markup=gift_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
+        description = text_for(
+            lang,
+            "Надішліть 5–9 цілей, кожну з нового рядка. Нижче оберіть стиль.",
+            "Отправьте 5–9 целей, каждую с новой строки. Ниже выберите стиль.",
+            "Send 5–9 goals, one per line. Choose the style below.",
+        )
+        keyboard = gift_keyboard(lang, data.get("style", "dark"))
+    await callback.message.answer(heading + "\n" + description, reply_markup=keyboard)
 
 
 @router.callback_query(F.data == "gift_photos_done")
