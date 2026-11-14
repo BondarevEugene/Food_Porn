@@ -146,11 +146,23 @@ def gift_product_keyboard(lang: str) -> InlineKeyboardMarkup:
         ("video", "🎬 Лише відеоісторія", "🎬 Только видеоистория", "🎬 Video only"),
         ("both", "✨ Колаж + відео", "✨ Коллаж + видео", "✨ Collage + video"),
     )
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=text_for(lang, uk, ru, en),
-                              callback_data=f"gift_product:{key}")]
+    rows = [
+        [InlineKeyboardButton(
+            text=text_for(lang, uk, ru, en), callback_data=f"gift_product:{key}"
+        )]
         for key, uk, ru, en in choices
+    ]
+    rows.extend([
+        [InlineKeyboardButton(
+            text=text_for(lang, "⬅️ До фото", "⬅️ К фото", "⬅️ Photos"),
+            callback_data="gift_back_to_photos",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🏠 Головна", "🏠 Главная", "🏠 Home"),
+            callback_data="back_to_products",
+        )],
     ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def video_story_entry_keyboard(settings: Settings, lang: str) -> InlineKeyboardMarkup | None:
