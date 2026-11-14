@@ -948,10 +948,10 @@ async def change_gift_product_from_review(callback: CallbackQuery, state: FSMCon
     await callback.message.answer(
         text_for(
             lang,
-            "🎁 <b>Крок 2/4 · Формат</b>\\nЗмініть результат. Фото та цілі збережено. Вартість буде перераховано.",
-            "🎁 <b>Шаг 2/4 · Формат</b>\\nИзмените результат. Фото и цели сохранены. Стоимость будет пересчитана.",
-            "🎁 <b>Step 2/4 · Format</b>\\nChange your deliverable. Photos and goals are saved. Price will be recalculated.",
-        ).replace("\\\\n", "\\n"),
+            "🎁 <b>Крок 2/4 · Формат</b>\nЗмініть результат. Фото та цілі збережено. Вартість буде перераховано.",
+            "🎁 <b>Шаг 2/4 · Формат</b>\nИзмените результат. Фото и цели сохранены. Стоимость будет пересчитана.",
+            "🎁 <b>Step 2/4 · Format</b>\nChange your deliverable. Photos and goals are saved. Price will be recalculated.",
+        ),
         reply_markup=gift_product_keyboard(lang, data.get("gift_product")),
     )
 
