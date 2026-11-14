@@ -87,3 +87,18 @@ async def test_stale_review_buttons_do_not_change_current_order():
     callback.answer.assert_awaited_once()
     assert callback.answer.await_args.kwargs["show_alert"] is True
     callback.message.answer.assert_not_awaited()
+
+
+def test_order_review_is_localized_and_escapes_customer_goals():
+    quote = SimpleNamespace(
+        product_choice="both", visual_style="light",
+        goals=["House <sea>", "Trip"] ,
+        collage_amount=10, video_amount=20, total_amount=30,
+    )
+    message = wallpaper.gift_review_text("ru", quote, photo_count=2)
+    assert "Шаг 4/4" in message
+    assert "Коллаж + видео" in message
+    assert "House &lt;sea&gt;" in message
+    assert "🌙 Тёмный" not in message
+    assert "☀️ Светлый" in message
+    assert "<b>Итого: 30.00 UAH</b>" in message
