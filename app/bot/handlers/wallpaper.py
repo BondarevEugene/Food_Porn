@@ -157,6 +157,10 @@ def gift_review_keyboard(lang: str) -> InlineKeyboardMarkup:
             callback_data="gift_review_edit",
         )],
         [InlineKeyboardButton(
+            text=text_for(lang, "🎁 Змінити формат", "🎁 Изменить формат", "🎁 Change format"),
+            callback_data="gift_review_change_product",
+        )],
+        [InlineKeyboardButton(
             text=text_for(lang, "🏠 Головна", "🏠 Главная", "🏠 Home"),
             callback_data="back_to_products",
         )],
@@ -220,7 +224,7 @@ def photo_upload_status(lang: str, count: int, limit: int = MAX_GIFT_PHOTOS) -> 
     )
 
 
-def gift_product_keyboard(lang: str) -> InlineKeyboardMarkup:
+def gift_product_keyboard(lang: str, selected: str | None = None) -> InlineKeyboardMarkup:
     """Select the requested deliverables once, after photo upload."""
     choices = (
         ("collage", "🖼️ Лише колаж", "🖼️ Только коллаж", "🖼️ Collage only"),
@@ -229,7 +233,7 @@ def gift_product_keyboard(lang: str) -> InlineKeyboardMarkup:
     )
     rows = [
         [InlineKeyboardButton(
-            text=text_for(lang, uk, ru, en), callback_data=f"gift_product:{key}"
+            text=("✓ " if key == selected else "") + text_for(lang, uk, ru, en), callback_data=f"gift_product:{key}"
         )]
         for key, uk, ru, en in choices
     ]
@@ -928,6 +932,28 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
         return
     await state.set_state(WallpaperStates.generating)
     await generate_wallpapers(message, state, settings, session_factory)
+
+
+@router.callback_query(F.data == "gift_review_change_product")
+async def change_gift_product_from_review(callback: CallbackQuery, state: FSMContext) -> None:
+    """Requote on the next review; never reuse a quote for a different product."""
+    if await state.get_state() != WallpaperStates.waiting_for_confirmation.state:
+        await callback.answer("Цей крок застарів. Скористайтеся /resume.", show_alert=True)
+        return
+    data = await state.get_data()
+    lang = data.get("lang", "uk")
+    await state.update_data(gift_quote_id=None)
+    await state.set_state(WallpaperStates.waiting_for_product)
+    await callback.answer()
+    await callback.message.answer(
+        text_for(
+            lang,
+            "🎁 <b>Крок 2/4 · Формат</b>\\nЗмініть результат. Фото та цілі збережено. Вартість буде перераховано.",
+            "🎁 <b>Шаг 2/4 · Формат</b>\\nИзмените результат. Фото и цели сохранены. Стоимость будет пересчитана.",
+            "🎁 <b>Step 2/4 · Format</b>\\nChange your deliverable. Photos and goals are saved. Price will be recalculated.",
+        ).replace("\\\\n", "\\n"),
+        reply_markup=gift_product_keyboard(lang, data.get("gift_product")),
+    )
 
 
 @router.callback_query(F.data == "gift_review_edit")
