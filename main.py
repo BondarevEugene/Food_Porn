@@ -36,6 +36,7 @@ from app.channels.router import router as channels_router
 from app.config import Settings, get_settings
 from app.database.session import Database
 from app.miniapp.api import router as miniapp_router
+from app.services.factory_alerts import FactoryAlertNotifier
 from app.services.factory_monitor import FactoryStorageMonitor
 from app.services.openai_costs import OpenAICostSynchronizer
 from app.services.scheduled_delivery import ScheduledDeliveryWorker
@@ -347,7 +348,23 @@ async def main() -> None:
             )
         )
         logger.info("Mini App: http://localhost:%s/miniapp | Admin: /admin", web_port)
-        await run_services(server, listener, bot, dispatcher)
+        try:
+            await run_services(server, listener, bot, dispatcher)
+        except Exception:
+            notifier = FactoryAlertNotifier(
+                lambda uid, message: bot.send_message(uid, message),
+                settings.admin_telegram_ids,
+            )
+            try:
+                async with asyncio.timeout(5):
+                    await notifier.notify(
+                        "service:critical",
+                        "🚨 Food_Porn: Telegram polling or web service stopped unexpectedly. "
+                        "Check Railway logs and Mini CRM.",
+                    )
+            except Exception:
+                logger.exception("Could not send critical service failure alert")
+            raise
     logger.info("Application stopped")
 
 
