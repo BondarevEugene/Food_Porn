@@ -160,3 +160,34 @@ async def test_saved_goals_continue_uses_customer_identity(monkeypatch):
     message = collect.await_args.args[0]
     assert message.from_user is customer
     assert message.text == "\\n".join(goals)
+
+
+def test_gift_progress_shows_independent_deliveries_without_fake_percentage():
+    purchase = SimpleNamespace(status="paid", includes_collage=True, includes_video=True)
+    job = SimpleNamespace(status="processing", collage_sent=True, video_sent=False)
+    text = wallpaper.gift_progress_text("ru", purchase, job)
+    assert "Коллаж: доставлен" in text
+    assert "Видео: ожидается" in text
+    assert "%" not in text
+
+
+def test_gift_progress_video_only_never_exposes_internal_collage():
+    purchase = SimpleNamespace(status="paid", includes_collage=False, includes_video=True)
+    job = SimpleNamespace(status="processing", collage_sent=False, video_sent=False)
+    text = wallpaper.gift_progress_text("en", purchase, job)
+    assert "Collage" not in text
+    assert "Video: pending" in text
+
+
+def test_gift_progress_keyboard_has_one_refresh_action():
+    purchase_id = "f2db361c-5e12-4c91-aec9-b1d8d7f01a33"
+    assert _actions(wallpaper.gift_progress_keyboard("ru", purchase_id)) == [
+        "gift_status:" + purchase_id
+    ]
+
+
+@pytest.mark.asyncio
+async def test_gift_progress_rejects_invalid_purchase_id():
+    callback = SimpleNamespace(data="gift_status:not-a-uuid", answer=AsyncMock())
+    await wallpaper.show_paid_gift_status(callback, None, None)
+    assert callback.answer.await_args.kwargs["show_alert"] is True
