@@ -150,7 +150,7 @@ def gift_progress_text(lang: str, purchase: GiftPurchase, job: GiftFulfillment |
             "Напишіть /paysupport та вкажіть номер замовлення.",
             "Напишите /paysupport и укажите номер заказа.",
             "Contact /paysupport with your order number."))
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
 def gift_review_text(
@@ -172,7 +172,8 @@ def gift_review_text(
         for index, goal in enumerate(quote.goals, 1)
     )
     return (
-        gift_route_header(lang, 4, "Перевірка замовлення", "Проверка заказа", "Order review")        + "\n\n"
+        gift_route_header(lang, 4, "Перевірка замовлення", "Проверка заказа", "Order review")
+        + "\n\n"
         + text_for(lang, *product)
         + "\n"
         + text_for(lang, "📷 Фото", "📷 Фото", "📷 Photos")
