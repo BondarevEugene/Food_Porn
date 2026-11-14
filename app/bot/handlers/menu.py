@@ -16,10 +16,9 @@ Responsibilities:
 
 from __future__ import annotations
 
-from html import escape as escape_title
-
 import asyncio
 import logging
+from html import escape as escape_title
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramNetworkError
