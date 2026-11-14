@@ -86,6 +86,20 @@ def gift_keyboard(lang: str, selected: str = "dark") -> InlineKeyboardMarkup:
     ])
 
 
+def gift_photo_start_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Photo stage: no style or checkout actions."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=text_for(lang, "📷 Додати фото", "📷 Добавить фото", "📷 Add photos"),
+            callback_data="gift_five_photos",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🏠 Головна", "🏠 Главная", "🏠 Home"),
+            callback_data="back_to_products",
+        )],
+    ])
+
+
 def safety_recovery_keyboard(lang: str, photo_count: int) -> InlineKeyboardMarkup:
     rows = [[InlineKeyboardButton(
         text=text_for(lang, "📷 Інше фото", "📷 Другое фото", "📷 Another photo"),
@@ -323,7 +337,7 @@ async def start_wallpaper_from_start(message: Message, state: FSMContext,
         "✨ <b>Your wish story</b>\n\n<b>Step 1 of 3 · Photos</b>\n"
         "Send 1–7 photos. Start with one and add others using the button below.\n\n"
         "Then choose the format, goals and style.",
-    ), parse_mode="HTML", reply_markup=gift_keyboard(lang))
+    ), parse_mode="HTML", reply_markup=gift_photo_start_keyboard(lang))
 
 
 @router.message(F.text == "/resume")
