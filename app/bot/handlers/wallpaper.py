@@ -622,7 +622,8 @@ async def select_gift_product(callback: CallbackQuery, state: FSMContext,
         await callback.answer("Почніть новий подарунок через /start 💛", show_alert=True)
         return
     data = await state.get_data()
-    await state.update_data(gift_product=product, gift_quote_id=None)
+    await state.update_data(gift_product=product)
+    await state.update_data(gift_quote_id=None)
     await state.set_state(WallpaperStates.waiting_for_goals)
     if session_factory is not None:
         try:
