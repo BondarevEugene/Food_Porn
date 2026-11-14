@@ -140,46 +140,34 @@ async def upgrade_legacy_menu_setup(
 
 
 def format_premium_dashboard(menu: Menu) -> str:
-    """Формирует премиальный текстовый интерфейс дашборда на основе реальных данных БД."""
-    status_icon = "⚫️" if menu.status == MenuStatus.DRAFT else "⚜️️"
-    status_text = "Формирование" if menu.status == MenuStatus.DRAFT else str(menu.status).capitalize()
-
+    """Compact order card with an explicit next step and truthful completion state."""
     language = getattr(getattr(menu, "customer", None), "language", "ru")
     language = getattr(language, "value", language) or "ru"
-    lines = [
+    count = sum(item.title != "—" for item in menu.items)
+    cover = bool(menu.cover_photo_path)
+    spread = bool(menu.spread_photo_path)
+    complete = int(count > 0) + int(cover) + int(spread)
+    if not count:
+        next_step = "Выберите блюда — по категориям, списком или по кухне мира."
+    elif not cover:
+        next_step = "Загрузите фотографию для обложки."
+    elif not spread:
+        next_step = "Загрузите фотографию для разворота."
+    else:
+        next_step = "Всё готово. Проверьте заказ и запустите создание."
+    return "\\n".join([
         f"⚜️ <b>{meal_label(menu.meal_period, language)} · #{menu.id}</b>",
-        f"Статус: {status_icon} <i>{status_text}</i>",
-        ""
-    ]
-
-    cover_status = "✅ Загружена" if menu.cover_photo_path else "❌ Отсутствует"
-    spread_status = "✅ Загружен" if menu.spread_photo_path else "❌ Отсутствует"
-    lines.append(f"🖼 Обложка: {cover_status}")
-    lines.append(f"📔 Разворот: {spread_status}")
-    lines.append("")
-
-    grouped: dict[str, list[str]] = {}
-    for item in menu.items:
-        if item.title != "—":
-            slot = item.meal_slot or "other"
-            grouped.setdefault(slot, []).append(item.title)
-    lines.append("<b>Состав меню:</b>")
-    for slot in ("breakfast", "lunch", "dinner", "other"):
-        titles = grouped.get(slot, [])
-        if titles:
-            lines.append(f"  • <b>{meal_slot_label(slot, language)}</b>: {len(titles)}")
-            lines.extend(
-                f"      {index}. {escape(title)}"
-                for index, title in enumerate(titles, start=1)
-            )
-
-    lines.extend([
+        "<i>Персональная гастрономическая студия</i>",
         "",
-        "<i>Нейросеть автоматически подберет рецептуру, сформирует</i>",
-        "<i>консолидированный лист закупок и стилизует иллюстрации.</i>"
+        f"<b>Готовность: {complete}/3</b>",
+        f"{'✅' if count else '①'} Блюда · {count}",
+        f"{'✅' if cover else '②'} Фото обложки",
+        f"{'✅' if spread else '③'} Фото разворота",
+        "",
+        f"<b>Следующий шаг:</b> {next_step}",
+        "",
+        "<i>Дополнительные варианты находятся в разделе «Изменить или дополнить».</i>",
     ])
-
-    return "\n".join(lines)
 
 
 def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
