@@ -145,6 +145,13 @@ def gift_progress_text(lang: str, purchase: GiftPurchase, job: GiftFulfillment |
             "🎬 Відео: доставлено" if sent else "🎬 Відео: очікується",
             "🎬 Видео: доставлено" if sent else "🎬 Видео: ожидается",
             "🎬 Video: delivered" if sent else "🎬 Video: pending"))
+    if status == "delivered":
+        lines.append(text_for(
+            lang,
+            "🎉 Готово! Ваші файли вже надіслані в цей чат. Дякуємо за замовлення 💛",
+            "🎉 Готово! Ваши файлы уже отправлены в этот чат. Спасибо за заказ 💛",
+            "🎉 All done! Your files have been sent to this chat. Thank you 💛",
+        ))
     if status == "failed":
         lines.append(text_for(lang,
             "Напишіть /paysupport та вкажіть номер замовлення.",
@@ -1252,7 +1259,16 @@ async def show_paid_gift_status(
     if callback.message:
         await callback.message.answer(
             text, parse_mode="HTML",
-            reply_markup=gift_progress_keyboard(lang, purchase_id),
+            reply_markup=(
+                InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(
+                        text=text_for(lang, "🏠 Головна", "🏠 Главная", "🏠 Home"),
+                        callback_data="back_to_products",
+                    ),
+                ]])
+                if job is not None and job.status == "delivered"
+                else gift_progress_keyboard(lang, purchase_id)
+            ),
         )
 
 
