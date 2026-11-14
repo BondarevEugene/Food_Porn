@@ -1,6 +1,6 @@
 """Client navigation keeps product choices separate from service actions."""
 from app.bot.handlers.start import get_products_menu_keyboard
-from app.bot.handlers.wallpaper import gift_keyboard, gift_product_keyboard
+from app.bot.handlers.wallpaper import (gift_keyboard, gift_photo_start_keyboard, gift_product_keyboard)
 
 
 def _actions(markup):
@@ -30,7 +30,7 @@ def test_gift_style_does_not_offer_to_restart_photo_upload():
     actions = _actions(gift_keyboard("ru", "light"))
     assert actions == [
         "gift_style:dark", "gift_style:light", "gift_style:color",
-        "back_to_products",
+        "gift_back_to_product", "back_to_products",
     ]
     assert "gift_five_photos" not in actions
 
@@ -38,5 +38,12 @@ def test_gift_style_does_not_offer_to_restart_photo_upload():
 def test_gift_product_choices_are_distinct_from_service_buttons():
     actions = _actions(gift_product_keyboard("uk"))
     assert actions == [
-        "gift_product:collage", "gift_product:video", "gift_product:both"
+        "gift_product:collage", "gift_product:video", "gift_product:both",
+        "gift_back_to_photos", "back_to_products",
+    ]
+
+
+def test_initial_photo_screen_has_no_styles_or_service_actions():
+    assert _actions(gift_photo_start_keyboard("en")) == [
+        "gift_five_photos", "back_to_products",
     ]
