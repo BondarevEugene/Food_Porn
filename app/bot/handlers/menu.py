@@ -16,6 +16,8 @@ Responsibilities:
 
 from __future__ import annotations
 
+from html import escape as escape_title
+
 import asyncio
 import logging
 
@@ -153,6 +155,7 @@ def format_premium_dashboard(menu: Menu) -> str:
         next_step = "Загрузите фотографию для разворота."
     else:
         next_step = "Всё готово. Проверьте заказ и запустите создание."
+    details = [f"  • {escape_title(item.title)}" for item in menu.items if item.title != "—"]
     return "\n".join([
         f"⚜️ <b>{meal_label(menu.meal_period, language)} · #{menu.id}</b>",
         "<i>Персональная гастрономическая студия</i>",
@@ -161,6 +164,8 @@ def format_premium_dashboard(menu: Menu) -> str:
         f"{'✅' if count else '①'} Блюда · {count}",
         f"{'✅' if cover else '②'} Фото обложки",
         f"{'✅' if spread else '③'} Фото разворота",
+        "",
+        *([ "", "<b>Ваши блюда:</b>", *details] if details else []),
         "",
         f"<b>Следующий шаг:</b> {next_step}",
         "",
