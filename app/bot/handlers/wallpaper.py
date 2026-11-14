@@ -80,7 +80,11 @@ def gift_keyboard(lang: str, selected: str = "dark") -> InlineKeyboardMarkup:
             callback_data=f"gift_style:{key}",
         ) for key, uk, ru, en in styles],
         [InlineKeyboardButton(
-            text=text_for(lang, "⬅️ Головне меню", "⬅️ Главное меню", "⬅️ Main menu"),
+            text=text_for(lang, "⬅️ Обрати формат", "⬅️ Выбрать формат", "⬅️ Choose format"),
+            callback_data="gift_back_to_product",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🏠 Головна", "🏠 Главная", "🏠 Home"),
             callback_data="back_to_products",
         )],
     ])
