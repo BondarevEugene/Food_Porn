@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.bot.keyboards import add_wayforpay_option
 from app.bot.states.wallpaper import WallpaperStates
 from app.config import Settings, get_settings
-from app.crm.models import GiftPaymentReceipt, GiftPurchase
+from app.crm.models import GiftFulfillment, GiftPaymentReceipt, GiftPurchase
 from app.database.repositories import WallpaperOrderRepository, WayForPayPaymentRepository
 from app.services.free_access import has_free_generation_access
 from app.services.gift_delivery import deliver_paid_gift
@@ -104,6 +104,53 @@ def gift_saved_goals_keyboard(lang: str, selected: str = "dark") -> InlineKeyboa
         )],
         *original.inline_keyboard,
     ])
+
+
+def gift_progress_keyboard(lang: str, purchase_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=text_for(lang, "🔄 Оновити статус", "🔄 Обновить статус", "🔄 Refresh status"),
+            callback_data=f"gift_status:{purchase_id}",
+        )],
+    ])
+
+
+def gift_progress_text(lang: str, purchase: GiftPurchase, job: GiftFulfillment | None) -> str:
+    """Report only persisted checkpoints; never invent progress percentages."""
+    if purchase.status != "paid":
+        return text_for(lang, "💳 Очікуємо підтвердження оплати.",
+                        "💳 Ожидаем подтверждения оплаты.", "💳 Awaiting payment confirmation.")
+    status = job.status if job else "queued"
+    heading = text_for(lang, "✨ <b>Ваш подарунок</b>",
+                       "✨ <b>Ваш подарок</b>", "✨ <b>Your gift</b>")
+    labels = {
+        "queued": ("У черзі", "В очереди", "Queued"),
+        "processing": ("Створюється", "Создаётся", "Creating"),
+        "ready": ("Готовий до доставки", "Готов к отправке", "Ready for delivery"),
+        "delivering": ("Надсилається", "Отправляется", "Sending"),
+        "delivered": ("Доставлено", "Доставлено", "Delivered"),
+        "failed": ("Потрібна допомога підтримки", "Нужна помощь поддержки", "Support needed"),
+    }
+    state_label = text_for(lang, *labels.get(status, labels["queued"]))
+    lines = [heading, text_for(lang, "Статус: ", "Статус: ", "Status: ") + state_label]
+    if purchase.includes_collage:
+        sent = bool(job and job.collage_sent)
+        lines.append(text_for(lang,
+            "🖼 Колаж: доставлено" if sent else "🖼 Колаж: очікується",
+            "🖼 Коллаж: доставлен" if sent else "🖼 Коллаж: ожидается",
+            "🖼 Collage: delivered" if sent else "🖼 Collage: pending"))
+    if purchase.includes_video:
+        sent = bool(job and job.video_sent)
+        lines.append(text_for(lang,
+            "🎬 Відео: доставлено" if sent else "🎬 Відео: очікується",
+            "🎬 Видео: доставлено" if sent else "🎬 Видео: ожидается",
+            "🎬 Video: delivered" if sent else "🎬 Video: pending"))
+    if status == "failed":
+        lines.append(text_for(lang,
+            "Напишіть /paysupport та вкажіть номер замовлення.",
+            "Напишите /paysupport и укажите номер заказа.",
+            "Contact /paysupport with your order number."))
+    return "\\n".join(lines)
 
 
 def gift_review_text(
@@ -1144,13 +1191,46 @@ async def verify_gift_purchase_callback(
         await deliver_paid_gift(session_factory, callback.bot, purchase_id)
     except GiftFulfillmentBusy:
         await callback.message.answer(
-            "✨ Відео або колаж вже створюється. Перевірте статус трохи пізніше."
+            "✨ Відео або колаж вже створюється. Перевірте статус трохи пізніше.",
+            reply_markup=gift_progress_keyboard((await state.get_data()).get("lang", "uk"), purchase_id),
         )
     except Exception:
         logger.exception("Could not resume paid gift %s", purchase_id)
         await callback.message.answer(
             "Оплату отримано, але видача затримується. "
             "Скористайтеся /paysupport та вкажіть номер замовлення."
+        )
+
+
+@router.callback_query(F.data.startswith("gift_status:"))
+async def show_paid_gift_status(
+    callback: CallbackQuery, state: FSMContext,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    purchase_id = (callback.data or "").removeprefix("gift_status:")
+    try:
+        uuid.UUID(purchase_id)
+    except (ValueError, AttributeError):
+        await callback.answer("Некоректний номер замовлення.", show_alert=True)
+        return
+    async with session_factory() as session:
+        purchase = await session.get(GiftPurchase, purchase_id)
+        if purchase is None or purchase.telegram_user_id != callback.from_user.id:
+            await callback.answer("Замовлення недоступне.", show_alert=True)
+            return
+        receipt = await session.get(GiftPaymentReceipt, purchase_id)
+        job = await session.get(GiftFulfillment, purchase_id)
+        # The customer cannot see fulfillment data before a verified receipt.
+        if receipt is None or purchase.status != "paid":
+            await callback.answer("Оплата ще не підтверджена.", show_alert=True)
+            return
+        lang = (await state.get_data()).get("lang", "uk")
+        text = gift_progress_text(lang, purchase, job)
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer(
+            text, parse_mode="HTML",
+            reply_markup=gift_progress_keyboard(lang, purchase_id),
         )
 
 
