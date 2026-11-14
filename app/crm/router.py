@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import secrets
+import shutil
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -577,3 +578,20 @@ async def export(
             "Cache-Control": "no-store",
         },
     )
+
+
+@router.get("/api/factory/storage")
+async def factory_storage_status(identity: Identity):
+    """Read-only disk telemetry; never expose local filesystem paths to clients."""
+    require_owner(identity)
+    settings = get_settings()
+    root = settings.storage_root.resolve()
+    if not root.is_dir():
+        return {"available": False, "used_percent": None, "level": "unavailable"}
+    try:
+        total, occupied, _ = shutil.disk_usage(root)
+        used = round(100 * occupied / total) if total else 100
+    except (OSError, ValueError):
+        return {"available": False, "used_percent": None, "level": "unavailable"}
+    level = "critical" if used >= 95 else "high" if used >= 85 else "warning" if used >= 70 else "normal"
+    return {"available": True, "used_percent": used, "level": level}
