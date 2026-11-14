@@ -597,7 +597,8 @@ async def gift_back_to_product(
     if await state.get_state() != WallpaperStates.waiting_for_goals.state:
         await callback.answer("Цей крок вже завершено. Скористайтеся /resume.", show_alert=True)
         return
-    lang = (await state.get_data()).get("lang", "uk")
+    data = await state.get_data()
+    lang = data.get("lang", "uk")
     await state.set_state(WallpaperStates.waiting_for_product)
     await callback.answer()
     await callback.message.answer(
@@ -607,7 +608,7 @@ async def gift_back_to_product(
             "🎁 <b>Шаг 2/4 · Формат</b>\nВыберите, что получите после оплаты.",
             "🎁 <b>Step 2/4 · Format</b>\nChoose your deliverable.",
         ),
-        reply_markup=gift_product_keyboard(lang),
+        reply_markup=gift_product_keyboard(lang, data.get("gift_product")),
     )
 
 
@@ -621,7 +622,7 @@ async def select_gift_product(callback: CallbackQuery, state: FSMContext,
         await callback.answer("Почніть новий подарунок через /start 💛", show_alert=True)
         return
     data = await state.get_data()
-    await state.update_data(gift_product=product)
+    await state.update_data(gift_product=product, gift_quote_id=None)
     await state.set_state(WallpaperStates.waiting_for_goals)
     if session_factory is not None:
         try:
