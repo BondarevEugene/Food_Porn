@@ -285,6 +285,17 @@ def photo_upload_status(lang: str, count: int, limit: int = MAX_GIFT_PHOTOS) -> 
     )
 
 
+def gift_route_header(lang: str, step: int, title_uk: str, title_ru: str, title_en: str) -> str:
+    """A compact, consistent Telegram-only route indicator (no Mini App required)."""
+    if step not in (1, 2, 3, 4):
+        raise ValueError("Gift route step must be 1..4")
+    label = text_for(lang, title_uk, title_ru, title_en)
+    progress = "●" * step + "○" * (4 - step)
+    return text_for(lang, "⚜️ <b>Майстерня подарунків</b>",
+                    "⚜️ <b>Студия подарков</b>",
+                    "⚜️ <b>Gift Studio</b>") + f"\\n{progress} · {step}/4\\n<b>{label}</b>"
+
+
 def gift_product_keyboard(lang: str, selected: str | None = None) -> InlineKeyboardMarkup:
     """Select the requested deliverables once, after photo upload."""
     choices = (
@@ -300,7 +311,7 @@ def gift_product_keyboard(lang: str, selected: str | None = None) -> InlineKeybo
     ]
     rows.extend([
         [InlineKeyboardButton(
-            text=text_for(lang, "⬅️ До фото", "⬅️ К фото", "⬅️ Photos"),
+            text=text_for(lang, "⬅️ Назад · Фото", "⬅️ Назад · Фото", "⬅️ Back · Photos"),
             callback_data="gift_back_to_photos",
         )],
         [InlineKeyboardButton(
@@ -530,9 +541,9 @@ async def resume_saved_photos(message: Message, state: FSMContext, settings: Set
     await state.set_state(WallpaperStates.waiting_for_product)
     await message.answer(
         text_for(lang,
-                 f"Збережено {len(photos)} фото 💛 Оберіть продукт, щоб продовжити.",
-                 f"Сохранено {len(photos)} фото 💛 Выберите продукт для продолжения.",
-                 f"Saved {len(photos)} photos 💛 Choose your product to continue."),
+                 gift_route_header(lang, 2, "Формат подарунка", "Формат подарка", "Gift format") + f"\\nЗбережено {len(photos)} фото. Оберіть продукт.",
+                 gift_route_header(lang, 2, "Формат подарунка", "Формат подарка", "Gift format") + f"\\nСохранено {len(photos)} фото. Выберите продукт.",
+                 gift_route_header(lang, 2, "Формат подарунка", "Формат подарка", "Gift format") + f"\\nSaved {len(photos)} photos. Choose a product."),
         reply_markup=gift_product_keyboard(lang),
     )
 
@@ -619,9 +630,9 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
     await callback.answer()
     await callback.message.answer(
         text_for(data.get("lang", "uk"),
-                 "🎁 <b>Крок 2/4 · Формат</b>\nОберіть, що створити:",
-                 "🎁 <b>Шаг 2/4 · Формат</b>\nВыберите, что создать:",
-                 "🎁 <b>Step 2/4 · Format</b>\nChoose what to create:"),
+                 gift_route_header(lang, 2, "Формат подарунка", "Формат подарка", "Gift format") + "\nОберіть, що створити.",
+                 gift_route_header(lang, 2, "Формат подарунка", "Формат подарка", "Gift format") + "\nВыберите, что создать.",
+                 gift_route_header(lang, 2, "Формат подарунка", "Формат подарка", "Gift format") + "\nChoose what to create."),
         reply_markup=gift_product_keyboard(data.get("lang", "uk")),
     )
 
