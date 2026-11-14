@@ -64,7 +64,7 @@ def test_initial_photo_screen_has_no_styles_or_service_actions():
 
 def test_order_review_has_one_primary_decision_and_edit_path():
     assert _actions(gift_review_keyboard("ru")) == [
-        "gift_review_confirm", "gift_review_edit", "back_to_products",
+        "gift_review_confirm", "gift_review_edit", "gift_review_change_product", "back_to_products",
     ]
 
 
@@ -85,5 +85,40 @@ async def test_stale_review_buttons_do_not_change_current_order():
         None,
     )
     callback.answer.assert_awaited_once()
+    assert callback.answer.await_args.kwargs["show_alert"] is True
+    callback.message.answer.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_change_product_from_review_preserves_draft_and_invalidates_quote():
+    draft = {
+        "lang": "ru", "gift_product": "both", "gift_quote_id": "old-quote",
+        "goals": ["Дом у моря"] * 5, "style": "light", "photos": ["photo-1"],
+    }
+    callback = SimpleNamespace(
+        answer=AsyncMock(), message=SimpleNamespace(answer=AsyncMock()),
+    )
+    state = SimpleNamespace(
+        get_state=AsyncMock(return_value=WallpaperStates.waiting_for_confirmation.state),
+        get_data=AsyncMock(return_value=draft.copy()),
+        update_data=AsyncMock(), set_state=AsyncMock(),
+    )
+    await wallpaper.change_gift_product_from_review(callback, state)
+    state.update_data.assert_awaited_once_with(gift_quote_id=None)
+    state.set_state.assert_awaited_once_with(WallpaperStates.waiting_for_product)
+    markup = callback.message.answer.await_args.kwargs["reply_markup"]
+    selected = [b.text for row in markup.inline_keyboard for b in row if b.callback_data == "gift_product:both"]
+    assert len(selected) == 1 and selected[0].startswith("✓ ")
+    assert draft["goals"] == ["Дом у моря"] * 5
+    assert draft["photos"] == ["photo-1"]
+
+
+@pytest.mark.asyncio
+async def test_change_product_rejects_stale_review():
+    callback = SimpleNamespace(
+        answer=AsyncMock(), message=SimpleNamespace(answer=AsyncMock()),
+    )
+    state = SimpleNamespace(get_state=AsyncMock(return_value=WallpaperStates.waiting_for_product.state))
+    await wallpaper.change_gift_product_from_review(callback, state)
     assert callback.answer.await_args.kwargs["show_alert"] is True
     callback.message.answer.assert_not_awaited()
