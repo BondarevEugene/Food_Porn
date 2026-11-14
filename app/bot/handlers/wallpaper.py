@@ -399,9 +399,9 @@ async def resume_saved_photos(message: Message, state: FSMContext, settings: Set
 async def select_gift_style(callback: CallbackQuery, state: FSMContext) -> None:
     style = (callback.data or "").removeprefix("gift_style:")
     current = await state.get_state()
-    allowed = {WallpaperStates.waiting_for_photo.state,
-               WallpaperStates.waiting_for_five_photos.state,
-               WallpaperStates.waiting_for_goals.state}
+    # Old Telegram buttons can survive a new step or a Railway restart.
+    # Style is a decision only at the goals/style stage.
+    allowed = {WallpaperStates.waiting_for_goals.state}
     if style not in {"dark", "light", "color"} or current not in allowed:
         await callback.answer("Почніть новий подарунок через /start 💛")
         return
