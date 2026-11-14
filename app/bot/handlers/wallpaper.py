@@ -92,6 +92,20 @@ def gift_keyboard(lang: str, selected: str = "dark") -> InlineKeyboardMarkup:
     ])
 
 
+def gift_saved_goals_keyboard(lang: str, selected: str = "dark") -> InlineKeyboardMarkup:
+    """Reuse existing style controls while making the primary action explicit."""
+    original = gift_keyboard(lang, selected)
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=text_for(lang, "✅ Продовжити зі збереженими цілями",
+                          "✅ Продолжить с сохранёнными целями",
+                          "✅ Continue with saved goals"),
+            callback_data="gift_goals_continue",
+        )],
+        *original.inline_keyboard,
+    ])
+
+
 def gift_review_text(
     lang: str, quote: GiftPurchase, *, photo_count: int,
 ) -> str:
@@ -640,10 +654,10 @@ async def select_gift_product(callback: CallbackQuery, state: FSMContext,
     if goals_saved:
         await callback.message.answer(text_for(
             data.get("lang", "uk"),
-            "✍️ Крок 3/4 · Цілі та стиль. Надішліть збережені цілі ще раз, щоб продовжити, або змініть їх.",
-            "✍️ Шаг 3/4 · Цели и стиль. Пришлите сохранённые цели повторно для продолжения или измените их.",
-            "✍️ Step 3/4 · Goals and style. Resend your saved goals to continue or edit them.",
-        ), reply_markup=gift_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
+            "✍️ Крок 3/4 · Цілі збережено. Можете продовжити або змінити їх.",
+            "✍️ Шаг 3/4 · Цели сохранены. Можно продолжить или изменить их.",
+            "✍️ Step 3/4 · Goals saved. Continue or edit them.",
+        ), reply_markup=gift_saved_goals_keyboard(data.get("lang", "uk"), data.get("style", "dark")))
     else:
         await callback.message.answer(text_for(
             data.get("lang", "uk"),
@@ -830,6 +844,36 @@ async def goals_before_photo(message: Message, state: FSMContext) -> None:
         "Спасибо, все от 5 до 9 целей сохранил 💛 Теперь пришлите фото.",
         "I have your 5 to 9 goals 💛 Now send the photo.",
     ))
+
+
+@router.callback_query(F.data == "gift_goals_continue")
+async def continue_saved_gift_goals(
+    callback: CallbackQuery, state: FSMContext, settings: Settings,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Use the same validation and quote path as typed goals, without retyping."""
+    if await state.get_state() != WallpaperStates.waiting_for_goals.state:
+        await callback.answer("Цей крок вже завершено. Скористайтеся /resume.", show_alert=True)
+        return
+    data = await state.get_data()
+    goals = data.get("goals")
+    if not isinstance(goals, list) or not 5 <= len(goals) <= 9 or not all(
+        isinstance(goal, str) and goal.strip() for goal in goals
+    ):
+        await callback.answer(text_for(data.get("lang", "uk"),
+            "Спочатку надішліть 5–9 цілей.", "Сначала отправьте 5–9 целей.",
+            "Please send 5–9 goals first."), show_alert=True)
+        return
+    if not callback.message:
+        await callback.answer()
+        return
+    await callback.answer()
+    # The original message belongs to the bot. Copy with the actual user so
+    # the existing quote and storage logic uses the customer's identity.
+    synthetic = callback.message.model_copy(update={
+        "text": "\\n".join(goals), "from_user": callback.from_user,
+    })
+    await collect_goals(synthetic, state, settings, session_factory)
 
 
 @router.message(WallpaperStates.waiting_for_goals, F.text)
