@@ -45,8 +45,8 @@ def callback_values(markup: object) -> list[str]:
 def test_menu_dashboard_offers_single_and_bulk_input() -> None:
     callbacks = callback_values(menu.build_dashboard_kb(make_empty_menu()))
 
-    assert any("pick_category" in value for value in callbacks)
-    assert any("bulk_items" in value for value in callbacks)
+    assert any("menu_dish_methods" in value for value in callbacks)
+    assert any("menu_more" in value for value in callbacks)
     assert any("requirements" in value for value in callbacks)
     assert "ignore" not in callbacks
 
@@ -96,4 +96,4 @@ async def test_food_product_entry_opens_dashboard(monkeypatch: pytest.MonkeyPatc
     sent_text = message.answer.await_args.args[0]
     sent_markup = message.answer.await_args.kwargs["reply_markup"]
     assert "Гастрономический сет" in sent_text
-    assert any("bulk_items" in value for value in callback_values(sent_markup))
+    assert any("menu_dish_methods" in value for value in callback_values(sent_markup))
