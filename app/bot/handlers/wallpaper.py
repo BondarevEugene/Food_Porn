@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import os
 import re
@@ -88,6 +89,58 @@ def gift_keyboard(lang: str, selected: str = "dark") -> InlineKeyboardMarkup:
             callback_data="back_to_products",
         )],
     ])
+
+
+def gift_review_text(
+    lang: str, quote: GiftPurchase, *, photo_count: int,
+) -> str:
+    """Readable, escaped, localized order summary before any charge."""
+    product = {
+        "collage": ("🖼 Колаж", "🖼 Коллаж", "🖼 Collage"),
+        "video": ("🎬 Відеоісторія", "🎬 Видеоистория", "🎬 Video story"),
+        "both": ("✨ Колаж + відео", "✨ Коллаж + видео", "✨ Collage + video"),
+    }[quote.product_choice]
+    style = {
+        "dark": ("🌙 Темний", "🌙 Тёмный", "🌙 Dark"),
+        "light": ("☀️ Світлий", "☀️ Светлый", "☀️ Light"),
+        "color": ("🌈 Кольоровий", "🌈 Цветной", "🌈 Colorful"),
+    }[quote.visual_style]
+    goals = "\\n".join(
+        f"{index}. {html.escape(str(goal))}"
+        for index, goal in enumerate(quote.goals, 1)
+    )
+    return (
+        text_for(
+            lang,
+            "✅ <b>Крок 4/4 · Перевірте замовлення</b>",
+            "✅ <b>Шаг 4/4 · Проверьте заказ</b>",
+            "✅ <b>Step 4/4 · Review your order</b>",
+        )
+        + "\\n\\n"
+        + text_for(lang, *product)
+        + "\\n"
+        + text_for(lang, "📷 Фото", "📷 Фото", "📷 Photos")
+        + f": {photo_count}\\n"
+        + text_for(lang, "🎨 Стиль", "🎨 Стиль", "🎨 Style")
+        + ": " + text_for(lang, *style) + "\\n\\n"
+        + text_for(lang, "🎯 <b>Ваші цілі</b>", "🎯 <b>Ваши цели</b>",
+                   "🎯 <b>Your goals</b>")
+        + "\\n" + goals + "\\n\\n"
+        + text_for(lang, "💳 <b>Вартість</b>", "💳 <b>Стоимость</b>",
+                   "💳 <b>Price</b>")
+        + "\\n"
+        + text_for(lang, "Колаж", "Коллаж", "Collage")
+        + f": {quote.collage_amount:.2f} UAH\\n"
+        + text_for(lang, "Відео", "Видео", "Video")
+        + f": {quote.video_amount:.2f} UAH\\n"
+        + text_for(lang, "<b>Разом", "<b>Итого", "<b>Total")
+        + f": {quote.total_amount:.2f} UAH</b>\\n\\n"
+        + text_for(
+            lang, "Все правильно? Підтвердіть замовлення.",
+            "Всё правильно? Подтвердите заказ.",
+            "Everything correct? Confirm your order.",
+        )
+    )
 
 
 def gift_review_keyboard(lang: str) -> InlineKeyboardMarkup:
