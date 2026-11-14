@@ -27,7 +27,12 @@ async def deliver_paid_gift(
         purchase = await session.get(GiftPurchase, purchase_id)
         receipt = await session.get(GiftPaymentReceipt, purchase_id)
         job = await session.get(GiftFulfillment, purchase_id, with_for_update=True)
-        if not purchase or not receipt or not job or purchase.status != "paid":
+        if (
+            not purchase or not receipt or not job or purchase.status != "paid"
+            or receipt.provider != "wayforpay"
+            or receipt.amount != purchase.total_amount
+            or receipt.currency != purchase.currency
+        ):
             raise ValueError("Verified gift purchase and fulfillment required")
         if job.status == "delivered":
             return False
