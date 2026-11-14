@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from app.config import get_settings
 from app.crm import integrations, service
 from app.crm.login_tickets import consume_crm_login_ticket
-from app.crm.models import Audit, CustomerNote, Expense, Integration
+from app.crm.models import Audit, CustomerNote, Expense, FactoryIncident, Integration
 from app.crm.security import crm_identity, decrypt_credentials, encrypt_credentials, require_owner
 from app.database.models import AppSetting, Customer, WallpaperOrder
 from app.database.session import async_session_maker
@@ -577,3 +577,50 @@ async def export(
             "Cache-Control": "no-store",
         },
     )
+
+
+@router.get("/api/factory/incidents")
+async def factory_incidents(
+    identity: Identity,
+    status: Literal["open", "resolved", "all"] = "open",
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+):
+    """Owner-only incident list. Errors and customer identifiers are not exposed."""
+    require_owner(identity)
+    query = select(FactoryIncident)
+    if status != "all":
+        query = query.where(FactoryIncident.status == status)
+    query = query.order_by(FactoryIncident.last_seen_at.desc()).limit(limit)
+    async with async_session_maker() as session:
+        incidents = (await session.execute(query)).scalars().all()
+    return {"items": [
+        {
+            "id": row.id,
+            "source": row.source,
+            "severity": row.severity,
+            "summary": row.summary,
+            "status": row.status,
+            "occurrences": row.occurrences,
+            "first_seen_at": row.first_seen_at.isoformat(),
+            "last_seen_at": row.last_seen_at.isoformat(),
+            "resolved_at": row.resolved_at.isoformat() if row.resolved_at else None,
+        }
+        for row in incidents
+    ]}
+
+
+@router.post("/api/factory/incidents/{incident_id}/resolve")
+async def resolve_factory_incident(incident_id: UUID, identity: Identity):
+    """Acknowledge resolution without restarting workers or changing orders."""
+    require_owner(identity)
+    async with async_session_maker() as session:
+        row = await session.get(FactoryIncident, str(incident_id))
+        if row is None:
+            raise HTTPException(404, "Incident not found")
+        if row.status != "resolved":
+            row.status = "resolved"
+            row.resolved_at = datetime.now(UTC)
+            row.resolved_by = identity["actor"]
+            service.audit(session, identity["actor"], "factory.incident.resolve", {"id": row.id})
+            await session.commit()
+    return {"id": str(incident_id), "status": "resolved"}
