@@ -181,12 +181,12 @@ def get_products_menu_keyboard(
     # Product decisions first; service actions are a separate level.
     buttons = [
         [InlineKeyboardButton(
-            text=text_for(lang, "🎁 Створити подарунок", "🎁 Создать подарок", "🎁 Create a gift"),
-            callback_data="prod_manifestation",
-        )],
-        [InlineKeyboardButton(
             text=text_for(lang, "🍽 Створити меню", "🍽 Создать меню", "🍽 Create a menu"),
             callback_data="prod_food_porn",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🎁 Створити подарунок", "🎁 Создать подарок", "🎁 Create a gift"),
+            callback_data="prod_manifestation",
         )],
         [InlineKeyboardButton(
             text=text_for(lang, "📦 Мої замовлення", "📦 Мои заказы", "📦 My orders"),
