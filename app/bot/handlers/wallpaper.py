@@ -293,7 +293,7 @@ def gift_route_header(lang: str, step: int, title_uk: str, title_ru: str, title_
     progress = "●" * step + "○" * (4 - step)
     return text_for(lang, "⚜️ <b>Майстерня подарунків</b>",
                     "⚜️ <b>Студия подарков</b>",
-                    "⚜️ <b>Gift Studio</b>") + f"\\n{progress} · {step}/4\\n<b>{label}</b>"
+                    "⚜️ <b>Gift Studio</b>") + f"\n{progress} · {step}/4\n<b>{label}</b>"
 
 
 def gift_product_keyboard(lang: str, selected: str | None = None) -> InlineKeyboardMarkup:
