@@ -7,7 +7,6 @@ import pytest
 from app.bot.handlers.wallpaper import gift_review_keyboard, gift_review_text
 from app.services.gift_purchases import quote_amounts
 
-
 GOALS = ["Дом у моря", "Путешествия", "Семья", "Здоровье", "Свобода"]
 
 
