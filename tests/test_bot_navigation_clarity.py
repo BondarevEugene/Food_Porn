@@ -1,9 +1,18 @@
 """Client navigation keeps product choices separate from service actions."""
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app.bot.handlers import wallpaper
 from app.bot.handlers.start import get_products_menu_keyboard
+from app.bot.states.wallpaper import WallpaperStates
+from app.config import Settings
 from app.bot.handlers.wallpaper import (
     gift_keyboard,
     gift_photo_start_keyboard,
     gift_product_keyboard,
+    gift_review_keyboard,
 )
 
 
@@ -51,3 +60,30 @@ def test_initial_photo_screen_has_no_styles_or_service_actions():
     assert _actions(gift_photo_start_keyboard("en")) == [
         "gift_five_photos", "back_to_products",
     ]
+
+
+def test_order_review_has_one_primary_decision_and_edit_path():
+    assert _actions(gift_review_keyboard("ru")) == [
+        "gift_review_confirm", "gift_review_edit", "back_to_products",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stale_review_buttons_do_not_change_current_order():
+    callback = SimpleNamespace(
+        answer=AsyncMock(), from_user=SimpleNamespace(id=42),
+        message=SimpleNamespace(answer=AsyncMock()),
+    )
+    state = SimpleNamespace(get_state=AsyncMock(return_value=WallpaperStates.waiting_for_product.state))
+    await wallpaper.edit_gift_review(callback, state)
+    callback.answer.assert_awaited_once()
+    assert callback.answer.await_args.kwargs["show_alert"] is True
+    callback.message.answer.assert_not_awaited()
+    callback.answer.reset_mock()
+    await wallpaper.confirm_gift_review(
+        callback, state, Settings(_env_file=None, gift_unified_checkout_enabled=True),
+        None,
+    )
+    callback.answer.assert_awaited_once()
+    assert callback.answer.await_args.kwargs["show_alert"] is True
+    callback.message.answer.assert_not_awaited()
