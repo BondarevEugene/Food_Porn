@@ -143,8 +143,12 @@ def safety_recovery_keyboard(lang: str, photo_count: int) -> InlineKeyboardMarku
 def finish_photos_keyboard(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text=text_for(lang, "Продовжити →", "Продолжить →", "Continue →"),
+            text=text_for(lang, "Далі → Обрати формат", "Далее → Выбрать формат", "Next → Choose format"),
             callback_data="gift_photos_done",
+        )],
+        [InlineKeyboardButton(
+            text=text_for(lang, "🏠 Головна", "🏠 Главная", "🏠 Home"),
+            callback_data="back_to_products",
         )],
     ])
 
