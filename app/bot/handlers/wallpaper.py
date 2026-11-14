@@ -899,6 +899,11 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
             ))
             return
         await state.update_data(gift_quote_id=quote.id)
+        summary = (
+            f"Коллаж: {quote.collage_amount:.2f} UAH; "
+            f"Видео: {quote.video_amount:.2f} UAH; "
+            f"Итого: {quote.total_amount:.2f} UAH."
+        )
         if settings.gift_unified_checkout_enabled:
             await state.set_state(WallpaperStates.waiting_for_confirmation)
             await message.answer(
