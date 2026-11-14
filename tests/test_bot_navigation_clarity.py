@@ -6,14 +6,14 @@ import pytest
 
 from app.bot.handlers import wallpaper
 from app.bot.handlers.start import get_products_menu_keyboard
-from app.bot.states.wallpaper import WallpaperStates
-from app.config import Settings
 from app.bot.handlers.wallpaper import (
     gift_keyboard,
     gift_photo_start_keyboard,
     gift_product_keyboard,
     gift_review_keyboard,
 )
+from app.bot.states.wallpaper import WallpaperStates
+from app.config import Settings
 
 
 def _actions(markup):
