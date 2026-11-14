@@ -577,9 +577,9 @@ async def gift_back_to_photos(
     await callback.message.answer(
         text_for(
             lang,
-            f"📷 <b>Крок 1/4 · Фото ({count}/7)</b>\\nДодайте фото або продовжуйте.",
-            f"📷 <b>Шаг 1/4 · Фото ({count}/7)</b>\\nДобавьте фото или продолжайте.",
-            f"📷 <b>Step 1/4 · Photos ({count}/7)</b>\\nAdd photos or continue.",
+            f"📷 <b>Крок 1/4 · Фото ({count}/7)</b>\nДодайте фото або продовжуйте.",
+            f"📷 <b>Шаг 1/4 · Фото ({count}/7)</b>\nДобавьте фото или продолжайте.",
+            f"📷 <b>Step 1/4 · Photos ({count}/7)</b>\nAdd photos or continue.",
         ),
         reply_markup=finish_photos_keyboard(lang),
     )
@@ -598,9 +598,9 @@ async def gift_back_to_product(
     await callback.message.answer(
         text_for(
             lang,
-            "🎁 <b>Крок 2/4 · Формат</b>\\nОберіть, що отримаєте після оплати.",
-            "🎁 <b>Шаг 2/4 · Формат</b>\\nВыберите, что получите после оплаты.",
-            "🎁 <b>Step 2/4 · Format</b>\\nChoose your deliverable.",
+            "🎁 <b>Крок 2/4 · Формат</b>\nОберіть, що отримаєте після оплати.",
+            "🎁 <b>Шаг 2/4 · Формат</b>\nВыберите, что получите после оплаты.",
+            "🎁 <b>Step 2/4 · Format</b>\nChoose your deliverable.",
         ),
         reply_markup=gift_product_keyboard(lang),
     )
@@ -941,9 +941,9 @@ async def edit_gift_review(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     await callback.message.answer(text_for(
         lang,
-        "✍️ <b>Крок 3/4 · Цілі та стиль</b>\\nЗмініть стиль та надішліть 5–9 цілей ще раз.",
-        "✍️ <b>Шаг 3/4 · Цели и стиль</b>\\nВыберите стиль и отправьте 5–9 целей снова.",
-        "✍️ <b>Step 3/4 · Goals and style</b>\\nAdjust style and resend 5–9 goals.",
+        "✍️ <b>Крок 3/4 · Цілі та стиль</b>\nЗмініть стиль та надішліть 5–9 цілей ще раз.",
+        "✍️ <b>Шаг 3/4 · Цели и стиль</b>\nВыберите стиль и отправьте 5–9 целей снова.",
+        "✍️ <b>Step 3/4 · Goals and style</b>\nAdjust style and resend 5–9 goals.",
     ), reply_markup=gift_keyboard(lang, data.get("style", "dark")))
 
 
@@ -995,11 +995,11 @@ async def confirm_gift_review(
     await callback.answer()
     await callback.message.answer(text_for(
         lang,
-        f"💳 <b>Оплата замовлення № {quote.id[:8]}</b>\\n"
+        f"💳 <b>Оплата замовлення № {quote.id[:8]}</b>\n"
         f"До сплати: {quote.total_amount:.2f} UAH. Оплачуйте лише один раз.",
-        f"💳 <b>Оплата заказа № {quote.id[:8]}</b>\\n"
+        f"💳 <b>Оплата заказа № {quote.id[:8]}</b>\n"
         f"К оплате: {quote.total_amount:.2f} UAH. Оплачивайте только один раз.",
-        f"💳 <b>Pay for order #{quote.id[:8]}</b>\\n"
+        f"💳 <b>Pay for order #{quote.id[:8]}</b>\n"
         f"Total: {quote.total_amount:.2f} UAH. Pay only once.",
     ), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
