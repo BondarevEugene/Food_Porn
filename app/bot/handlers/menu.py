@@ -183,82 +183,79 @@ def format_premium_dashboard(menu: Menu) -> str:
 
 
 def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
-    """Генерирует инлайн-клавиатуру для управления сетом."""
+    """Progressive disclosure: one next action, secondary options in a separate screen."""
     builder = InlineKeyboardBuilder()
-
-    # Основные действия меню. Каждая кнопка добавляется ровно один раз.
-    builder.button(
-        text="🍽 Выбрать категорию",
-        callback_data=MenuAction(
-            action="pick_category",
-            menu_id=menu.id,
-        ),
-    )
-    builder.button(
-        text="✍️ Ввести блюда самостоятельно",
-        callback_data=MenuAction(action="bulk_items", menu_id=menu.id),
-    )
-    builder.button(
-        text="🌍 Выбрать кухню мира",
-        callback_data=MenuAction(action="choose_cuisine", menu_id=menu.id),
-    )
-    builder.button(
-        text="ℹ️ Требования к генерации",
-        callback_data=MenuAction(
-            action="requirements",
-            menu_id=menu.id,
-        ),
-    )
-
-    builder.button(
-        text=("✅ Фото обложки" if menu.cover_photo_path else "🖼 Загрузить фото обложки"),
-        callback_data=MenuAction(action="req_cover", menu_id=menu.id)
-    )
-    builder.button(
-        text=("✅ Фото разворота" if menu.spread_photo_path else "📔 Загрузить фото разворота"),
-        callback_data=MenuAction(action="req_spread", menu_id=menu.id)
-    )
-
-    item_count = sum(item.title != "—" for item in menu.items)
-    builder.button(
-        text=f"{'✅' if item_count else '📝'} Ввести меню · {item_count} блюд",
-        callback_data=MenuAction(action="edit_plan", menu_id=menu.id),
-    )
-
-    can_generate = bool(menu.items and menu.cover_photo_path and menu.spread_photo_path)
-
-    if menu.status in (MenuStatus.DRAFT, MenuStatus.FAILED, MenuStatus.QUEUED):
-        if can_generate:
-            builder.button(
-                text="✨ Сформировать",
-                callback_data=MenuAction(action="generate", menu_id=menu.id)
-            )
-        else:
-            # Кнопка открывает понятную подсказку; не используем устаревший
-            # Старый callback без идентификатора меню больше не используется.
-            builder.button(
-                text="⚠️ Добавьте блюда и два фото",
-                callback_data=MenuAction(
-                    action="requirements",
-                    menu_id=menu.id,
-                ),
-            )
-
+    count = sum(item.title != "—" for item in menu.items)
+    can_generate = count > 0 and bool(menu.cover_photo_path and menu.spread_photo_path)
+    if not count:
+        builder.button(text="🍽️ Шаг 1 · Выбрать блюда",
+                       callback_data=MenuAction(action="pick_category", menu_id=menu.id))
+    elif not menu.cover_photo_path:
+        builder.button(text="📷 Шаг 2 · Добавить обложку",
+                       callback_data=MenuAction(action="req_cover", menu_id=menu.id))
+    elif not menu.spread_photo_path:
+        builder.button(text="📖 Шаг 2 · Добавить разворот",
+                       callback_data=MenuAction(action="req_spread", menu_id=menu.id))
+    elif can_generate and menu.status in (MenuStatus.DRAFT, MenuStatus.FAILED, MenuStatus.QUEUED):
+        builder.button(text="✨ Шаг 3 · Создать гастрономический сет",
+                       callback_data=MenuAction(action="generate", menu_id=menu.id))
     if getattr(menu, "is_paid", False) and menu.status in (
-        MenuStatus.PAID,
-        MenuStatus.PARTIAL_SUCCESS,
-        MenuStatus.COMPLETED,
-        MenuStatus.FAILED,
+        MenuStatus.PAID, MenuStatus.PARTIAL_SUCCESS, MenuStatus.COMPLETED, MenuStatus.FAILED,
     ):
-        builder.button(
-            text="📩 Получить готовые файлы повторно",
-            callback_data=MenuAction(action="resend", menu_id=menu.id),
-        )
-
+        builder.button(text="📩 Получить готовые файлы",
+                       callback_data=MenuAction(action="resend", menu_id=menu.id))
+    builder.button(text="⚙️ Изменить или дополнить",
+                   callback_data=MenuAction(action="menu_more", menu_id=menu.id))
+    builder.button(text="ℹ️ Что нужно для генерации",
+                   callback_data=MenuAction(action="requirements", menu_id=menu.id))
     builder.button(text="⬅️ Назад", callback_data="prod_food_porn")
-    builder.button(text="🏠 В начало", callback_data="back_to_products")
     builder.adjust(1)
     return builder.as_markup()
+
+
+@router.callback_query(MenuAction.filter(F.action == "menu_more"))
+async def show_menu_edit_options(
+    callback: CallbackQuery, callback_data: MenuAction,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        menu = await MenuRepository(session).get(callback_data.menu_id, full=True)
+    if not _owned_by(menu, callback.from_user.id):
+        await callback.answer("Сет не найден.", show_alert=True)
+        return
+    builder = InlineKeyboardBuilder()
+    for label, action in (
+        ("🍽️ Подобрать по категориям", "pick_category"),
+        ("✍️ Ввести список блюд", "bulk_items"),
+        ("🌍 Выбрать кухню мира", "choose_cuisine"),
+        ("📝 Редактировать меню", "edit_plan"),
+        ("🖼️ Заменить обложку" if menu.cover_photo_path else "🖼️ Добавить обложку", "req_cover"),
+        ("📖 Заменить разворот" if menu.spread_photo_path else "📖 Добавить разворот", "req_spread"),
+    ):
+        builder.button(text=label, callback_data=MenuAction(action=action, menu_id=menu.id))
+    builder.button(text="⬅️ К заказу", callback_data=MenuAction(action="menu_dashboard", menu_id=menu.id))
+    builder.adjust(1)
+    await callback.answer()
+    await callback.message.answer(
+        "⚙️ <b>Настройки гастрономического сета</b>\\nВыберите, что хотите изменить.",
+        reply_markup=builder.as_markup(), parse_mode="HTML",
+    )
+
+
+@router.callback_query(MenuAction.filter(F.action == "menu_dashboard"))
+async def return_to_menu_dashboard(
+    callback: CallbackQuery, callback_data: MenuAction,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        menu = await MenuRepository(session).get(callback_data.menu_id, full=True)
+    if not _owned_by(menu, callback.from_user.id):
+        await callback.answer("Сет не найден.", show_alert=True)
+        return
+    await callback.answer()
+    await callback.message.answer(
+        format_premium_dashboard(menu), reply_markup=build_dashboard_kb(menu), parse_mode="HTML",
+    )
 
 
 @router.callback_query(MenuAction.filter(F.action == "resend"))
