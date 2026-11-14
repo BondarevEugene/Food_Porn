@@ -24,6 +24,7 @@ from app.crm.security import crm_identity, decrypt_credentials, encrypt_credenti
 from app.database.models import AppSetting, Customer, WallpaperOrder
 from app.database.session import async_session_maker
 from app.services.payment import PaymentService
+from app.services.gift_cleanup import storage_pressure
 
 router = APIRouter(prefix="/crm", tags=["Mini CRM"])
 STATIC = Path(__file__).with_name("static")
@@ -577,3 +578,19 @@ async def export(
             "Cache-Control": "no-store",
         },
     )
+
+
+@router.get("/api/factory/storage")
+async def factory_storage_status(identity: Identity):
+    """Read-only disk telemetry; never expose local filesystem paths to clients."""
+    require_owner(identity)
+    settings = get_settings()
+    root = settings.storage_root.resolve()
+    if not root.is_dir():
+        return {"available": False, "used_percent": None, "level": "unavailable"}
+    try:
+        used = storage_pressure(root)
+    except (OSError, ValueError):
+        return {"available": False, "used_percent": None, "level": "unavailable"}
+    level = "critical" if used >= 95 else "high" if used >= 85 else "warning" if used >= 70 else "normal"
+    return {"available": True, "used_percent": used, "level": level}
