@@ -1198,6 +1198,16 @@ async def verify_gift_purchase_callback(
         await callback.answer("Платіж ще не підтверджено.", show_alert=True)
         return
     await callback.answer("Оплату підтверджено 💛")
+    if callback.message:
+        await callback.message.answer(
+            text_for(
+                language_for(callback.from_user),
+                "✅ Оплату підтверджено. Створюємо ваш подарунок. Статус можна перевірити нижче.",
+                "✅ Оплата подтверждена. Создаём ваш подарок. Статус можно проверить ниже.",
+                "✅ Payment confirmed. Your gift is being prepared. Check progress below.",
+            ),
+            reply_markup=gift_progress_keyboard(language_for(callback.from_user), purchase_id),
+        )
     try:
         await process_paid_gift_purchase(session_factory, settings, purchase_id, bot=callback.bot)
         await deliver_paid_gift(session_factory, callback.bot, purchase_id)
