@@ -150,7 +150,7 @@ def gift_progress_text(lang: str, purchase: GiftPurchase, job: GiftFulfillment |
             "Напишіть /paysupport та вкажіть номер замовлення.",
             "Напишите /paysupport и укажите номер заказа.",
             "Contact /paysupport with your order number."))
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
 def gift_review_text(
@@ -172,7 +172,8 @@ def gift_review_text(
         for index, goal in enumerate(quote.goals, 1)
     )
     return (
-        gift_route_header(lang, 4, "Перевірка замовлення", "Проверка заказа", "Order review")        + "\n\n"
+        gift_route_header(lang, 4, "Перевірка замовлення", "Проверка заказа", "Order review")
+        + "\n\n"
         + text_for(lang, *product)
         + "\n"
         + text_for(lang, "📷 Фото", "📷 Фото", "📷 Photos")
@@ -1197,6 +1198,16 @@ async def verify_gift_purchase_callback(
         await callback.answer("Платіж ще не підтверджено.", show_alert=True)
         return
     await callback.answer("Оплату підтверджено 💛")
+    if callback.message:
+        await callback.message.answer(
+            text_for(
+                language_for(callback.from_user),
+                "✅ Оплату підтверджено. Створюємо ваш подарунок. Статус можна перевірити нижче.",
+                "✅ Оплата подтверждена. Создаём ваш подарок. Статус можно проверить ниже.",
+                "✅ Payment confirmed. Your gift is being prepared. Check progress below.",
+            ),
+            reply_markup=gift_progress_keyboard(language_for(callback.from_user), purchase_id),
+        )
     try:
         await process_paid_gift_purchase(session_factory, settings, purchase_id, bot=callback.bot)
         await deliver_paid_gift(session_factory, callback.bot, purchase_id)
