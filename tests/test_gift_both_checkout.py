@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.bot.handlers.wallpaper import gift_review_text, gift_review_keyboard
+from app.bot.handlers.wallpaper import gift_review_keyboard, gift_review_text
 from app.services.gift_purchases import quote_amounts
 
 
