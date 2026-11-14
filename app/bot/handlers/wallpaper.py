@@ -1187,7 +1187,7 @@ async def verify_gift_purchase_callback(
         return
     await callback.answer("Оплату підтверджено 💛")
     try:
-        await process_paid_gift_purchase(session_factory, settings, purchase_id)
+        await process_paid_gift_purchase(session_factory, settings, purchase_id, bot=callback.bot)
         await deliver_paid_gift(session_factory, callback.bot, purchase_id)
     except GiftFulfillmentBusy:
         await callback.message.answer(
