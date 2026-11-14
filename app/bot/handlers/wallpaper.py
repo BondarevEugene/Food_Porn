@@ -172,13 +172,7 @@ def gift_review_text(
         for index, goal in enumerate(quote.goals, 1)
     )
     return (
-        text_for(
-            lang,
-            "✅ <b>Крок 4/4 · Перевірте замовлення</b>",
-            "✅ <b>Шаг 4/4 · Проверьте заказ</b>",
-            "✅ <b>Step 4/4 · Review your order</b>",
-        )
-        + "\n\n"
+        gift_route_header(lang, 4, "Перевірка замовлення", "Проверка заказа", "Order review")        + "\n\n"
         + text_for(lang, *product)
         + "\n"
         + text_for(lang, "📷 Фото", "📷 Фото", "📷 Photos")
@@ -209,7 +203,8 @@ def gift_review_keyboard(lang: str) -> InlineKeyboardMarkup:
     """Customer confirms the exact quote before a checkout is created."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text=text_for(lang, "✅ Підтвердити замовлення", "✅ Подтвердить заказ", "✅ Confirm order"),
+            text=text_for(lang, "💳 Підтвердити й перейти до оплати", "💳 Подтвердить и перейти к оплате",
+                          "💳 Confirm and proceed to payment"),
             callback_data="gift_review_confirm",
         )],
         [InlineKeyboardButton(
