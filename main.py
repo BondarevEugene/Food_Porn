@@ -36,6 +36,7 @@ from app.channels.router import router as channels_router
 from app.config import Settings, get_settings
 from app.database.session import Database
 from app.miniapp.api import router as miniapp_router
+from app.services.factory_monitor import FactoryStorageMonitor
 from app.services.openai_costs import OpenAICostSynchronizer
 from app.services.scheduled_delivery import ScheduledDeliveryWorker
 from app.services.video_retention import VideoRetentionWorker
@@ -274,6 +275,7 @@ def clear_runtime_state() -> None:
     app.state.bot = None
     app.state.openai_cost_sync = None
     app.state.scheduled_delivery = None
+    app.state.factory_storage_monitor = None
 
 
 async def main() -> None:
@@ -301,6 +303,10 @@ async def main() -> None:
         )
         resources.push_async_callback(close_resource, "Telegram session", bot.session.close)
 
+        storage_monitor = FactoryStorageMonitor(bot, settings.storage_root, settings.admin_telegram_ids)
+        resources.push_async_callback(close_resource, "factory storage monitor", storage_monitor.stop)
+        await storage_monitor.start()
+
         cost_sync = OpenAICostSynchronizer(settings, database.session_factory)
         resources.push_async_callback(close_resource, "OpenAI cost synchronizer", cost_sync.stop)
         await cost_sync.start()
@@ -325,6 +331,7 @@ async def main() -> None:
         app.state.bot = bot
         app.state.openai_cost_sync = cost_sync
         app.state.scheduled_delivery = scheduled_delivery
+        app.state.factory_storage_monitor = storage_monitor
         resources.callback(clear_runtime_state)
 
         await configure_telegram(bot, settings)
