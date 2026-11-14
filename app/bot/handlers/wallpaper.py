@@ -484,6 +484,52 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
     )
 
 
+@router.callback_query(F.data == "gift_back_to_photos")
+async def gift_back_to_photos(
+    callback: CallbackQuery, state: FSMContext, settings: Settings,
+) -> None:
+    if await state.get_state() != WallpaperStates.waiting_for_product.state:
+        await callback.answer("Цей крок вже завершено. Скористайтеся /resume.", show_alert=True)
+        return
+    count = len(upload_paths(settings, callback.from_user.id))
+    if not 1 <= count <= MAX_GIFT_PHOTOS:
+        await callback.answer("Фото не знайдені. Почніть з /start.", show_alert=True)
+        return
+    await state.set_state(WallpaperStates.waiting_for_five_photos)
+    lang = (await state.get_data()).get("lang", "uk")
+    await callback.answer()
+    await callback.message.answer(
+        text_for(
+            lang,
+            f"📷 <b>Крок 1/4 · Фото ({count}/7)</b>\\nДодайте фото або продовжуйте.",
+            f"📷 <b>Шаг 1/4 · Фото ({count}/7)</b>\\nДобавьте фото или продолжайте.",
+            f"📷 <b>Step 1/4 · Photos ({count}/7)</b>\\nAdd photos or continue.",
+        ),
+        reply_markup=finish_photos_keyboard(lang),
+    )
+
+
+@router.callback_query(F.data == "gift_back_to_product")
+async def gift_back_to_product(
+    callback: CallbackQuery, state: FSMContext,
+) -> None:
+    if await state.get_state() != WallpaperStates.waiting_for_goals.state:
+        await callback.answer("Цей крок вже завершено. Скористайтеся /resume.", show_alert=True)
+        return
+    lang = (await state.get_data()).get("lang", "uk")
+    await state.set_state(WallpaperStates.waiting_for_product)
+    await callback.answer()
+    await callback.message.answer(
+        text_for(
+            lang,
+            "🎁 <b>Крок 2/4 · Формат</b>\\nОберіть, що отримаєте після оплати.",
+            "🎁 <b>Шаг 2/4 · Формат</b>\\nВыберите, что получите после оплаты.",
+            "🎁 <b>Step 2/4 · Format</b>\\nChoose your deliverable.",
+        ),
+        reply_markup=gift_product_keyboard(lang),
+    )
+
+
 @router.callback_query(F.data.startswith("gift_product:"))
 async def select_gift_product(callback: CallbackQuery, state: FSMContext,
                               session_factory: async_sessionmaker[AsyncSession] | None = None) -> None:
