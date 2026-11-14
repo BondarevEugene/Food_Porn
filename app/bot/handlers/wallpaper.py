@@ -628,12 +628,12 @@ async def finish_gift_photos(callback: CallbackQuery, state: FSMContext, setting
             except Exception:
                 logger.exception("Could not persist gift draft for %s", user_id)
     await callback.answer()
+    lang = data.get("lang", "uk")
     await callback.message.answer(
-        text_for(data.get("lang", "uk"),
-                 gift_route_header(lang, 2, "Формат подарунка", "Формат подарка", "Gift format") + "\nОберіть, що створити.",
-                 gift_route_header(lang, 2, "Формат подарунка", "Формат подарка", "Gift format") + "\nВыберите, что создать.",
-                 gift_route_header(lang, 2, "Формат подарунка", "Формат подарка", "Gift format") + "\nChoose what to create."),
-        reply_markup=gift_product_keyboard(data.get("lang", "uk")),
+        gift_route_header(lang, 2, "Формат подарунка", "Формат подарка", "Gift format")
+        + "\n" + text_for(lang, "Оберіть, що створити.", "Выберите, что создать.",
+                          "Choose what to create."),
+        reply_markup=gift_product_keyboard(lang),
     )
 
 
