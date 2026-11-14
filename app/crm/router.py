@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import secrets
+import shutil
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -24,7 +25,6 @@ from app.crm.security import crm_identity, decrypt_credentials, encrypt_credenti
 from app.database.models import AppSetting, Customer, WallpaperOrder
 from app.database.session import async_session_maker
 from app.services.payment import PaymentService
-from app.services.gift_cleanup import storage_pressure
 
 router = APIRouter(prefix="/crm", tags=["Mini CRM"])
 STATIC = Path(__file__).with_name("static")
@@ -589,7 +589,8 @@ async def factory_storage_status(identity: Identity):
     if not root.is_dir():
         return {"available": False, "used_percent": None, "level": "unavailable"}
     try:
-        used = storage_pressure(root)
+        total, occupied, _ = shutil.disk_usage(root)
+        used = round(100 * occupied / total) if total else 100
     except (OSError, ValueError):
         return {"available": False, "used_percent": None, "level": "unavailable"}
     level = "critical" if used >= 95 else "high" if used >= 85 else "warning" if used >= 70 else "normal"
