@@ -848,40 +848,23 @@ async def collect_goals(message: Message, state: FSMContext, settings: Settings,
             f"Итого: {quote.total_amount:.2f} UAH."
         )
         if settings.gift_unified_checkout_enabled:
-            wayforpay = WayForPayService(settings)
-            if wayforpay.ready:
-                try:
-                    async with session_factory() as session:
-                        _, checkout_url = await wayforpay.create_checkout(
-                            session,
-                            telegram_user_id=message.from_user.id,
-                            product="gift_purchase",
-                            reference_id=quote.id,
-                            description=f"Food Porn gift {quote.product_choice} #{quote.id[:8]}",
-                            amount_override=quote.total_amount,
-                        )
-                except Exception:
-                    logger.exception("Could not create unified gift payment for %s", quote.id)
-                else:
-                    await message.answer(text_for(
-                        lang,
-                        f"✨ Замовлення № {quote.id[:8]}. {summary} "
-                        "Оплатіть один раз — файли надійдуть після підтвердження.",
-                        f"✨ Заказ № {quote.id[:8]}. {summary} "
-                        "Оплатите один раз — файлы поступят после подтверждения.",
-                        f"✨ Order #{quote.id[:8]}. {summary} "
-                        "Pay once and receive files after confirmation.",
-                    ), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(
-                            text=text_for(lang, "💳 Оплатити замовлення", "💳 Оплатить заказ", "💳 Pay for order"),
-                            url=checkout_url,
-                        )],
-                        [InlineKeyboardButton(
-                            text=text_for(lang, "🔄 Перевірити оплату", "🔄 Проверить оплату", "🔄 Check payment"),
-                            callback_data=f"gift_purchase_status:{quote.id}",
-                        )],
-                    ]))
-                    return
+            await state.set_state(WallpaperStates.waiting_for_confirmation)
+            await message.answer(text_for(
+                lang,
+                f"✅ <b>Крок 4/4 · Перевірте замовлення</b>\\n"
+                f"Фото: {len(upload_paths(settings, message.from_user.id))} · "
+                f"Цілі: {len(goals)} · Стиль: {data.get('style', 'dark')}\\n"
+                f"{summary}\\nПеревірте дані перед оплатою.",
+                f"✅ <b>Шаг 4/4 · Проверьте заказ</b>\\n"
+                f"Фото: {len(upload_paths(settings, message.from_user.id))} · "
+                f"Цели: {len(goals)} · Стиль: {data.get('style', 'dark')}\\n"
+                f"{summary}\\nПроверьте данные перед оплатой.",
+                f"✅ <b>Step 4/4 · Review your order</b>\\n"
+                f"Photos: {len(upload_paths(settings, message.from_user.id))} · "
+                f"Goals: {len(goals)} · Style: {data.get('style', 'dark')}\\n"
+                f"{summary}\\nCheck all details before payment.",
+            ), reply_markup=gift_review_keyboard(lang))
+            return
         await message.answer(text_for(
             lang,
             f"🎬 Розрахунок № {quote.id[:8]} збережено. {summary} "
