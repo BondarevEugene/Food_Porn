@@ -37,6 +37,7 @@ from app.services.gift_drafts import load_gift_draft, store_gift_draft
 from app.services.gift_fulfillment import GiftFulfillmentBusy, process_paid_gift_purchase
 from app.services.gift_pricing import checkout_price_uah
 from app.services.gift_purchases import create_gift_quote
+from app.services.gift_storage import GiftStorageUnavailable, require_gift_storage
 from app.services.goal_story import GoalScenePlanner
 from app.services.payment import PaymentService
 from app.services.portmone_sandbox import send_portmone_sandbox_offer
@@ -965,6 +966,18 @@ async def confirm_gift_review(
     purchase_id = data.get("gift_quote_id")
     if not purchase_id:
         await callback.answer("Замовлення не знайдено. Надішліть цілі повторно.", show_alert=True)
+        return
+    try:
+        require_gift_storage(
+            settings.storage_root,
+            operator_verified=settings.gift_persistent_storage_verified,
+        )
+    except GiftStorageUnavailable:
+        logger.exception("Gift checkout blocked: persistent storage preflight failed")
+        await callback.answer(
+            "Оплата тимчасово недоступна: сховище файлів не підтверджено.",
+            show_alert=True,
+        )
         return
     service = WayForPayService(settings)
     if not service.ready:
