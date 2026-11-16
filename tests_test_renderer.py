@@ -103,8 +103,6 @@ def test_missing_food_photo_cannot_be_published(tmp_path) -> None:
 
 def test_dish_card_requests_photo_viewport_not_full_card(tmp_path, monkeypatch) -> None:
     """Regression: do not crop an image generated for the entire card."""
-    from PIL import ImageDraw
-
     from app.render.booklet import A3BookletRenderer
 
     renderer = A3BookletRenderer(tmp_path)
