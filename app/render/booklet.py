@@ -379,14 +379,13 @@ class BookletRenderer:
         shadow = shadow.filter(ImageFilter.GaussianBlur(self._px(1.6)))
         page.paste(shadow, (x1, y1), shadow)
 
-        picture = self._safe_item_image(item.image_path, width, height)
-        picture = ImageEnhance.Color(picture).enhance(0.94)
-        picture = ImageEnhance.Contrast(picture).enhance(1.07)
-
-        # Keep the photograph and its title in separate, legible regions.
+        # Render directly to the actual photograph viewport. Cropping an image
+        # sized for the entire card used to remove the lower half of dishes.
         caption_h = min(height // 3, self._px(23 if compact else 27))
         photo_h = height - caption_h
-        picture = picture.crop((0, 0, width, photo_h))
+        picture = self._safe_item_image(item.image_path, width, photo_h)
+        picture = ImageEnhance.Color(picture).enhance(1.05)
+        picture = ImageEnhance.Contrast(picture).enhance(1.03)
         card = Image.new("RGB", (width, height), (34, 29, 27))
         card.paste(picture, (0, 0))
         mask = Image.new("L", card.size, 0)
@@ -396,12 +395,46 @@ class BookletRenderer:
         draw = ImageDraw.Draw(page)
         draw.rounded_rectangle(box, radius=radius, outline=(132, 98, 57), width=max(2, self._px(0.35)))
         item_title = display_dish_title(item.title)
-        self._fit_text(
+        self._fit_card_title(
             draw, item_title,
             (x1 + self._px(4), y2 - caption_h + self._px(2), x2 - self._px(4), y2 - self._px(2)),
-            self._font(10.5 if compact else 11, serif=True, bold=True),
-            self.CREAM, max_lines=2,
+            compact=compact,
         )
+
+    def _fit_card_title(
+        self, draw: ImageDraw.ImageDraw, text: str,
+        box: tuple[int, int, int, int], *, compact: bool,
+    ) -> None:
+        """Fit the complete dish name; never silently truncate a paid menu."""
+        x1, y1, x2, y2 = box
+        available_width, available_height = x2 - x1, y2 - y1
+        if not text.strip():
+            return
+        for size in (13, 12, 11, 10, 9, 8, 7):
+            font = self._font(size if compact else size + 1, serif=True, bold=True)
+            lines = []
+            current = ""
+            for word in text.split():
+                trial = f"{current} {word}".strip()
+                if draw.textbbox((0, 0), trial, font=font)[2] <= available_width:
+                    current = trial
+                else:
+                    if current:
+                        lines.append(current)
+                    current = word
+            if current:
+                lines.append(current)
+            if any(draw.textbbox((0, 0), line, font=font)[2] > available_width for line in lines):
+                continue
+            line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + self._px(.7)
+            if len(lines) * line_height <= available_height:
+                yy = y1 + max(0, (available_height - len(lines) * line_height) // 2)
+                for line in lines:
+                    draw.text((x1, yy), line, font=font, fill=self.CREAM)
+                    yy += line_height
+                return
+        # No ellipsis: fail visibly rather than ship a misleading shortened title.
+        raise ValueError(f"Dish title does not fit the card: {text!r}")
 
     def _draw_right_panel(self, page: Image.Image, box: tuple[int, int, int, int], menu: Menu) -> None:
         """Immersive portrait with soft edges; no food or drink overlays."""
