@@ -17,3 +17,4 @@ class WallpaperStates(StatesGroup):
     waiting_for_goals = State()
     waiting_for_confirmation = State()
     generating = State()
+    waiting_for_feedback_comment = State()
