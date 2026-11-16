@@ -27,7 +27,6 @@ from app.database.models import FileKind, ItemCategory, Language, Menu
 from app.locales.messages import t
 from app.services.menu_wizard import (
     MEAL_FULL_DAY,
-    category_label,
     display_dish_title,
 )
 
