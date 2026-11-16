@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 
@@ -395,15 +395,22 @@ class BookletRenderer:
         portrait = ImageEnhance.Color(portrait).enhance(.86)
         # Fade the photograph into the page at all edges, especially the top
         # and left where the editorial typography sits.
-        alpha = Image.new("L", (photo_width, photo_height), 0)
-        mask_px = alpha.load()
         fade_x = max(1, self._px(28))
         fade_y = max(1, self._px(30))
-        for yy in range(photo_height):
-            vertical = min(1.0, yy / fade_y, (photo_height - 1 - yy) / fade_y)
-            for xx in range(photo_width):
-                horizontal = min(1.0, xx / fade_x, (photo_width - 1 - xx) / fade_x)
-                mask_px[xx, yy] = max(0, int(210 * min(vertical, horizontal)))
+        horizontal = Image.new("L", (photo_width, 1))
+        horizontal.putdata([
+            max(0, int(255 * min(1.0, xx / fade_x, (photo_width - 1 - xx) / fade_x)))
+            for xx in range(photo_width)
+        ])
+        vertical = Image.new("L", (1, photo_height))
+        vertical.putdata([
+            max(0, int(210 * min(1.0, yy / fade_y, (photo_height - 1 - yy) / fade_y)))
+            for yy in range(photo_height)
+        ])
+        alpha = ImageChops.multiply(
+            horizontal.resize((photo_width, photo_height)),
+            vertical.resize((photo_width, photo_height)),
+        )
         page.paste(portrait, (x1, photo_top), alpha)
 
         letter_top = y1 + self._px(146)
