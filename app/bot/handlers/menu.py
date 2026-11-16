@@ -751,8 +751,8 @@ async def receive_photo(
     await state.update_data(dashboard_message_id=msg.message_id)
 
 
-@router.message(PremiumMenuStates.waiting_for_cover)
-@router.message(PremiumMenuStates.waiting_for_spread)
+@router.message(PremiumMenuStates.waiting_for_cover, ~F.text.startswith("/"))
+@router.message(PremiumMenuStates.waiting_for_spread, ~F.text.startswith("/"))
 async def photo_invalid_format(message: Message, settings: Settings) -> None:
     await message.answer(f"⚠️ Пожалуйста, отправьте сжатое фото (до {settings.max_upload_mb} MB).")
 
