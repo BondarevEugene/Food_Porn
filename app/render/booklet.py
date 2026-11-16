@@ -296,8 +296,6 @@ class BookletRenderer:
         drinks = drinks or []
         columns = 2 if len(items) <= 6 else 3
         rows = (len(items) + columns - 1) // columns
-        if not rows:
-            return
         gap = self._px(4)
         grid_x, grid_y = x1 + pad, y1 + self._px(27)
         # Reserve dedicated space for drinks and the playful, non-monetary bill.
@@ -307,7 +305,7 @@ class BookletRenderer:
         reserved = drinks_h + bill_h + self._px(8)
         grid_w, grid_h = x2 - x1 - 2 * pad, y2 - grid_y - pad - reserved
         card_w = (grid_w - gap * (columns - 1)) // columns
-        card_h = min(self._px(156), (grid_h - gap * (rows - 1)) // rows)
+        card_h = min(self._px(156), (grid_h - gap * (rows - 1)) // rows) if rows else 0
         for index, item in enumerate(items):
             row, col = divmod(index, columns)
             bx = grid_x + col * (card_w + gap)
