@@ -103,9 +103,9 @@ def test_missing_food_photo_cannot_be_published(tmp_path) -> None:
 
 def test_dish_card_requests_photo_viewport_not_full_card(tmp_path, monkeypatch) -> None:
     """Regression: do not crop an image generated for the entire card."""
-    from app.render.booklet import A3BookletRenderer
+    from app.render.booklet import BookletRenderer
 
-    renderer = A3BookletRenderer(tmp_path)
+    renderer = BookletRenderer(tmp_path)
     renderer.DPI = 72
     page = Image.new("RGB", (900, 900), "black")
     calls = []
@@ -126,9 +126,9 @@ def test_dish_card_requests_photo_viewport_not_full_card(tmp_path, monkeypatch) 
 def test_long_dish_title_is_not_shortened(tmp_path) -> None:
     from PIL import ImageDraw
 
-    from app.render.booklet import A3BookletRenderer
+    from app.render.booklet import BookletRenderer
 
-    renderer = A3BookletRenderer(tmp_path)
+    renderer = BookletRenderer(tmp_path)
     renderer.DPI = 72
     page = Image.new("RGB", (900, 400), "black")
     draw = ImageDraw.Draw(page)
