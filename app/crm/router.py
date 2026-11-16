@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import secrets
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -23,6 +24,7 @@ from app.crm.models import Audit, CustomerNote, Expense, Integration
 from app.crm.security import crm_identity, decrypt_credentials, encrypt_credentials, require_owner
 from app.database.models import AppSetting, Customer, WallpaperOrder
 from app.database.session import async_session_maker
+from app.services.gift_cleanup import cleanup_scratch
 from app.services.payment import PaymentService
 
 router = APIRouter(prefix="/crm", tags=["Mini CRM"])
@@ -115,6 +117,41 @@ async def session_info(request: Request, identity: Identity):
         "name": identity.get("first_name", "Администратор"),
         "owner": identity["owner"],
         "csrf": csrf,
+    }
+
+
+@router.get("/api/storage")
+async def storage_overview(identity: Identity):
+    """Disk capacity and safe scratch preview; no customer files exposed."""
+    require_owner(identity)
+    root = get_settings().storage_root.resolve()
+    total, used, free = shutil.disk_usage(root)
+    preview = cleanup_scratch(root, max_age_hours=24, dry_run=True)
+    return {
+        "total_bytes": total,
+        "used_bytes": used,
+        "free_bytes": free,
+        "percent": round(used * 100 / total) if total else 100,
+        "scratch": {
+            "examined": preview.examined,
+            "eligible": preview.deleted,
+            "reclaimable_bytes": preview.reclaimed_bytes,
+            "minimum_age_hours": 24,
+        },
+        "note": "Disk usage includes the whole filesystem, not just Food_Porn files.",
+    }
+
+
+@router.post("/api/storage/cleanup")
+async def storage_cleanup(identity: Identity):
+    """Only old disposable gift_scratch files; never uploads or paid outputs."""
+    require_owner(identity)
+    root = get_settings().storage_root.resolve()
+    result = cleanup_scratch(root, max_age_hours=24, dry_run=False)
+    return {
+        "deleted": result.deleted,
+        "reclaimed_bytes": result.reclaimed_bytes,
+        "examined": result.examined,
     }
 
 
