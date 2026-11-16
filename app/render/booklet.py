@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 
@@ -27,7 +27,6 @@ from app.database.models import FileKind, ItemCategory, Language, Menu
 from app.locales.messages import t
 from app.services.menu_wizard import (
     MEAL_FULL_DAY,
-    category_label,
     display_dish_title,
 )
 
@@ -337,42 +336,24 @@ class BookletRenderer:
         picture = ImageEnhance.Color(picture).enhance(0.94)
         picture = ImageEnhance.Contrast(picture).enhance(1.07)
 
-        caption_h = self._px(18 if compact else 22)
-        caption = Image.new("RGBA", picture.size, (0, 0, 0, 0))
-        caption_draw = ImageDraw.Draw(caption)
-        gradient_start = max(0, height - caption_h * 2)
-        for y in range(gradient_start, height):
-            progress = (y - gradient_start) / max(1, height - gradient_start - 1)
-            alpha = int(18 + 220 * (progress**1.5))
-            caption_draw.line((0, y, width, y), fill=(12, 10, 9, alpha))
-        picture = Image.alpha_composite(picture.convert("RGBA"), caption).convert("RGB")
-
-        mask = Image.new("L", picture.size, 0)
+        # Keep the photograph and its title in separate, legible regions.
+        caption_h = min(height // 3, self._px(23 if compact else 27))
+        photo_h = height - caption_h
+        picture = picture.crop((0, 0, width, photo_h))
+        card = Image.new("RGB", (width, height), (34, 29, 27))
+        card.paste(picture, (0, 0))
+        mask = Image.new("L", card.size, 0)
         ImageDraw.Draw(mask).rounded_rectangle((0, 0, width - 1, height - 1), radius=radius, fill=255)
-        page.paste(picture, (x1, y1), mask)
+        page.paste(card, (x1, y1), mask)
 
         draw = ImageDraw.Draw(page)
-        draw.rounded_rectangle(
-            box,
-            radius=radius,
-            outline=(132, 98, 57),
-            width=max(2, self._px(0.35)),
-        )
-        language = getattr(getattr(menu, "customer", None), "language", Language.RU)
-        language = getattr(language, "value", language)
+        draw.rounded_rectangle(box, radius=radius, outline=(132, 98, 57), width=max(2, self._px(0.35)))
         item_title = display_dish_title(item.title)
-        # The category, unlike the meal slot, is useful to the reader.
-        # Never expose "Без раздела"/"other" in the printed product.
-        category = category_label(item.category, str(language))
-        if category:
-            item_title = f"{category} · {item_title}"
         self._fit_text(
-            draw,
-            item_title,
-            (x1 + self._px(4), y2 - caption_h, x2 - self._px(4), y2 - self._px(3)),
-            self._font(9.2 if compact else 9.8, serif=True, bold=True),
-            self.CREAM,
-            max_lines=2,
+            draw, item_title,
+            (x1 + self._px(4), y2 - caption_h + self._px(2), x2 - self._px(4), y2 - self._px(2)),
+            self._font(10.5 if compact else 11, serif=True, bold=True),
+            self.CREAM, max_lines=2,
         )
 
     def _draw_right_panel(self, page: Image.Image, box: tuple[int, int, int, int], drinks: list, menu: Menu) -> None:
@@ -401,26 +382,35 @@ class BookletRenderer:
             fill=(126, 95, 66), width=max(2, self._px(.35)),
         )
 
-        # An editorial photo accent rather than a full half-page takeover.
-        portrait_box = (
-            x1 + self._px(12), y1 + self._px(31),
-            x2 - self._px(12), y1 + self._px(134 if not drinks else 105),
-        )
+        # Full-height editorial portrait, blended into the panel instead of
+        # a bordered inset. Contain preserves the complete source photograph.
+        photo_top = y1 + self._px(27)
+        photo_bottom = y2 - self._px(8)
+        photo_width = x2 - x1
+        photo_height = photo_bottom - photo_top
         portrait = self._portrait_contain_image(
-            Path(menu.spread_photo_path),
-            portrait_box[2] - portrait_box[0],
-            portrait_box[3] - portrait_box[1],
+            Path(menu.spread_photo_path), photo_width, photo_height
         )
-        portrait = ImageEnhance.Color(portrait).enhance(.91)
-        shade = Image.new("RGBA", portrait.size, (0, 0, 0, 0))
-        fade = ImageDraw.Draw(shade)
-        height = portrait.height
-        for y in range(height):
-            progress = y / max(1, height - 1)
-            fade.line((0, y, portrait.width, y), fill=(12, 10, 10, int(115 * progress)))
-        portrait = Image.alpha_composite(portrait.convert("RGBA"), shade).convert("RGB")
-        page.paste(portrait, (portrait_box[0], portrait_box[1]))
-        draw.rectangle(portrait_box, outline=(125, 94, 63), width=max(2, self._px(.25)))
+        portrait = ImageEnhance.Color(portrait).enhance(.86)
+        # Fade the photograph into the page at all edges, especially the top
+        # and left where the editorial typography sits.
+        fade_x = max(1, self._px(28))
+        fade_y = max(1, self._px(30))
+        horizontal = Image.new("L", (photo_width, 1))
+        horizontal.putdata([
+            max(0, int(255 * min(1.0, xx / fade_x, (photo_width - 1 - xx) / fade_x)))
+            for xx in range(photo_width)
+        ])
+        vertical = Image.new("L", (1, photo_height))
+        vertical.putdata([
+            max(0, int(210 * min(1.0, yy / fade_y, (photo_height - 1 - yy) / fade_y)))
+            for yy in range(photo_height)
+        ])
+        alpha = ImageChops.multiply(
+            horizontal.resize((photo_width, photo_height)),
+            vertical.resize((photo_width, photo_height)),
+        )
+        page.paste(portrait, (x1, photo_top), alpha)
 
         letter_top = y1 + self._px(146)
         if drinks:
