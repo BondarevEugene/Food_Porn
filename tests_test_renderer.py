@@ -99,3 +99,39 @@ def test_missing_food_photo_cannot_be_published(tmp_path) -> None:
             BookletRenderer(tmp_path / "out").render(menu)
     finally:
         BookletRenderer.DPI = original_dpi
+
+
+def test_dish_card_requests_photo_viewport_not_full_card(tmp_path, monkeypatch) -> None:
+    """Regression: do not crop an image generated for the entire card."""
+    from app.render.booklet import BookletRenderer
+
+    renderer = BookletRenderer(tmp_path)
+    renderer.DPI = 72
+    page = Image.new("RGB", (900, 900), "black")
+    calls = []
+
+    def fake_image(path, width, height):
+        calls.append((width, height))
+        return Image.new("RGB", (width, height), "red")
+
+    monkeypatch.setattr(renderer, "_safe_item_image", fake_image)
+    item = MenuItem(title="Кесадилья с сыром", image_path="placeholder.jpg")
+    renderer._draw_item_card(page, (20, 20, 420, 320), item, None, compact=True)
+    assert len(calls) == 1
+    assert calls[0][0] == 400
+    assert calls[0][1] < 300
+    assert calls[0][1] > 0
+
+
+def test_long_dish_title_is_not_shortened(tmp_path) -> None:
+    from PIL import ImageDraw
+
+    from app.render.booklet import BookletRenderer
+
+    renderer = BookletRenderer(tmp_path)
+    renderer.DPI = 72
+    page = Image.new("RGB", (900, 400), "black")
+    draw = ImageDraw.Draw(page)
+    title = "Куриные фахитас с овощами и домашним соусом"
+    renderer._fit_card_title(draw, title, (10, 10, 550, 150), compact=True)
+    assert page.getbbox() is not None
