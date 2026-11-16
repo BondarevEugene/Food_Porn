@@ -347,7 +347,7 @@ class BookletRenderer:
         draw.rounded_rectangle((x1, y1, x2, y2), radius=self._px(4), outline=(132, 98, 57), width=max(2, self._px(.4)))
         self._center_text(draw, title, (x1 + x2) // 2, y1 + self._px(5), self._font(13, serif=True, bold=True), self.GOLD)
         draw.line((x1 + self._px(8), y1 + self._px(17), x2 - self._px(8), y1 + self._px(17)), fill=(113, 86, 53), width=max(1, self._px(.2)))
-        for index, (label, amount) in enumerate(zip(labels, amounts)):
+        for index, (label, amount) in enumerate(zip(labels, amounts, strict=True)):
             yy = y1 + self._px(20 + index * 9)
             draw.text((x1 + self._px(8), yy), label, font=self._font(10.5, serif=True), fill=self.CREAM)
             amount_font = self._font(9.5, serif=True, italic=True)
