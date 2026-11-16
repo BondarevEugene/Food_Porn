@@ -406,11 +406,10 @@ class BookletRenderer:
             x1 + self._px(12), y1 + self._px(31),
             x2 - self._px(12), y1 + self._px(134 if not drinks else 105),
         )
-        portrait = self._cover_image(
+        portrait = self._portrait_contain_image(
             Path(menu.spread_photo_path),
             portrait_box[2] - portrait_box[0],
             portrait_box[3] - portrait_box[1],
-            centering=(0.5, 0.44),
         )
         portrait = ImageEnhance.Color(portrait).enhance(.91)
         shade = Image.new("RGBA", portrait.size, (0, 0, 0, 0))
@@ -522,6 +521,22 @@ class BookletRenderer:
                 method=Image.Resampling.LANCZOS,
                 centering=centering,
             )
+
+    def _portrait_contain_image(self, path: Path, width: int, height: int) -> Image.Image:
+        """Keep the full portrait visible, filling spare space with a soft backdrop."""
+        with Image.open(path) as original:
+            source = ImageOps.exif_transpose(original).convert("RGB")
+            backdrop = ImageOps.fit(
+                source, (width, height), method=Image.Resampling.LANCZOS
+            ).filter(ImageFilter.GaussianBlur(radius=max(8, min(width, height) // 25)))
+            backdrop = ImageEnhance.Brightness(backdrop).enhance(0.60)
+            foreground = ImageOps.contain(
+                source, (width, height), method=Image.Resampling.LANCZOS
+            )
+            x = (width - foreground.width) // 2
+            y = (height - foreground.height) // 2
+            backdrop.paste(foreground, (x, y))
+            return backdrop
 
     def _safe_item_image(self, path: str | None, width: int, height: int) -> Image.Image:
         if not path or not Path(path).is_file():
