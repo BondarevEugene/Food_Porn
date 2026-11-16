@@ -261,10 +261,10 @@ class BookletRenderer:
             raise ValueError("Menu contains no dishes")
         if len(left_items) > 18 or len(drinks) > 18:
             raise ValueError("Too many menu items for the two-panel print layout")
-        self._draw_food_grid(page, left, left_items, menu)
-        self._draw_right_panel(page, right, drinks, menu)
+        self._draw_food_grid(page, left, left_items, menu, drinks=drinks)
+        self._draw_right_panel(page, right, menu)
 
-    def _draw_food_grid(self, page: Image.Image, box: tuple[int, int, int, int], items: list, menu: Menu) -> None:
+    def _draw_food_grid(self, page: Image.Image, box: tuple[int, int, int, int], items: list, menu: Menu, *, drinks: list | None = None) -> None:
         draw = ImageDraw.Draw(page)
         x1, y1, x2, y2 = box
         pad = self._px(8)
@@ -293,20 +293,67 @@ class BookletRenderer:
                 item.id or 0,
             ),
         )
+        drinks = drinks or []
         columns = 2 if len(items) <= 6 else 3
         rows = (len(items) + columns - 1) // columns
-        if not rows:
-            return
         gap = self._px(4)
         grid_x, grid_y = x1 + pad, y1 + self._px(27)
-        grid_w, grid_h = x2 - x1 - 2 * pad, y2 - grid_y - pad
+        # Reserve dedicated space for drinks and the playful, non-monetary bill.
+        drinks_rows = (len(drinks) + 2) // 3
+        drinks_h = self._px(14 + drinks_rows * 13) if drinks else 0
+        bill_h = self._px(59)
+        reserved = drinks_h + bill_h + self._px(8)
+        grid_w, grid_h = x2 - x1 - 2 * pad, y2 - grid_y - pad - reserved
         card_w = (grid_w - gap * (columns - 1)) // columns
-        card_h = min(self._px(156), (grid_h - gap * (rows - 1)) // rows)
+        card_h = min(self._px(156), (grid_h - gap * (rows - 1)) // rows) if rows else 0
         for index, item in enumerate(items):
             row, col = divmod(index, columns)
             bx = grid_x + col * (card_w + gap)
             by = grid_y + row * (card_h + gap)
             self._draw_item_card(page, (bx, by, bx + card_w, by + card_h), item, menu, compact=True)
+
+        section_y = y2 - pad - reserved + self._px(5)
+        if drinks:
+            self._draw_drinks_section(page, (x1 + pad, section_y, x2 - pad, section_y + drinks_h), drinks, menu)
+            section_y += drinks_h
+        self._draw_love_bill(page, (x1 + pad, section_y, x2 - pad, y2 - pad), menu)
+
+    def _draw_drinks_section(self, page: Image.Image, box: tuple[int, int, int, int], drinks: list, menu: Menu) -> None:
+        x1, y1, x2, _ = box
+        draw = ImageDraw.Draw(page)
+        lang = str(getattr(menu.customer.language, "value", menu.customer.language) or "ru")
+        title = {"uk": "НАПОЇ", "ru": "НАПИТКИ", "en": "DRINKS"}.get(lang, "НАПИТКИ")
+        draw.text((x1, y1), title, font=self._font(13, serif=True, bold=True), fill=self.GOLD)
+        draw.line((x1 + self._px(48), y1 + self._px(8), x2, y1 + self._px(8)), fill=self.GOLD, width=max(1, self._px(.25)))
+        width = (x2 - x1) // 3
+        for index, item in enumerate(drinks):
+            row, col = divmod(index, 3)
+            xx, yy = x1 + col * width, y1 + self._px(14 + row * 13)
+            self._fit_text(draw, display_dish_title(item.title),
+                           (xx + self._px(1), yy, xx + width - self._px(2), yy + self._px(11)),
+                           self._font(9.6, serif=True), self.CREAM, max_lines=2)
+
+    def _draw_love_bill(self, page: Image.Image, box: tuple[int, int, int, int], menu: Menu) -> None:
+        """A romantic game printed on the menu, never a real payment method."""
+        x1, y1, x2, y2 = box
+        draw = ImageDraw.Draw(page)
+        lang = str(getattr(menu.customer.language, "value", menu.customer.language) or "ru")
+        translations = {
+            "uk": ("РАХУНОК ДО СПЛАТИ ♡", ("Ніжний поцілунок", "Теплі обійми", "Щирий комплімент"), ("2 шт.", "3 шт.", "1 шт."), "РАЗОМ: БЕЗЦІННО"),
+            "ru": ("СЧЁТ К ОПЛАТЕ ♡", ("Нежный поцелуй", "Тёплые объятия", "Искренний комплимент"), ("2 шт.", "3 шт.", "1 шт."), "ИТОГО: БЕСЦЕННО"),
+            "en": ("A BILL OF LOVE ♡", ("A tender kiss", "A warm hug", "A sincere compliment"), ("2", "3", "1"), "TOTAL: PRICELESS"),
+        }
+        title, labels, amounts, total = translations.get(lang, translations["ru"])
+        draw.rounded_rectangle((x1, y1, x2, y2), radius=self._px(4), outline=(132, 98, 57), width=max(2, self._px(.4)))
+        self._center_text(draw, title, (x1 + x2) // 2, y1 + self._px(5), self._font(13, serif=True, bold=True), self.GOLD)
+        draw.line((x1 + self._px(8), y1 + self._px(17), x2 - self._px(8), y1 + self._px(17)), fill=(113, 86, 53), width=max(1, self._px(.2)))
+        for index, (label, amount) in enumerate(zip(labels, amounts, strict=True)):
+            yy = y1 + self._px(20 + index * 9)
+            draw.text((x1 + self._px(8), yy), label, font=self._font(10.5, serif=True), fill=self.CREAM)
+            amount_font = self._font(9.5, serif=True, italic=True)
+            amount_w = draw.textbbox((0, 0), amount, font=amount_font)[2]
+            draw.text((x2 - self._px(8) - amount_w, yy), amount, font=amount_font, fill=self.GOLD)
+        self._center_text(draw, total, (x1 + x2) // 2, y2 - self._px(11), self._font(11, serif=True, bold=True), self.GOLD)
 
     def _draw_item_card(
         self,
@@ -356,100 +403,26 @@ class BookletRenderer:
             self.CREAM, max_lines=2,
         )
 
-    def _draw_right_panel(self, page: Image.Image, box: tuple[int, int, int, int], drinks: list, menu: Menu) -> None:
-        """Editorial panel: portrait as an inset, real drinks only, short letter.
-
-        On the old layout an empty DRINKS heading sat over a half-page
-        portrait. The right panel now always has a legible narrative.
-        """
-        draw = ImageDraw.Draw(page)
+    def _draw_right_panel(self, page: Image.Image, box: tuple[int, int, int, int], menu: Menu) -> None:
+        """Immersive portrait with soft edges; no food or drink overlays."""
         x1, y1, x2, y2 = box
-        lang = getattr(menu.customer.language, "value", menu.customer.language)
-        lang = str(lang or "ru")
-        headings = {
-            "uk": ("ВАШ ОСОБЛИВИЙ ВЕЧІР", "НАПОЇ", "З любов'ю для тебе"),
-            "ru": ("ВАШ ОСОБЕННЫЙ ВЕЧЕР", "НАПИТКИ", "С любовью для тебя"),
-            "en": ("A SPECIAL EVENING", "DRINKS", "With love, for you"),
-        }
-        main, drinks_heading, farewell = headings.get(lang, headings["ru"])
+        draw = ImageDraw.Draw(page)
+        lang = str(getattr(menu.customer.language, "value", menu.customer.language) or "ru")
+        main = {"uk": "ВАШ ОСОБЛИВИЙ ВЕЧІР", "ru": "ВАШ ОСОБЕННЫЙ ВЕЧЕР", "en": "A SPECIAL EVENING"}.get(lang, "ВАШ ОСОБЕННЫЙ ВЕЧЕР")
         pad = self._px(11)
-        draw.text(
-            (x1 + pad, y1 + self._px(9)), main,
-            font=self._font(17, serif=True, bold=True), fill=self.GOLD,
-        )
-        draw.line(
-            (x1 + pad, y1 + self._px(23), x2 - pad, y1 + self._px(23)),
-            fill=(126, 95, 66), width=max(2, self._px(.35)),
-        )
-
-        # Full-height editorial portrait, blended into the panel instead of
-        # a bordered inset. Contain preserves the complete source photograph.
+        draw.text((x1 + pad, y1 + self._px(9)), main, font=self._font(17, serif=True, bold=True), fill=self.GOLD)
+        draw.line((x1 + pad, y1 + self._px(23), x2 - pad, y1 + self._px(23)), fill=(126, 95, 66), width=max(2, self._px(.35)))
         photo_top = y1 + self._px(27)
-        photo_bottom = y2 - self._px(8)
-        photo_width = x2 - x1
-        photo_height = photo_bottom - photo_top
-        portrait = self._portrait_contain_image(
-            Path(menu.spread_photo_path), photo_width, photo_height
-        )
-        portrait = ImageEnhance.Color(portrait).enhance(.86)
-        # Fade the photograph into the page at all edges, especially the top
-        # and left where the editorial typography sits.
-        fade_x = max(1, self._px(28))
-        fade_y = max(1, self._px(30))
+        photo_width, photo_height = x2 - x1, y2 - photo_top
+        portrait = self._portrait_contain_image(Path(menu.spread_photo_path), photo_width, photo_height)
+        portrait = ImageEnhance.Color(portrait).enhance(.9)
+        fade_x, fade_y = max(1, self._px(23)), max(1, self._px(24))
         horizontal = Image.new("L", (photo_width, 1))
-        horizontal.putdata([
-            max(0, int(255 * min(1.0, xx / fade_x, (photo_width - 1 - xx) / fade_x)))
-            for xx in range(photo_width)
-        ])
+        horizontal.putdata([max(0, int(255 * min(1.0, xx / fade_x, (photo_width - 1 - xx) / fade_x))) for xx in range(photo_width)])
         vertical = Image.new("L", (1, photo_height))
-        vertical.putdata([
-            max(0, int(210 * min(1.0, yy / fade_y, (photo_height - 1 - yy) / fade_y)))
-            for yy in range(photo_height)
-        ])
-        alpha = ImageChops.multiply(
-            horizontal.resize((photo_width, photo_height)),
-            vertical.resize((photo_width, photo_height)),
-        )
+        vertical.putdata([max(0, int(240 * min(1.0, yy / fade_y, (photo_height - 1 - yy) / fade_y))) for yy in range(photo_height)])
+        alpha = ImageChops.multiply(horizontal.resize((photo_width, photo_height)), vertical.resize((photo_width, photo_height)))
         page.paste(portrait, (x1, photo_top), alpha)
-
-        letter_top = y1 + self._px(146)
-        if drinks:
-            title_y = y1 + self._px(112)
-            draw.text(
-                (x1 + pad, title_y), drinks_heading,
-                font=self._font(13, serif=True, bold=True), fill=self.GOLD,
-            )
-            # Drinks are intentionally textual, to preserve readable
-            # names and avoid a second miniature photo grid.
-            for index, item in enumerate(drinks[:6]):
-                row_y = title_y + self._px(13 + index * 10)
-                draw.text(
-                    (x1 + pad + self._px(2), row_y),
-                    "✦", font=self._font(11, serif=True), fill=self.GOLD,
-                )
-                self._fit_text(
-                    draw, display_dish_title(item.title),
-                    (x1 + pad + self._px(13), row_y,
-                     x2 - pad, row_y + self._px(11)),
-                    self._font(10.2, serif=True), self.CREAM, max_lines=1,
-                )
-            letter_top = max(letter_top, title_y + self._px(14 + len(drinks[:6]) * 10))
-
-        line_y = min(letter_top + self._px(5), y2 - self._px(60))
-        draw.line(
-            (x1 + pad, line_y, x1 + pad + self._px(32), line_y),
-            fill=self.GOLD, width=max(2, self._px(.35)),
-        )
-        draw.text(
-            (x1 + pad, line_y + self._px(8)), farewell,
-            font=self._font(16, serif=True, italic=True), fill=self.GOLD,
-        )
-        self._fit_text(
-            draw, t("cover_whisper", menu.customer.language),
-            (x1 + pad, line_y + self._px(28), x2 - pad, y2 - self._px(13)),
-            self._font(13, serif=True, italic=True), self.CREAM,
-            max_lines=5,
-        )
 
     def _draw_inside_letter(self, page: Image.Image, box: tuple[int, int, int, int], menu: Menu) -> None:
         draw = ImageDraw.Draw(page)
