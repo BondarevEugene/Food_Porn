@@ -5,7 +5,7 @@
   const launch = tg?.initData || '';
   const now = new Date();
   const state = {financePeriod:'month',financeYear:now.getFullYear(),financeIndex:now.getMonth()+1,tab:'dashboard',days:30,page:1,search:'',product:'all',payment:'all',csrf:'',owner:false,data:null,version:0};
-  const titles = {products:'Продукты',dashboard:'Обзор',customers:'Клиенты',orders:'Заказы',finance:'Финансы',ads:'Реклама',settings:'Настройки и VIP',audit:'Журнал действий'};
+  const titles = {products:'Продукты',dashboard:'Обзор',customers:'Клиенты',orders:'Заказы',finance:'Финансы',ads:'Реклама',storage:'Хранилище',settings:'Настройки и VIP',audit:'Журнал действий'};
   const content = document.querySelector('#content');
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const num = value => new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2}).format(Number(value||0));
@@ -68,10 +68,11 @@
       let data;
       if(state.tab==='finance')data=await Promise.all([get('/dashboard?days='+state.days),get('/expenses?days='+state.days+'&page='+state.page),get('/ledger'),get('/finance/calendar?period='+state.financePeriod+'&year='+state.financeYear+'&index='+state.financeIndex)]);
       else if(state.tab==='ads')data=await get('/integrations');
+      else if(state.tab==='storage')data=await get('/storage');
       else if(state.tab==='products')data=await get('/settings');
       else if(state.tab==='dashboard'){const [overview,calendar]=await Promise.all([get('/dashboard?days='+state.days),get('/finance/calendar?period=month&year='+now.getFullYear()+'&index='+(now.getMonth()+1))]);data={...overview,calendar};}
       else data=await get('/'+(state.tab==='audit'?'audit':state.tab)+'?'+query);
-      if(version!==state.version)return;state.data=data;content.innerHTML=({dashboard,customers,orders,finance,products,ads:advertising,settings,audit}[state.tab])(data);
+      if(version!==state.version)return;state.data=data;content.innerHTML=({dashboard,customers,orders,finance,products,ads:advertising,storage,settings,audit}[state.tab])(data);
     }catch(error){if(version!==state.version)return;content.innerHTML=`<div class="auth-screen"><p class="eyebrow">FOOD_PORN / ДОСТУП</p><h1>Рабочее пространство недоступно</h1><p>${esc(error.message)}</p><a class="button primary" href="/admin/login">Войти через веб-админку</a><button class="secondary" data-action="refresh" style="margin-left:10px">Повторить</button></div>`;}
   }
   function showDialog(html){document.querySelector('#dialog-body').innerHTML=html;document.querySelector('#dialog').showModal();}
@@ -82,6 +83,7 @@
     const action=el.dataset.action;
     try{
       if(action==='refresh'){await render();return;}
+      if(action==='storage-cleanup'){if(!window.confirm('Удалить только временные файлы gift_scratch старше 24 часов?'))return;const result=await write('/storage/cleanup','POST',{});toast('Удалено временных файлов: '+result.deleted);await render();return;}
       if(action==='prev'||action==='next'){state.page+=action==='next'?1:-1;await render();return;}
       if(action==='close-dialog'){closeDialog();return;}
       if(action==='note'){const row=state.data.items.find(row=>String(row.telegram_id)===el.dataset.id);showDialog(`<h2>Заметка о клиенте</h2><p class="sub" style="margin-bottom:15px">Telegram ${esc(el.dataset.id)}</p><form data-form="note" data-id="${esc(el.dataset.id)}"><textarea name="note" maxlength="4000">${esc(row.note||'')}</textarea><div class="form-footer"><button class="primary">Сохранить заметку</button></div></form>`);return;}
