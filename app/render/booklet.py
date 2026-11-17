@@ -371,8 +371,8 @@ class BookletRenderer:
             raise ValueError("Menu contains no dishes")
         if len(left_items) > 18 or len(drinks) > 18:
             raise ValueError("Too many menu items for the two-panel print layout")
-        self._draw_food_grid(page, left, left_items, menu, drinks=[])
-        self._draw_right_panel(page, right, menu, drinks=drinks)
+        self._draw_food_grid(page, left, left_items, menu, drinks=drinks)
+        self._draw_right_panel(page, right, menu, drinks=[])
 
     def _draw_food_grid(self, page: Image.Image, box: tuple[int, int, int, int], items: list, menu: Menu, *, drinks: list | None = None) -> None:
         draw = ImageDraw.Draw(page)
@@ -404,9 +404,9 @@ class BookletRenderer:
             ),
         )
         drinks = drinks or []
-        columns = (2 if self.layout_variant in (0, 2) else 3) if len(items) <= 9 else 3
+        columns = (2 if self.layout_variant in (0, 2, 4) else 3) if len(items) <= 9 else 3
         rows = (len(items) + columns - 1) // columns
-        gap = self._px(4)
+        gap = self._px((3, 5, 7, 4, 6)[self.layout_variant])
         grid_x, grid_y = x1 + pad, y1 + self._px(27)
         # Reserve dedicated space for drinks and the playful, non-monetary bill.
         drinks_rows = (len(drinks) + 2) // 3
@@ -558,7 +558,7 @@ class BookletRenderer:
         x1, y1, x2, y2 = box
         width, height = x2 - x1, y2 - y1
         pad = self._px(8)
-        portrait_height = round(height * 0.80)
+        portrait_height = round(height * 0.91)
         portrait_box = (x1 + pad, y1 + pad, x2 - pad, y1 + portrait_height)
         px1, py1, px2, py2 = portrait_box
         portrait = self._portrait_contain_image(
