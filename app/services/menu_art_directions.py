@@ -83,5 +83,5 @@ def choose_direction(theme: str, seed: str | int) -> MenuArtDirection:
     if theme not in ("light", "dark", "color"):
         raise ValueError(f"Unsupported restaurant theme: {theme}")
     candidates = [item for item in DIRECTIONS if item.theme == theme]
-    digest = hashlib.sha256(f"{theme}:{seed}".encode("utf-8")).digest()
+    digest = hashlib.sha256(f"{theme}:{seed}".encode()).digest()
     return random.Random(int.from_bytes(digest[:8], "big")).choice(candidates)
