@@ -17,7 +17,7 @@ def main() -> None:
     menu = sample["menu"]
     renderer_class = sample["BookletRenderer"]
     for style in ("dark", "light", "color"):
-        menu.visual_style = style
+        menu.design_style = style
         output = renderer_class(Path("storage/demo_restaurant") / style).render(menu)
         print(f"{style}: {output.print_pdf}")
         print(f"{style} outside: {output.outside_preview}")
