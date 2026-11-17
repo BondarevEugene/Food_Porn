@@ -96,7 +96,7 @@ class BookletRenderer:
     }
 
     def _apply_style(self, menu: Menu) -> None:
-        style = str(getattr(menu, "design_style", "dark") or "dark").lower()
+        style = str(getattr(menu, "visual_style", "dark") or "dark").lower()
         self.BG, self.PANEL, self.GOLD, self.CREAM, self.MUTED = self.PALETTES.get(
             style, self.PALETTES["dark"]
         )
