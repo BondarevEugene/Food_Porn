@@ -15,7 +15,11 @@ def test_restaurant_palettes_are_distinct(tmp_path: Path):
     assert colors[1][0][0] > colors[0][0][0]
 
 
-def test_unknown_style_falls_back_to_existing_dark_palette(tmp_path: Path):
+def test_unknown_style_falls_back_to_current_dark_palette(tmp_path: Path):
     renderer = BookletRenderer(tmp_path)
     renderer._apply_style(SimpleNamespace(visual_style="unknown"))
-    assert (renderer.BG, renderer.GOLD) == ((20, 17, 17), (214, 171, 92))
+    assert renderer.style == "dark"
+    assert (renderer.BG, renderer.GOLD) == (
+        BookletRenderer.PALETTES["dark"][0],
+        BookletRenderer.PALETTES["dark"][2],
+    )
