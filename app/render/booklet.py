@@ -514,58 +514,77 @@ class BookletRenderer:
         raise ValueError(f"Dish title does not fit the card: {text!r}")
 
     def _draw_right_panel(self, page: Image.Image, box: tuple[int, int, int, int], menu: Menu, *, drinks: list | None = None) -> None:
-        """Drinks above, integrated portrait below, with an unobstructed face."""
+        """Editorial portrait hero: about 40 percent of the full A3 spread.
+
+        The portrait occupies 80% of the right-hand panel, while the remaining
+        strip holds drinks. No food or text is painted over the customer's face.
+        """
         x1, y1, x2, y2 = box
+        width, height = x2 - x1, y2 - y1
+        pad = self._px(8)
+        portrait_height = round(height * 0.80)
+        portrait_box = (x1 + pad, y1 + pad, x2 - pad, y1 + portrait_height)
+        px1, py1, px2, py2 = portrait_box
+        portrait = self._portrait_contain_image(
+            Path(menu.spread_photo_path), px2 - px1, py2 - py1
+        )
+        if self.style == "light":
+            # Imperial gallery frame; do not overlay ornaments on the face.
+            frame_color = (183, 145, 76)
+            ImageDraw.Draw(page).rectangle(
+                (px1-self._px(2), py1-self._px(2),
+                 px2+self._px(2), py2+self._px(2)),
+                outline=frame_color, width=max(2, self._px(.4)),
+            )
+            page.paste(portrait, (px1, py1))
+        elif self.style == "color":
+            # Botanical theme: soft vertical edge blend into the ivory page.
+            alpha = Image.new("L", portrait.size, 255)
+            fade = max(1, self._px(5))
+            mask_draw = ImageDraw.Draw(alpha)
+            for offset in range(fade):
+                value = round(255 * offset / fade)
+                mask_draw.line((0, offset, alpha.width-1, offset), fill=value)
+                mask_draw.line(
+                    (0, alpha.height-1-offset, alpha.width-1, alpha.height-1-offset),
+                    fill=value,
+                )
+            page.paste(portrait, (px1, py1), alpha)
+        else:
+            # Noir: full-strength portrait, thin gold editorial border.
+            page.paste(portrait, (px1, py1))
+            ImageDraw.Draw(page).rectangle(
+                portrait_box, outline=self.GOLD, width=max(1, self._px(.25))
+            )
+
         draw = ImageDraw.Draw(page)
-        pad = self._px(9)
         lang = str(getattr(menu.customer.language, "value", menu.customer.language) or "ru")
         title = {"uk": "НАПОЇ", "ru": "НАПИТКИ", "en": "DRINKS"}.get(lang, "НАПИТКИ")
-        draw.text((x1 + pad, y1 + self._px(8)), title,
-                  font=self._font(18, serif=True, bold=True), fill=self.GOLD)
-        draw.line((x1 + pad, y1 + self._px(23), x2 - pad, y1 + self._px(23)),
-                  fill=self.MUTED, width=max(1, self._px(.25)))
+        drinks_top = y1 + portrait_height + self._px(5)
+        draw.text(
+            (x1+pad, drinks_top), title,
+            font=self._font(15, serif=True, bold=True), fill=self.GOLD,
+        )
         drinks = drinks or []
-        if drinks:
-            cols = min(4, len(drinks))
-            rows = (len(drinks) + cols - 1) // cols
-            drink_h = min(self._px(102), self._px(29 + rows * 33))
-            cell_w = (x2 - x1 - 2 * pad) // cols
-            cell_h = (drink_h - self._px(29)) // rows
-            for index, item in enumerate(drinks):
-                row, col = divmod(index, cols)
-                cx = x1 + pad + col * cell_w
-                cy = y1 + self._px(28) + row * cell_h
-                photo_h = max(self._px(13), cell_h - self._px(12))
-                photo = self._safe_item_image(item.image_path, cell_w - self._px(3), photo_h)
-                page.paste(photo, (cx, cy))
-                self._fit_text(draw, display_dish_title(item.title),
-                               (cx, cy + photo_h + self._px(1),
-                                cx + cell_w - self._px(3), cy + cell_h),
-                               self._font(8, serif=True), self.CREAM, max_lines=2)
-        else:
-            drink_h = self._px(29)
-        photo_top = y1 + drink_h + self._px(4)
-        photo_width, photo_height = x2 - x1, y2 - photo_top
-        portrait = self._portrait_contain_image(
-            Path(menu.spread_photo_path), photo_width, photo_height
-        )
-        # A modest edge blend integrates the image without washing out faces.
-        fade = max(1, self._px(7))
-        horizontal = Image.new("L", (photo_width, 1))
-        horizontal.putdata([
-            max(0, int(255 * min(1.0, xx / fade, (photo_width - 1 - xx) / fade)))
-            for xx in range(photo_width)
-        ])
-        vertical = Image.new("L", (1, photo_height))
-        vertical.putdata([
-            max(0, int(255 * min(1.0, yy / fade, (photo_height - 1 - yy) / fade)))
-            for yy in range(photo_height)
-        ])
-        alpha = ImageChops.multiply(
-            horizontal.resize((photo_width, photo_height)),
-            vertical.resize((photo_width, photo_height)),
-        )
-        page.paste(portrait, (x1, photo_top), alpha)
+        if not drinks:
+            return
+        columns = min(4, len(drinks))
+        rows = (len(drinks)+columns-1)//columns
+        gap = self._px(3)
+        cell_w = (width-2*pad-gap*(columns-1))//columns
+        cell_h = max(self._px(13), (y2-drinks_top-self._px(19))//rows)
+        for index, item in enumerate(drinks):
+            row, col = divmod(index, columns)
+            cx = x1+pad+col*(cell_w+gap)
+            cy = drinks_top+self._px(15)+row*cell_h
+            photo_h = max(self._px(6), cell_h-self._px(12))
+            photo = self._safe_item_image(item.image_path, cell_w, photo_h)
+            page.paste(photo, (cx, cy))
+            self._fit_text(
+                draw, display_dish_title(item.title),
+                (cx, cy+photo_h+self._px(1), cx+cell_w, cy+cell_h),
+                self._font(7.5, serif=True), self.CREAM, max_lines=2,
+            )
 
     def _draw_inside_letter(self, page: Image.Image, box: tuple[int, int, int, int], menu: Menu) -> None:
         draw = ImageDraw.Draw(page)
