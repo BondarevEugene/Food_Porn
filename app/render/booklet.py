@@ -87,6 +87,20 @@ class BookletRenderer:
     CREAM = (244, 232, 211)
     MUTED = (182, 169, 151)
 
+    # Restaurant Edition palettes. The existing dark look remains the default
+    # until a customer-facing style selector persists a choice on the order.
+    PALETTES = {
+        "dark": ((20, 17, 17), (31, 27, 26), (214, 171, 92), (244, 232, 211), (182, 169, 151)),
+        "light": ((247, 241, 231), (255, 251, 244), (151, 107, 56), (48, 43, 38), (107, 93, 80)),
+        "color": ((32, 57, 56), (43, 73, 68), (243, 177, 112), (255, 244, 219), (194, 216, 192)),
+    }
+
+    def _apply_style(self, menu: Menu) -> None:
+        style = str(getattr(menu, "design_style", "dark") or "dark").lower()
+        self.BG, self.PANEL, self.GOLD, self.CREAM, self.MUTED = self.PALETTES.get(
+            style, self.PALETTES["dark"]
+        )
+
     def __init__(self, output_root: Path) -> None:
         self.output_root = output_root
         self.bleed = self._px(self.BLEED_MM)
@@ -99,6 +113,7 @@ class BookletRenderer:
     def render(self, menu: Menu) -> RenderedFiles:
         if not menu.cover_photo_path or not menu.spread_photo_path:
             raise ValueError("Both customer photos are required")
+        self._apply_style(menu)
         directory = self.output_root / str(menu.id)
         directory.mkdir(parents=True, exist_ok=True)
 
@@ -126,12 +141,12 @@ class BookletRenderer:
     def _new_page(self) -> Image.Image:
         page = Image.new("RGB", (self.page_w, self.page_h), self.BG)
         draw = ImageDraw.Draw(page)
-        # Subtle warm speckle pattern for a tactile print feel.
+        # Palette-aware subtle print texture, without dark dots on ivory.
         step = max(16, self._px(1.8))
         for y in range(0, self.page_h, step):
             offset = (y // step % 2) * (step // 2)
             for x in range(offset, self.page_w, step):
-                draw.point((x, y), fill=(27, 23, 22))
+                draw.point((x, y), fill=tuple(max(0, channel - 3) for channel in self.BG))
         return page
 
     @staticmethod
@@ -249,7 +264,7 @@ class BookletRenderer:
         right = (x0 + self.panel_w, y0, x0 + self.trim_w, y0 + self.trim_h)
         draw = ImageDraw.Draw(page)
         draw.rectangle(left, fill=self.BG)
-        draw.rectangle(right, fill=(24, 21, 20))
+        draw.rectangle(right, fill=self.PANEL)
 
         left_items = [
             item
