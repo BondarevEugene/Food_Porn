@@ -57,7 +57,7 @@ def menu_render_snapshot(menu: Menu) -> SimpleNamespace:
         cover_photo_path=menu.cover_photo_path,
         spread_photo_path=menu.spread_photo_path,
         meal_period=menu.meal_period,
-        visual_style=menu.visual_style,
+        visual_style=getattr(menu, "visual_style", "dark"),
         customer=SimpleNamespace(
             name=customer.name,
             language=customer.language,
