@@ -393,8 +393,9 @@ class BookletRenderer:
             radius=radius,
             fill=(0, 0, 0, 150),
         )
-        shadow = shadow.filter(ImageFilter.GaussianBlur(self._px(1.6)))
-        page.paste(shadow, (x1, y1), shadow)
+        if self.style == "dark":
+            shadow = shadow.filter(ImageFilter.GaussianBlur(self._px(1.6)))
+            page.paste(shadow, (x1, y1), shadow)
 
         # Render directly to the actual photograph viewport. Cropping an image
         # sized for the entire card used to remove the lower half of dishes.
@@ -403,14 +404,14 @@ class BookletRenderer:
         picture = self._safe_item_image(item.image_path, width, photo_h)
         picture = ImageEnhance.Color(picture).enhance(1.05)
         picture = ImageEnhance.Contrast(picture).enhance(1.03)
-        card = Image.new("RGB", (width, height), (34, 29, 27))
+        card = Image.new("RGB", (width, height), self.PANEL)
         card.paste(picture, (0, 0))
         mask = Image.new("L", card.size, 0)
         ImageDraw.Draw(mask).rounded_rectangle((0, 0, width - 1, height - 1), radius=radius, fill=255)
         page.paste(card, (x1, y1), mask)
 
         draw = ImageDraw.Draw(page)
-        draw.rounded_rectangle(box, radius=radius, outline=(132, 98, 57), width=max(2, self._px(0.35)))
+        draw.rounded_rectangle(box, radius=radius, outline=self.MUTED, width=max(1, self._px(0.18)))
         item_title = display_dish_title(item.title)
         self._fit_card_title(
             draw, item_title,
