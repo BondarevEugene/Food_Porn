@@ -14,8 +14,8 @@ Responsibilities:
 
 from __future__ import annotations
 
-import textwrap
 import colorsys
+import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
