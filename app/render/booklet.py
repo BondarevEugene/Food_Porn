@@ -100,7 +100,7 @@ class BookletRenderer:
         style = str(getattr(menu, "visual_style", "dark") or "dark").lower()
         self.style = style if style in self.PALETTES else "dark"
         self.BG, self.PANEL, self.GOLD, self.CREAM, self.MUTED = self.PALETTES.get(
-            style, self.PALETTES["dark"]
+            self.style, self.PALETTES["dark"]
         )
 
     def __init__(self, output_root: Path) -> None:
@@ -151,6 +151,62 @@ class BookletRenderer:
                 draw.point((x, y), fill=tuple(max(0, channel - 3) for channel in self.BG))
         return page
 
+    def _decorate_panel(self, page: Image.Image, box: tuple[int, int, int, int]) -> None:
+        """Print-safe vector ornaments, distinct by theme and away from content."""
+        draw = ImageDraw.Draw(page)
+        x1, y1, x2, y2 = box
+        inset = self._px(4)
+        if self.style == "light":
+            gold = (192, 165, 111)
+            # Imperial double rules and symmetric scrollwork.
+            for delta in (0, self._px(1.4)):
+                draw.rounded_rectangle(
+                    (x1 + inset + delta, y1 + inset + delta,
+                     x2 - inset - delta, y2 - inset - delta),
+                    radius=self._px(3), outline=gold, width=max(1, self._px(.12)),
+                )
+            for cx in (x1 + self._px(18), x2 - self._px(18)):
+                for cy in (y1 + self._px(17), y2 - self._px(17)):
+                    for r in (self._px(4), self._px(7)):
+                        draw.arc((cx-r, cy-r, cx+r, cy+r), 10, 170,
+                                 fill=gold, width=max(1, self._px(.2)))
+                        draw.arc((cx-r, cy-r, cx+r, cy+r), 190, 350,
+                                 fill=gold, width=max(1, self._px(.2)))
+        elif self.style == "color":
+            # Floral corners: botanical leaves and flowers drawn as vector
+            # shapes, not overlays or filters on the customer's photographs.
+            stems = (82, 132, 83)
+            petals = ((224, 83, 114), (242, 153, 89), (175, 91, 159))
+            for cx, cy, sx, sy in (
+                (x1+self._px(11), y1+self._px(12), 1, 1),
+                (x2-self._px(11), y1+self._px(12), -1, 1),
+                (x1+self._px(11), y2-self._px(12), 1, -1),
+                (x2-self._px(11), y2-self._px(12), -1, -1),
+            ):
+                for index in range(3):
+                    dx = sx * self._px(5 + index * 5)
+                    dy = sy * self._px(3 + index * 4)
+                    draw.line((cx, cy, cx+dx, cy+dy), fill=stems,
+                              width=max(1, self._px(.25)))
+                    leaf_r = self._px(2.3)
+                    draw.ellipse((cx+dx-leaf_r, cy+dy-leaf_r,
+                                  cx+dx+leaf_r, cy+dy+leaf_r), fill=stems)
+                flower_r = self._px(3)
+                for index, (ox, oy) in enumerate(((0,-4),(4,0),(0,4),(-4,0))):
+                    px, py = cx+self._px(ox), cy+self._px(oy)
+                    draw.ellipse((px-flower_r, py-flower_r,
+                                  px+flower_r, py+flower_r),
+                                 fill=petals[index % len(petals)])
+                core = self._px(1.8)
+                draw.ellipse((cx-core, cy-core, cx+core, cy+core),
+                             fill=(244, 192, 78))
+        else:
+            line = (90, 77, 58)
+            draw.line((x1+inset, y1+self._px(5), x2-inset, y1+self._px(5)),
+                      fill=line, width=max(1, self._px(.15)))
+            draw.line((x1+inset, y2-self._px(5), x2-inset, y2-self._px(5)),
+                      fill=line, width=max(1, self._px(.15)))
+
     @staticmethod
     def _menu_title(menu: Menu) -> str:
         language = getattr(getattr(menu, "customer", None), "language", Language.RU)
@@ -176,6 +232,8 @@ class BookletRenderer:
 
         draw = ImageDraw.Draw(page)
         draw.rectangle(left, fill=self.PANEL)
+        self._decorate_panel(page, left)
+        self._decorate_panel(page, right)
         self._draw_back_cover(page, left, menu)
         self._draw_cover(page, right, menu)
 
@@ -186,10 +244,10 @@ class BookletRenderer:
         gold = self.GOLD
         draw.ellipse(
             (cx - self._px(32), y1 + self._px(28), cx + self._px(32), y1 + self._px(92)),
-            outline=(80, 62, 43),
+            outline=self.MUTED,
             width=self._px(0.7),
         )
-        self._center_text(draw, "♡", cx, y1 + self._px(47), self._font(39, serif=True), gold)
+        self._center_text(draw, "FOOD PORN", cx, y1 + self._px(58), self._font(10, serif=True, bold=True), gold)
         draw.line((cx-self._px(19), y1+self._px(109), cx+self._px(19), y1+self._px(109)),
                   fill=self.GOLD, width=max(2, self._px(.25)))
         self._fit_text(draw, t("love_letter", menu.customer.language),
@@ -206,7 +264,7 @@ class BookletRenderer:
                        (x1+self._px(25), quote_y+self._px(42), x2-self._px(25), quote_y+self._px(55)),
                        self._font(9, serif=True), self.MUTED)
         customer_name = getattr(menu.customer, "name", "Любимый")
-        self._center_text(draw, f"Сделано с любовью для тебя ✦ {customer_name}", cx, y2-self._px(15),
+        self._center_text(draw, f"Сделано с любовью для тебя - {customer_name}", cx, y2-self._px(15),
                           self._font(9.5, serif=True), self.MUTED)
 
     def _draw_cover(self, page: Image.Image, box: tuple[int, int, int, int], menu: Menu) -> None:
@@ -247,7 +305,7 @@ class BookletRenderer:
         )
         line_y = box[1] + self._px(104)
         draw.line((text_x, line_y, text_x + self._px(38), line_y), fill=self.GOLD, width=max(2, self._px(0.35)))
-        draw.text((text_x + self._px(44), line_y - self._px(9)), "♡", font=self._font(17, serif=True), fill=self.GOLD)
+        draw.ellipse((text_x + self._px(49), line_y - self._px(2), text_x + self._px(52), line_y + self._px(1)), fill=self.GOLD)
         draw.line(
             (text_x + self._px(59), line_y, text_x + self._px(97), line_y),
             fill=self.GOLD,
@@ -266,6 +324,8 @@ class BookletRenderer:
         draw = ImageDraw.Draw(page)
         draw.rectangle(left, fill=self.BG)
         draw.rectangle(right, fill=self.PANEL)
+        self._decorate_panel(page, left)
+        self._decorate_panel(page, right)
 
         left_items = [
             item
@@ -292,7 +352,7 @@ class BookletRenderer:
         )
         draw.line(
             (x1 + self._px(113), y1 + self._px(17), x2 - pad, y1 + self._px(17)),
-            fill=(113, 86, 53), width=max(2, self._px(0.35)),
+            fill=self.MUTED, width=max(1, self._px(0.2)),
         )
 
         meal_order = {"breakfast": 0, "lunch": 1, "dinner": 2, "other": 3}
@@ -355,12 +415,12 @@ class BookletRenderer:
         draw = ImageDraw.Draw(page)
         lang = str(getattr(menu.customer.language, "value", menu.customer.language) or "ru")
         translations = {
-            "uk": ("РАХУНОК ДО СПЛАТИ ♡", ("Ніжний поцілунок", "Теплі обійми", "Щирий комплімент"), ("2 шт.", "3 шт.", "1 шт."), "РАЗОМ: БЕЗЦІННО"),
-            "ru": ("СЧЁТ К ОПЛАТЕ ♡", ("Нежный поцелуй", "Тёплые объятия", "Искренний комплимент"), ("2 шт.", "3 шт.", "1 шт."), "ИТОГО: БЕСЦЕННО"),
-            "en": ("A BILL OF LOVE ♡", ("A tender kiss", "A warm hug", "A sincere compliment"), ("2", "3", "1"), "TOTAL: PRICELESS"),
+            "uk": ("РАХУНОК ДО СПЛАТИ", ("Ніжний поцілунок", "Теплі обійми", "Щирий комплімент"), ("2 шт.", "3 шт.", "1 шт."), "РАЗОМ: БЕЗЦІННО"),
+            "ru": ("СЧЁТ К ОПЛАТЕ", ("Нежный поцелуй", "Тёплые объятия", "Искренний комплимент"), ("2 шт.", "3 шт.", "1 шт."), "ИТОГО: БЕСЦЕННО"),
+            "en": ("A BILL OF LOVE", ("A tender kiss", "A warm hug", "A sincere compliment"), ("2", "3", "1"), "TOTAL: PRICELESS"),
         }
         title, labels, amounts, total = translations.get(lang, translations["ru"])
-        draw.rounded_rectangle((x1, y1, x2, y2), radius=self._px(4), outline=(132, 98, 57), width=max(2, self._px(.4)))
+        draw.rounded_rectangle((x1, y1, x2, y2), radius=self._px(4), outline=self.MUTED, width=max(1, self._px(.25)))
         self._center_text(draw, title, (x1 + x2) // 2, y1 + self._px(5), self._font(13, serif=True, bold=True), self.GOLD)
         draw.line((x1 + self._px(8), y1 + self._px(17), x2 - self._px(8), y1 + self._px(17)), fill=(113, 86, 53), width=max(1, self._px(.2)))
         for index, (label, amount) in enumerate(zip(labels, amounts, strict=True)):
@@ -398,25 +458,22 @@ class BookletRenderer:
 
         # Render directly to the actual photograph viewport. Cropping an image
         # sized for the entire card used to remove the lower half of dishes.
-        caption_h = min(height // 3, self._px(23 if compact else 27))
+        caption_h = min(height // 3, self._px(28 if compact else 32))
         photo_h = height - caption_h
         picture = self._safe_item_image(item.image_path, width, photo_h)
-        card = Image.new("RGB", (width, height), self.PANEL)
+        card_bg = self.PANEL if self.style == "dark" else (255, 253, 248)\n        card = Image.new("RGB", (width, height), card_bg)
         card.paste(picture, (0, 0))
         mask = Image.new("L", card.size, 0)
         ImageDraw.Draw(mask).rounded_rectangle((0, 0, width - 1, height - 1), radius=radius, fill=255)
         page.paste(card, (x1, y1), mask)
 
         draw = ImageDraw.Draw(page)
-        draw.rounded_rectangle(box, radius=radius, outline=self.MUTED, width=max(1, self._px(0.18)))
+        card_border = self.MUTED if self.style == "dark" else self.GOLD\n        draw.rounded_rectangle(box, radius=radius, outline=card_border, width=max(1, self._px(0.18)))
         item_title = display_dish_title(item.title)
         self._fit_card_title(
             draw, item_title,
             (x1 + self._px(4), y2 - caption_h + self._px(2), x2 - self._px(4), y2 - self._px(2)),
-            compact=compact,
-        )
-
-    def _fit_card_title(
+            compact=compact,\n        )\n\n    def _fit_card_title(
         self, draw: ImageDraw.ImageDraw, text: str,
         box: tuple[int, int, int, int], *, compact: bool,
     ) -> None:
