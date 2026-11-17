@@ -46,7 +46,6 @@ menu = Menu(
     id=999,
     customer=customer,
     customer_id=1,
-    language=Language.RU,
     cover_photo_path=str(cover),
     spread_photo_path=str(spread),
 )
