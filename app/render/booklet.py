@@ -21,14 +21,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
-
-from app.services.menu_art_directions import BY_CODE, choose_direction
-from app.services.menu_romance_copy import romantic_copy
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 
 from app.database.models import FileKind, ItemCategory, Language, Menu
 from app.locales.messages import t
+from app.services.menu_art_directions import BY_CODE, choose_direction
+from app.services.menu_romance_copy import romantic_copy
 from app.services.menu_wizard import (
     MEAL_FULL_DAY,
     display_dish_title,
