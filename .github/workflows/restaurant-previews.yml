@@ -7,6 +7,9 @@ on:
       - "app/render/booklet.py"
       - "scripts/demo_render.py"
       - "scripts/demo_restaurant_themes.py"
+      - "scripts/demo_one_restaurant_menu.py"
+      - "app/services/menu_art_directions.py"
+      - "app/services/menu_romance_copy.py"
       - ".github/workflows/restaurant-previews.yml"
 
 permissions:
@@ -28,6 +31,8 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Render all three A3 menu themes
         run: python -m scripts.demo_restaurant_themes
+      - name: Render featured creative direction
+        run: python -m scripts.demo_one_restaurant_menu
       - name: Verify 3 PDFs and 6 previews exist
         run: |
           python - <<'PY'
@@ -41,7 +46,11 @@ jobs:
               ):
                   path = root / filename
                   assert path.is_file() and path.stat().st_size > 1000, path
-          print("Three PDFs and six previews generated.")
+          featured = Path("storage/demo_restaurant/featured/999")
+          for filename in ("food_porn_menu_999_A3_print.pdf", "preview_outside.jpg", "preview_inside.jpg"):
+              path = featured / filename
+              assert path.is_file() and path.stat().st_size > 1000, path
+          print("Four PDFs and eight previews generated.")
           PY
       - name: Upload phone-friendly preview images and printable PDFs
         uses: actions/upload-artifact@v4
