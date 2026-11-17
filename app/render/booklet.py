@@ -15,11 +15,15 @@ Responsibilities:
 from __future__ import annotations
 
 import textwrap
+import colorsys
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
+
+from app.services.menu_art_directions import BY_CODE, choose_direction
+from app.services.menu_romance_copy import romantic_copy
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 
@@ -58,6 +62,8 @@ def menu_render_snapshot(menu: Menu) -> SimpleNamespace:
         spread_photo_path=menu.spread_photo_path,
         meal_period=menu.meal_period,
         visual_style=getattr(menu, "visual_style", "dark"),
+        design_seed=getattr(menu, "design_seed", menu.id),
+        design_preset=getattr(menu, "design_preset", None),
         customer=SimpleNamespace(
             name=customer.name,
             language=customer.language,
@@ -99,9 +105,38 @@ class BookletRenderer:
     def _apply_style(self, menu: Menu) -> None:
         style = str(getattr(menu, "visual_style", "dark") or "dark").lower()
         self.style = style if style in self.PALETTES else "dark"
-        self.BG, self.PANEL, self.GOLD, self.CREAM, self.MUTED = self.PALETTES.get(
-            self.style, self.PALETTES["dark"]
-        )
+        seed = getattr(menu, "design_seed", None) or menu.id
+        preset = getattr(menu, "design_preset", None)
+        direction = BY_CODE.get(preset) if preset else None
+        if direction is None or direction.theme != self.style:
+            direction = choose_direction(self.style, seed)
+        self.direction = direction
+        self.layout_variant = (int(direction.code[-2:]) - 1) % 5
+        self.BG, self.PANEL, self.GOLD, self.CREAM, self.MUTED = self.PALETTES[self.style]
+        # Each direction gets a deterministic color family, rather than merely
+        # reusing one of three theme-wide palettes.
+        index = int(direction.code[-2:]) - 1
+        hue = ((index * 0.61803398875) + {"light": 0.08, "dark": 0.1, "color": 0.0}[self.style]) % 1
+        def rgb(h: float, lightness: float, saturation: float) -> tuple[int, int, int]:
+            return tuple(round(255 * value) for value in colorsys.hls_to_rgb(h, lightness, saturation))
+        if self.style == "light":
+            self.BG = rgb(hue, 0.967, 0.22)
+            self.PANEL = rgb(hue, 0.987, 0.12)
+            self.GOLD = rgb(hue, 0.35, 0.39)
+            self.CREAM = (35, 35, 35)
+            self.MUTED = rgb(hue, 0.43, 0.15)
+        elif self.style == "dark":
+            self.BG = rgb(hue, 0.068, 0.29)
+            self.PANEL = rgb(hue, 0.105, 0.31)
+            self.GOLD = rgb((hue + 0.11) % 1, 0.72, 0.53)
+            self.CREAM = (248, 242, 231)
+            self.MUTED = rgb(hue, 0.64, 0.12)
+        else:
+            self.BG = rgb(hue, 0.93, 0.53)
+            self.PANEL = rgb((hue + 0.07) % 1, 0.975, 0.33)
+            self.GOLD = rgb(hue, 0.35, 0.69)
+            self.CREAM = (38, 35, 34)
+            self.MUTED = rgb((hue + 0.3) % 1, 0.43, 0.29)
 
     def __init__(self, output_root: Path) -> None:
         self.output_root = output_root
@@ -250,17 +285,17 @@ class BookletRenderer:
         self._center_text(draw, "FOOD PORN", cx, y1 + self._px(58), self._font(10, serif=True, bold=True), gold)
         draw.line((cx-self._px(19), y1+self._px(109), cx+self._px(19), y1+self._px(109)),
                   fill=self.GOLD, width=max(2, self._px(.25)))
-        self._fit_text(draw, t("love_letter", menu.customer.language),
+        self._fit_text(draw, romantic_copy(menu.customer.language, getattr(menu, "design_seed", None) or menu.id)[1],
                        (x1+self._px(25), y1+self._px(125),
                         x2-self._px(25), y1+self._px(212)),
                        self._font(15.5, serif=True, italic=True), self.CREAM, max_lines=12)
         quote_y = y1 + self._px(220)
         draw.line((cx-self._px(31), quote_y, cx+self._px(31), quote_y),
                   fill=(101, 82, 56), width=max(2, self._px(.25)))
-        self._fit_text(draw, "“" + t("classic_quote", menu.customer.language) + "”",
+        self._fit_text(draw, "“" + romantic_copy(menu.customer.language, getattr(menu, "design_seed", None) or menu.id)[0] + "”",
                        (x1+self._px(25), quote_y+self._px(7), x2-self._px(25), quote_y+self._px(37)),
                        self._font(11, serif=True, italic=True), self.GOLD, max_lines=3)
-        self._fit_text(draw, t("classic_author", menu.customer.language),
+        self._fit_text(draw, "FOOD PORN",
                        (x1+self._px(25), quote_y+self._px(42), x2-self._px(25), quote_y+self._px(55)),
                        self._font(9, serif=True), self.MUTED)
         customer_name = getattr(menu.customer, "name", "Любимый")
@@ -370,7 +405,7 @@ class BookletRenderer:
             ),
         )
         drinks = drinks or []
-        columns = 2 if len(items) <= 6 else 3
+        columns = (2 if self.layout_variant in (0, 2) else 3) if len(items) <= 9 else 3
         rows = (len(items) + columns - 1) // columns
         gap = self._px(4)
         grid_x, grid_y = x1 + pad, y1 + self._px(27)
@@ -384,6 +419,8 @@ class BookletRenderer:
         card_h = min(self._px(156), (grid_h - gap * (rows - 1)) // rows) if rows else 0
         for index, item in enumerate(items):
             row, col = divmod(index, columns)
+            if self.layout_variant in (1, 3):
+                col = columns - 1 - col
             bx = grid_x + col * (card_w + gap)
             by = grid_y + row * (card_h + gap)
             self._draw_item_card(page, (bx, by, bx + card_w, by + card_h), item, menu, compact=True)
@@ -461,7 +498,7 @@ class BookletRenderer:
         caption_h = min(height // 3, self._px(28 if compact else 32))
         photo_h = height - caption_h
         picture = self._safe_item_image(item.image_path, width, photo_h)
-        card_bg = self.PANEL if self.style == "dark" else (255, 253, 248)
+        card_bg = self.PANEL
         card = Image.new("RGB", (width, height), card_bg)
         card.paste(picture, (0, 0))
         mask = Image.new("L", card.size, 0)
