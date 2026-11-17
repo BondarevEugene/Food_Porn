@@ -91,9 +91,9 @@ class BookletRenderer:
     # Restaurant Edition palettes. The existing dark look remains the default
     # until a customer-facing style selector persists a choice on the order.
     PALETTES = {
-        "dark": ((20, 17, 17), (31, 27, 26), (214, 171, 92), (244, 232, 211), (182, 169, 151)),
+        "dark": ((10, 11, 14), (17, 19, 23), (218, 184, 126), (249, 243, 232), (182, 177, 167)),
         "light": ((248, 246, 240), (255, 253, 248), (103, 95, 73), (38, 39, 35), (107, 105, 96)),
-        "color": ((249, 245, 239), (255, 251, 246), (128, 48, 68), (44, 40, 39), (151, 99, 108)),
+        "color": ((255, 247, 239), (255, 252, 246), (174, 49, 83), (47, 43, 39), (114, 133, 75)),
     }
 
     def _apply_style(self, menu: Menu) -> None:
@@ -218,17 +218,16 @@ class BookletRenderer:
             height,
             centering=(0.6, 0.5),
         )
-        photo = ImageEnhance.Color(photo).enhance(0.86)
-        photo = ImageEnhance.Contrast(photo).enhance(1.08)
 
-        # The cover photograph is the page itself, not a separate photo card.
-        # The dark left side holds the title while the portrait remains visible.
+        # Keep the supplied photo's pixels intact. Only a narrow text-side
+        # overlay provides contrast; theme never color-grades customer photos.
         shade = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         shade_draw = ImageDraw.Draw(shade)
-        for x in range(width):
-            progress = x / max(1, width - 1)
-            alpha = int(205 - 155 * progress)
-            shade_draw.line((x, 0, x, height), fill=(12, 10, 10, alpha))
+        shade_width = max(1, self._px(128))
+        for x in range(min(width, shade_width)):
+            strength = 1.0 - x / shade_width
+            alpha = int((160 if self.style == "dark" else 90) * strength * strength)
+            shade_draw.line((x, 0, x, height), fill=(10, 10, 12, alpha))
         photo = Image.alpha_composite(photo.convert("RGBA"), shade).convert("RGB")
         page.paste(photo, (box[0], box[1]))
 
@@ -402,8 +401,6 @@ class BookletRenderer:
         caption_h = min(height // 3, self._px(23 if compact else 27))
         photo_h = height - caption_h
         picture = self._safe_item_image(item.image_path, width, photo_h)
-        picture = ImageEnhance.Color(picture).enhance(1.05)
-        picture = ImageEnhance.Contrast(picture).enhance(1.03)
         card = Image.new("RGB", (width, height), self.PANEL)
         card.paste(picture, (0, 0))
         mask = Image.new("L", card.size, 0)
@@ -576,7 +573,6 @@ class BookletRenderer:
             backdrop = ImageOps.fit(
                 source, (width, height), method=Image.Resampling.LANCZOS
             ).filter(ImageFilter.GaussianBlur(radius=max(8, min(width, height) // 25)))
-            backdrop = ImageEnhance.Brightness(backdrop).enhance(0.60)
             foreground = ImageOps.contain(
                 source, (width, height), method=Image.Resampling.LANCZOS
             )
