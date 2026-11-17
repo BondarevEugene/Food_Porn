@@ -20,6 +20,7 @@ class FactoryStorageMonitor:
         self._interval = interval_seconds
         self._notifier = FactoryAlertNotifier(self._send, owner_ids)
         self._task: asyncio.Task[None] | None = None
+        self._last_alert_level: str | None = None
 
     async def _send(self, uid: int, message: str) -> object:
         return await self._bot.send_message(uid, message)
@@ -31,8 +32,18 @@ class FactoryStorageMonitor:
                 raise OSError("Disk capacity unknown")
             percent = round(100 * used / total)
             alert = disk_alert(percent)
-            if alert:
-                await self._notifier.notify(*alert)
+            # Stable disk usage should not produce repeated Telegram alerts.
+            # 70-84% is informational and remains visible in Mini CRM.
+            level = alert[0] if alert and percent >= 85 else None
+            if level != self._last_alert_level:
+                if level is not None:
+                    await self._notifier.notify(*alert)
+                elif self._last_alert_level is not None:
+                    await self._notifier.notify(
+                        "disk:recovered",
+                        f"✅ Food_Porn: disk usage back to {percent}%.",
+                    )
+                self._last_alert_level = level
             return percent
         except OSError:
             logger.exception("Storage pressure probe failed")
