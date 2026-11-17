@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
-from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 
