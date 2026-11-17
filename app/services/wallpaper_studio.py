@@ -378,6 +378,7 @@ class WallpaperExportService:
             if soundtrack.name == "ambient.wav":
                 self._ambient_track(soundtrack, duration)
             destination = self.root / f"living_collage_{self.source_revision}.mp4"
+            pending = Path(temporary) / "completed.mp4"
             command = [ffmpeg, "-y", "-loglevel", "error", "-i", str(silent),
                        "-stream_loop", "-1", "-i", str(soundtrack)]
             if narration and narration.is_file():
@@ -387,8 +388,18 @@ class WallpaperExportService:
             else:
                 command += ["-map", "0:v", "-map", "1:a"]
             command += ["-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-t", str(duration),
-                        "-shortest", "-movflags", "+faststart", str(destination)]
+                        "-shortest", "-movflags", "+faststart", str(pending)]
             subprocess.run(command, check=True, timeout=300)
+            if not pending.is_file() or pending.stat().st_size < 1024:
+                raise RuntimeError("FFmpeg did not produce a usable MP4")
+            # Publish only complete videos; keep an existing successful export intact
+            # if a retry fails during encoding.
+            staged = destination.with_suffix(".mp4.pending")
+            try:
+                shutil.copyfile(pending, staged)
+                staged.replace(destination)
+            finally:
+                staged.unlink(missing_ok=True)
         return destination
 
     @staticmethod

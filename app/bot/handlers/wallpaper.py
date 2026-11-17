@@ -80,7 +80,9 @@ def gift_keyboard(lang: str, selected: str = "dark") -> InlineKeyboardMarkup:
         [InlineKeyboardButton(
             text=("✓ " if key == selected else "") + text_for(lang, uk, ru, en),
             callback_data=f"gift_style:{key}",
-        ) for key, uk, ru, en in styles],
+        )] for key, uk, ru, en in styles
+    ] + [
+
         [InlineKeyboardButton(
             text=text_for(lang, "⬅️ Обрати формат", "⬅️ Выбрать формат", "⬅️ Choose format"),
             callback_data="gift_back_to_product",
