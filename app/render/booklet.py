@@ -57,6 +57,7 @@ def menu_render_snapshot(menu: Menu) -> SimpleNamespace:
         cover_photo_path=menu.cover_photo_path,
         spread_photo_path=menu.spread_photo_path,
         meal_period=menu.meal_period,
+        visual_style=menu.visual_style,
         customer=SimpleNamespace(
             name=customer.name,
             language=customer.language,
@@ -91,12 +92,13 @@ class BookletRenderer:
     # until a customer-facing style selector persists a choice on the order.
     PALETTES = {
         "dark": ((20, 17, 17), (31, 27, 26), (214, 171, 92), (244, 232, 211), (182, 169, 151)),
-        "light": ((247, 241, 231), (255, 251, 244), (151, 107, 56), (48, 43, 38), (107, 93, 80)),
-        "color": ((32, 57, 56), (43, 73, 68), (243, 177, 112), (255, 244, 219), (194, 216, 192)),
+        "light": ((248, 246, 240), (255, 253, 248), (103, 95, 73), (38, 39, 35), (107, 105, 96)),
+        "color": ((249, 245, 239), (255, 251, 246), (128, 48, 68), (44, 40, 39), (151, 99, 108)),
     }
 
     def _apply_style(self, menu: Menu) -> None:
         style = str(getattr(menu, "visual_style", "dark") or "dark").lower()
+        self.style = style if style in self.PALETTES else "dark"
         self.BG, self.PANEL, self.GOLD, self.CREAM, self.MUTED = self.PALETTES.get(
             style, self.PALETTES["dark"]
         )
@@ -276,8 +278,8 @@ class BookletRenderer:
             raise ValueError("Menu contains no dishes")
         if len(left_items) > 18 or len(drinks) > 18:
             raise ValueError("Too many menu items for the two-panel print layout")
-        self._draw_food_grid(page, left, left_items, menu, drinks=drinks)
-        self._draw_right_panel(page, right, menu)
+        self._draw_food_grid(page, left, left_items, menu, drinks=[])
+        self._draw_right_panel(page, right, menu, drinks=drinks)
 
     def _draw_food_grid(self, page: Image.Image, box: tuple[int, int, int, int], items: list, menu: Menu, *, drinks: list | None = None) -> None:
         draw = ImageDraw.Draw(page)
@@ -451,25 +453,58 @@ class BookletRenderer:
         # No ellipsis: fail visibly rather than ship a misleading shortened title.
         raise ValueError(f"Dish title does not fit the card: {text!r}")
 
-    def _draw_right_panel(self, page: Image.Image, box: tuple[int, int, int, int], menu: Menu) -> None:
-        """Immersive portrait with soft edges; no food or drink overlays."""
+    def _draw_right_panel(self, page: Image.Image, box: tuple[int, int, int, int], menu: Menu, *, drinks: list | None = None) -> None:
+        """Drinks above, integrated portrait below, with an unobstructed face."""
         x1, y1, x2, y2 = box
         draw = ImageDraw.Draw(page)
+        pad = self._px(9)
         lang = str(getattr(menu.customer.language, "value", menu.customer.language) or "ru")
-        main = {"uk": "ВАШ ОСОБЛИВИЙ ВЕЧІР", "ru": "ВАШ ОСОБЕННЫЙ ВЕЧЕР", "en": "A SPECIAL EVENING"}.get(lang, "ВАШ ОСОБЕННЫЙ ВЕЧЕР")
-        pad = self._px(11)
-        draw.text((x1 + pad, y1 + self._px(9)), main, font=self._font(17, serif=True, bold=True), fill=self.GOLD)
-        draw.line((x1 + pad, y1 + self._px(23), x2 - pad, y1 + self._px(23)), fill=(126, 95, 66), width=max(2, self._px(.35)))
-        photo_top = y1 + self._px(27)
+        title = {"uk": "НАПОЇ", "ru": "НАПИТКИ", "en": "DRINKS"}.get(lang, "НАПИТКИ")
+        draw.text((x1 + pad, y1 + self._px(8)), title,
+                  font=self._font(18, serif=True, bold=True), fill=self.GOLD)
+        draw.line((x1 + pad, y1 + self._px(23), x2 - pad, y1 + self._px(23)),
+                  fill=self.MUTED, width=max(1, self._px(.25)))
+        drinks = drinks or []
+        if drinks:
+            cols = min(4, len(drinks))
+            rows = (len(drinks) + cols - 1) // cols
+            drink_h = min(self._px(102), self._px(29 + rows * 33))
+            cell_w = (x2 - x1 - 2 * pad) // cols
+            cell_h = (drink_h - self._px(29)) // rows
+            for index, item in enumerate(drinks):
+                row, col = divmod(index, cols)
+                cx = x1 + pad + col * cell_w
+                cy = y1 + self._px(28) + row * cell_h
+                photo_h = max(self._px(13), cell_h - self._px(12))
+                photo = self._safe_item_image(item.image_path, cell_w - self._px(3), photo_h)
+                page.paste(photo, (cx, cy))
+                self._fit_text(draw, display_dish_title(item.title),
+                               (cx, cy + photo_h + self._px(1),
+                                cx + cell_w - self._px(3), cy + cell_h),
+                               self._font(8, serif=True), self.CREAM, max_lines=2)
+        else:
+            drink_h = self._px(29)
+        photo_top = y1 + drink_h + self._px(4)
         photo_width, photo_height = x2 - x1, y2 - photo_top
-        portrait = self._portrait_contain_image(Path(menu.spread_photo_path), photo_width, photo_height)
-        portrait = ImageEnhance.Color(portrait).enhance(.9)
-        fade_x, fade_y = max(1, self._px(23)), max(1, self._px(24))
+        portrait = self._portrait_contain_image(
+            Path(menu.spread_photo_path), photo_width, photo_height
+        )
+        # A modest edge blend integrates the image without washing out faces.
+        fade = max(1, self._px(7))
         horizontal = Image.new("L", (photo_width, 1))
-        horizontal.putdata([max(0, int(255 * min(1.0, xx / fade_x, (photo_width - 1 - xx) / fade_x))) for xx in range(photo_width)])
+        horizontal.putdata([
+            max(0, int(255 * min(1.0, xx / fade, (photo_width - 1 - xx) / fade)))
+            for xx in range(photo_width)
+        ])
         vertical = Image.new("L", (1, photo_height))
-        vertical.putdata([max(0, int(240 * min(1.0, yy / fade_y, (photo_height - 1 - yy) / fade_y))) for yy in range(photo_height)])
-        alpha = ImageChops.multiply(horizontal.resize((photo_width, photo_height)), vertical.resize((photo_width, photo_height)))
+        vertical.putdata([
+            max(0, int(255 * min(1.0, yy / fade, (photo_height - 1 - yy) / fade)))
+            for yy in range(photo_height)
+        ])
+        alpha = ImageChops.multiply(
+            horizontal.resize((photo_width, photo_height)),
+            vertical.resize((photo_width, photo_height)),
+        )
         page.paste(portrait, (x1, photo_top), alpha)
 
     def _draw_inside_letter(self, page: Image.Image, box: tuple[int, int, int, int], menu: Menu) -> None:
