@@ -461,19 +461,24 @@ class BookletRenderer:
         caption_h = min(height // 3, self._px(28 if compact else 32))
         photo_h = height - caption_h
         picture = self._safe_item_image(item.image_path, width, photo_h)
-        card_bg = self.PANEL if self.style == "dark" else (255, 253, 248)\n        card = Image.new("RGB", (width, height), card_bg)
+        card_bg = self.PANEL if self.style == "dark" else (255, 253, 248)
+        card = Image.new("RGB", (width, height), card_bg)
         card.paste(picture, (0, 0))
         mask = Image.new("L", card.size, 0)
         ImageDraw.Draw(mask).rounded_rectangle((0, 0, width - 1, height - 1), radius=radius, fill=255)
         page.paste(card, (x1, y1), mask)
 
         draw = ImageDraw.Draw(page)
-        card_border = self.MUTED if self.style == "dark" else self.GOLD\n        draw.rounded_rectangle(box, radius=radius, outline=card_border, width=max(1, self._px(0.18)))
+        card_border = self.MUTED if self.style == "dark" else self.GOLD
+        draw.rounded_rectangle(box, radius=radius, outline=card_border, width=max(1, self._px(0.18)))
         item_title = display_dish_title(item.title)
         self._fit_card_title(
             draw, item_title,
             (x1 + self._px(4), y2 - caption_h + self._px(2), x2 - self._px(4), y2 - self._px(2)),
-            compact=compact,\n        )\n\n    def _fit_card_title(
+            compact=compact,
+        )
+
+    def _fit_card_title(
         self, draw: ImageDraw.ImageDraw, text: str,
         box: tuple[int, int, int, int], *, compact: bool,
     ) -> None:
