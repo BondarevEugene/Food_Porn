@@ -42,6 +42,7 @@ class IllustrationContext:
     current_revision: int
     owner_verified: bool
     manuscript_approved: bool
+    continuity: str = ""
 
 
 async def run_illustration_job(
@@ -69,10 +70,13 @@ async def run_illustration_job(
         raise PermissionError("Illustration job references a stale manuscript")
     if not context.hero.strip() or not context.style.strip():
         raise ValueError("Illustration context is incomplete")
+    if len(context.continuity) > 1200:
+        raise ValueError("Continuity notes are oversized")
     await fence_dispatch(job)
     # No retry of this call without explicit reconciliation.
     raw = await illustrator.generate_scene(
         scene=context.scene, hero=context.hero, style=context.style,
+        continuity=context.continuity,
     )
     sanitized = sanitize_image(raw)
     await persist_image(job, sanitized.data)
