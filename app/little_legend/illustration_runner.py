@@ -18,10 +18,11 @@ from app.little_legend.illustration_queue_store import (
     fence_illustration_dispatch,
 )
 from app.little_legend.illustration_worker import (
-    IllustrationContext, Illustrator, run_illustration_job_with_private_store,
+    IllustrationContext, Illustrator, run_illustration_job,
 )
 from app.little_legend.router import StoryDraft, stories
 from app.little_legend.writer_queue import JobPolicy
+from app.little_legend.generated_art_store import save_generated_illustration
 
 
 async def process_next_illustration(
@@ -78,20 +79,6 @@ async def process_next_illustration(
             job_id=current.job_id, owner_id=current.owner_id,
             token=current.lease_token, success=True, policy=policy,
         )
-
-    class AsyncStore:
-        async def _put(self, *, key, data, content_type):
-            await asyncio.to_thread(
-                store.put, key=key, data=data, content_type=content_type,
-            )
-
-        def put(self, *, key, data, content_type):
-            # Called by synchronous adapter inside the event loop.
-            # S3 upload is blocking; a dedicated async wrapper is below.
-            raise RuntimeError("Use asynchronous private-store persistence")
-
-    from app.little_legend.generated_art_store import save_generated_illustration
-    from app.little_legend.illustration_worker import run_illustration_job
 
     async def persist(current, data):
         await asyncio.to_thread(
