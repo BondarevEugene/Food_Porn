@@ -22,8 +22,8 @@ from app.little_legend.writer_checkpoints import WriterCheckpoint
 from app.little_legend.writer_queue import JobPolicy, WriterJob
 from app.little_legend.writer_queue_store import (
     claim_next_writer_job,
-    transition_writer_job,
     mark_writer_provider_dispatched,
+    transition_writer_job,
 )
 from app.little_legend.writer_result_commit import commit_writer_result
 
