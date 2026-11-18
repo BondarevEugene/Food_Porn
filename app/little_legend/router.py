@@ -30,6 +30,11 @@ from app.little_legend.blueprint import (
     quick_blueprint,
     visual_consistency_check,
 )
+from app.little_legend.character_identity import (
+    IdentityBible,
+    identity_review,
+    quick_identity_bible,
+)
 from app.little_legend.editorial import audit_story
 from app.little_legend.narrative_design import StoryDesign, design_guidance
 from app.little_legend.print_renderer import render_print_proof
@@ -71,6 +76,7 @@ class StoryDraft(BaseModel):
     graph: StoryGraph | None = None
     blueprint: BookBlueprint | None = None
     design: StoryDesign = Field(default_factory=StoryDesign)
+    identity_bible: IdentityBible | None = None
 
 
 async def initialize_schema() -> None:
@@ -140,6 +146,8 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
             draft.blueprint = previous.blueprint
         if "design" not in draft.model_fields_set:
             draft.design = previous.design
+        if "identity_bible" not in draft.model_fields_set:
+            draft.identity_bible = previous.identity_bible
         result = await session.execute(update(stories).where(
             stories.c.id == story_id, stories.c.owner_id == owner
         ).values(title=draft.title, hero=draft.hero, data=draft.model_dump_json(),
@@ -175,6 +183,28 @@ async def _owned_draft(story_id: int, owner: int) -> StoryDraft:
     if raw is None:
         raise HTTPException(404, "Story not found")
     return StoryDraft.model_validate_json(raw)
+
+
+@router.get("/api/stories/{story_id}/identity")
+async def read_identity(story_id: int, owner: Annotated[int, Depends(_owner)]):
+    draft = await _owned_draft(story_id, owner)
+    blueprint = draft.blueprint or quick_blueprint(draft.hero)
+    bible = draft.identity_bible or quick_identity_bible(blueprint, draft.hero)
+    graph = draft.graph or build_graph(draft.scenes)
+    return {"identity": bible.model_dump(), "review": identity_review(bible, graph)}
+
+
+@router.put("/api/stories/{story_id}/identity")
+async def save_identity(
+    story_id: int, bible: IdentityBible, owner: Annotated[int, Depends(_owner)],
+):
+    draft = await _owned_draft(story_id, owner)
+    if bible.hero_name != draft.hero:
+        raise HTTPException(422, "Hero name must match story hero")
+    draft.identity_bible = bible
+    await save_story(story_id, draft, owner)
+    graph = draft.graph or build_graph(draft.scenes)
+    return {"saved": True, "review": identity_review(bible, graph)}
 
 
 @router.get("/api/stories/{story_id}/design")
@@ -313,7 +343,7 @@ nav button{font-size:13px;padding:12px 8px}
 <p class="hero-lead">Придумайте приключение за пару минут или станьте режиссёром каждой сцены. Личные детали необязательны.</p>
 <div id="authError" class="error hidden">Откройте студию кнопкой из Telegram-бота.</div>
 <div id="workspace" class="hidden">
-<nav><button class="secondary" onclick="tab('idea')">01 · Идея</button><button class="secondary" onclick="tab('hero')">02 · Герой</button><button class="secondary" onclick="openDesign()">03 · Драматургия</button><button class="secondary" onclick="tab('scenes')">04 · Сцены</button><button class="secondary" onclick="openDirector()">05 · Стиль</button><button class="secondary" onclick="tab('edition')">06 · Издание</button></nav>
+<nav><button class="secondary" onclick="tab('idea')">01 · Идея</button><button class="secondary" onclick="tab('hero')">02 · Герой</button><button class="secondary" onclick="openDesign()">03 · Драматургия</button><button class="secondary" onclick="tab('scenes')">04 · Сцены</button><button class="secondary" onclick="openIdentity()">05 · Внешность</button><button class="secondary" onclick="openDirector()">06 · Стиль</button><button class="secondary" onclick="tab('edition')">07 · Издание</button></nav>
 <section id="idea" class="card">
 <h2>Ваша история</h2>
 <label>Название</label><input id="title" maxlength="180">
@@ -328,6 +358,20 @@ nav button{font-size:13px;padding:12px 8px}
 <label>Любимые выражения (необязательно)</label><textarea id="phrases" maxlength="2000"></textarea>
 <p class="note">Загрузка детских фотографий будет включена после добавления согласия родителей и защищённого хранилища.</p></section>
 <section id="scenes" class="card hidden"><h2>Режиссёрская раскадровка</h2><p class="note">Изменяйте поворот в любой сцене. Автоматическая генерация графа появится на следующем этапе.</p><div id="sceneList"></div></section>
+<section id="identity" class="card hidden"><h2>Визуальная библия героя</h2>
+<p class="note">Зафиксируйте внешность ребёнка. Фотографии пока не загружаются.</p>
+<label>Режим</label><select id="identityMode" onchange="identityMode()"><option value="quick">Быстро</option><option value="director">Подробно</option></select>
+<label>Волосы</label><input id="identityHair" maxlength="200">
+<label>Глаза</label><input id="identityEyes" maxlength="200">
+<div id="identityAdvanced" class="hidden">
+<label>Черты лица</label><textarea id="identityFace" maxlength="300"></textarea>
+<label>Пропорции</label><textarea id="identityProportions" maxlength="300"></textarea>
+<label>Неизменные приметы (каждая с новой строки)</label><textarea id="identityFixed"></textarea>
+<label>Что нельзя менять (каждое с новой строки)</label><textarea id="identityForbidden"></textarea>
+</div>
+<label><input id="identityReviewed" type="checkbox" style="width:auto"> Я проверил(а) описание внешности</label>
+<p class="note">Это не согласие на обработку фото. Фотофункции будут доступны только после отдельного защищённого процесса согласия.</p>
+<button class="secondary" onclick="saveIdentity()">Сохранить внешность</button><p id="identityStatus" class="note"></p></section>
 <section id="design" class="card hidden"><h2>Душа вашей истории</h2>
 <p class="note">Быстро: можно пропустить. Подробно: задайте эмоциональную арку героя.</p>
 <label>Режим драматургии</label><select id="designMode" onchange="designMode()"><option value="quick">Быстро</option><option value="director">Подробно</option></select>
@@ -373,7 +417,7 @@ const auth=tg?.initData;let storyId=null;let activeGraph=null;
 const fields=['title','genre','setup','mystery','ending','habits','phrases','dedication','city'];
 const defaults=['Знакомство с героем','Необычное событие','Первый союзник','Тайное послание','Первая загадка','Опасная находка','Неожиданный поворот','Испытание дружбы','Разгадка тайны','План спасения','Главное испытание','Развязка и новая тайна'];
 const $=id=>document.getElementById(id);
-function tab(id){['idea','hero','scenes','edition','graph','director','design'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
+function tab(id){['idea','hero','scenes','edition','graph','director','design','identity'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
 function drawScenes(items){$('sceneList').replaceChildren();items.forEach((value,i)=>{let row=document.createElement('div');row.className='scene';let n=document.createElement('span');n.textContent=i+1;let t=document.createElement('textarea');t.maxLength=4000;t.value=value;t.dataset.scene=i;row.append(n,t);$('sceneList').append(row)})}
 function collect(){let obj={};fields.forEach(k=>obj[k]=$(k).value);obj.hero=$('heroName').value;obj.scenes=[...document.querySelectorAll('[data-scene]')].map(x=>x.value);return obj}
 function fill(data){fields.forEach(k=>$(k).value=data[k]||'');$('heroName').value=data.hero||'Оля';drawScenes(data.scenes||defaults)}
@@ -412,6 +456,11 @@ drawScenes(activeGraph.nodes.slice().sort((a,b)=>a.order-b.order).map(x=>x.summa
 $('graphStatus').textContent='Сохранено · редакторский индекс '+result.editorial.score+'/100';
 }catch(e){$('graphStatus').textContent='Ошибка: '+e.message}}
 async function proof(){try{if(!storyId){$('status').textContent='Сначала сохраните книгу';return}const r=await fetch('/little-legend/api/stories/'+storyId+'/proof.pdf',{headers:{Authorization:'tma '+auth}});if(!r.ok)throw Error('PDF HTTP '+r.status);const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='little-legend-proof.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000)}catch(e){$('status').textContent=e.message}}
+let activeIdentity=null;
+function identityMode(){$('identityAdvanced').classList.toggle('hidden',$('identityMode').value!=='director')}
+function identityLines(id){return $(id).value.split(String.fromCharCode(10)).map(x=>x.trim()).filter(Boolean).slice(0,12)}
+async function openIdentity(){tab('identity');if(!storyId){$('identityStatus').textContent='Сначала сохраните книгу';return}try{const result=await api('/stories/'+storyId+'/identity');activeIdentity=result.identity;const x=activeIdentity.identity;$('identityMode').value=x.mode;$('identityHair').value=x.hair;$('identityEyes').value=x.eyes;$('identityFace').value=x.face;$('identityProportions').value=x.proportions;$('identityFixed').value=x.fixed_details.join(String.fromCharCode(10));$('identityForbidden').value=x.forbidden_changes.join(String.fromCharCode(10));$('identityReviewed').checked=x.parent_reviewed_description;identityMode();$('identityStatus').textContent=result.review.warnings.join(' · ')}catch(e){$('identityStatus').textContent=e.message}}
+async function saveIdentity(){try{if(!storyId||!activeIdentity)throw Error('Сначала откройте настройки');const x=activeIdentity.identity;x.mode=$('identityMode').value;x.hair=$('identityHair').value;x.eyes=$('identityEyes').value;x.face=$('identityFace').value;x.proportions=$('identityProportions').value;x.fixed_details=identityLines('identityFixed');x.forbidden_changes=identityLines('identityForbidden');x.parent_reviewed_description=$('identityReviewed').checked;const result=await api('/stories/'+storyId+'/identity','PUT',activeIdentity);$('identityStatus').textContent='Сохранено. '+result.review.warnings.join(' · ')}catch(e){$('identityStatus').textContent='Ошибка: '+e.message}}
 const designKeys=['desire','need','stakes','decisive_choice','transformation','theme','recurring_symbol','emotional_safety_note'];
 function designMode(){$('designAdvanced').classList.toggle('hidden',$('designMode').value!=='director')}
 async function openDesign(){tab('design');if(!storyId){$('designStatus').textContent='Сначала сохраните черновик';return}try{const result=await api('/stories/'+storyId+'/design');designKeys.forEach(k=>$(k).value=result.design[k]||'');$('designMode').value=designKeys.some(k=>result.design[k])?'director':'quick';designMode();$('designTips').textContent=result.guidance.audience_guidance+' · '+result.guidance.missing_arc_elements.length+' элементов арки ещё не заполнены'}catch(e){$('designStatus').textContent=e.message}}
