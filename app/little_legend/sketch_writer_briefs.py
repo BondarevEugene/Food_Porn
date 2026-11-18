@@ -6,10 +6,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from app.little_legend.client_sketch import ParentSketch
-from app.little_legend.manuscript_studio import chapter_writing_jobs
 from app.little_legend.blueprint import BookBlueprint
+from app.little_legend.client_sketch import ParentSketch
 from app.little_legend.hero_contract import HeroContract
+from app.little_legend.manuscript_studio import chapter_writing_jobs
 from app.little_legend.narrative_design import StoryDesign
 from app.little_legend.story_graph import StoryGraph
 from app.little_legend.story_writer import StoryManuscript
