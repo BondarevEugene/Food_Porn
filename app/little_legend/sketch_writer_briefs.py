@@ -13,6 +13,7 @@ from app.little_legend.literary_direction import build_literary_direction
 from app.little_legend.manuscript_studio import chapter_writing_jobs
 from app.little_legend.narrative_design import StoryDesign
 from app.little_legend.story_graph import StoryGraph
+from app.little_legend.story_memory import build_story_memory
 from app.little_legend.story_writer import StoryManuscript
 
 
@@ -77,6 +78,9 @@ def compose_sketch_chapter_briefs(
                 "complete_outline": all_summaries,
                 "previous_chapters": earlier,
             },
+            "story_memory": build_story_memory(
+                graph, scene_id=job["scene_id"], manuscript=existing,
+            ).model_dump(mode="json"),
             "literary_direction": build_literary_direction(
                 blueprint.controls, design, mode=settings.mode,
                 scene_goal=str(job.get("goal", "")),
