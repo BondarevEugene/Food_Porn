@@ -57,8 +57,8 @@ from app.little_legend.secure_vault import upload_capability
 from app.little_legend.story_graph import StoryGraph, build_graph, graph_report
 from app.little_legend.vault_registry import (
     metadata as vault_metadata,
-    vault_summary,
 )
+from app.little_legend.vault_registry import vault_summary
 from app.miniapp.auth import current_user
 
 router = APIRouter(prefix="/little-legend", tags=["little-legend"])
