@@ -72,7 +72,7 @@ async def test_unapproved_manuscript_does_not_call_provider():
         await produce_illustrated_book(
             illustrator=provider, title="Marta", dedication="",
             graph=graph, manuscript=manuscript, style="storybook",
-            approved_scene_ids={"scene_1"},
+            approved_scene_ids={"scene_1"}, **_consent(),
         )
     assert provider.calls == []
 
