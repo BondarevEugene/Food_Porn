@@ -38,10 +38,10 @@ from app.little_legend.character_identity import (
 )
 from app.little_legend.client_sketch import ParentSketch, outline_from_sketch
 from app.little_legend.consent import (
-    ConsentDecision,
-    ConsentRecord,
     PHOTO_NOTICE,
     TERMS,
+    ConsentDecision,
+    ConsentRecord,
     consent_status,
     record_decision,
     withdraw_photo_consent,
@@ -103,7 +103,6 @@ from app.little_legend.text_ai_disclosure import (
 )
 from app.little_legend.vault_registry import vault_summary
 from app.miniapp.auth import current_user
-
 
 router = APIRouter(prefix="/little-legend", tags=["little-legend"])
 metadata = MetaData()
