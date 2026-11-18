@@ -52,11 +52,6 @@ from app.little_legend.hero_contract import (
     scene_directives,
 )
 from app.little_legend.narrative_design import StoryDesign, design_guidance
-from app.little_legend.story_writer import (
-    ChapterDraft,
-    StoryManuscript,
-    manuscript_review,
-)
 from app.little_legend.manuscript_repository import (
     ChapterApproval,
     ChapterEdit,
@@ -74,6 +69,11 @@ from app.little_legend.privacy_lifecycle import (
 )
 from app.little_legend.secure_vault import upload_capability
 from app.little_legend.story_graph import StoryGraph, build_graph, graph_report
+from app.little_legend.story_writer import (
+    ChapterDraft,
+    StoryManuscript,
+    manuscript_review,
+)
 from app.little_legend.vault_registry import vault_summary
 from app.miniapp.auth import current_user
 
