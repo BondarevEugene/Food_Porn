@@ -99,6 +99,8 @@ async def render_verified_video_story(
         output = destination / f"video_story_{video_order_id}.mp4"
         if Path(rendered).resolve() != output.resolve():
             await asyncio.to_thread(shutil.copyfile, rendered, output)
+        if not output.is_file() or output.stat().st_size == 0:
+            raise RuntimeError("Video renderer produced no playable file")
         async with session_factory() as session:
             current = await session.get(VideoStoryOrder, video_order_id, with_for_update=True)
             if current is None or current.status != "processing":
