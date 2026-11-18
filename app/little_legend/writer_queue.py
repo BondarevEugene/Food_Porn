@@ -39,6 +39,7 @@ class WriterJob(BaseModel):
     lease_expires_at: datetime | None = None
     retry_after: datetime | None = None
     error_code: str | None = None
+    provider_dispatched_at: datetime | None = None
 
     @model_validator(mode="after")
     def validate_lease(self) -> WriterJob:
@@ -57,6 +58,8 @@ def claim_job(
     now = now or datetime.now(UTC)
     if not token or len(token) < 16:
         raise ValueError("Strong unique lease token required")
+    if job.provider_dispatched_at is not None:
+        raise PermissionError("Provider dispatch requires manual reconciliation")
     if job.estimated_cost_usd > policy.max_estimated_cost_usd:
         raise PermissionError("Job exceeds estimated cost ceiling")
     claimable = job.status == JobStatus.QUEUED or (

@@ -22,6 +22,7 @@ from app.little_legend.writer_checkpoints import WriterCheckpoint
 from app.little_legend.writer_queue import JobPolicy, WriterJob
 from app.little_legend.writer_queue_store import (
     claim_next_writer_job,
+    mark_writer_provider_dispatched,
     transition_writer_job,
 )
 from app.little_legend.writer_result_commit import commit_writer_result
@@ -95,6 +96,13 @@ async def run_one_writer_job(
         return {"status": "rejected", "job_id": job.job_id}
     # Once an external request is dispatched, a timeout or transport failure
     # cannot prove the provider did not bill for it. Never auto-retry it.
+    try:
+        await mark_writer_provider_dispatched(
+            job_id=job.job_id, owner_id=job.owner_id,
+            token=job.lease_token,
+        )
+    except (ValueError, PermissionError):
+        return {"status": "lease_lost", "job_id": job.job_id}
     try:
         text = await provider.write_chapter(brief)
     except Exception:

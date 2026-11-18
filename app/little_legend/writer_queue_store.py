@@ -111,6 +111,33 @@ async def claim_next_writer_job(policy: JobPolicy) -> WriterJob | None:
     return None
 
 
+async def mark_writer_provider_dispatched(
+    *, job_id: str, owner_id: int, token: str,
+) -> WriterJob:
+    """Persist irreversible dispatch marker before making a billable call."""
+    now = datetime.now(UTC)
+    async with async_session_maker() as session:
+        raw = (await session.execute(select(writer_jobs.c.payload).where(
+            writer_jobs.c.job_id == job_id,
+            writer_jobs.c.owner_id == owner_id,
+        ).with_for_update())).scalar_one_or_none()
+        if raw is None:
+            raise ValueError("Writer job not found")
+        job = WriterJob.model_validate_json(raw)
+        if job.status != JobStatus.RUNNING or job.lease_token != token:
+            raise PermissionError("Worker does not own this job")
+        if job.lease_expires_at is None or job.lease_expires_at <= now:
+            raise PermissionError("Lease expired before dispatch")
+        if job.provider_dispatched_at is not None:
+            raise PermissionError("Provider dispatch already recorded")
+        job = job.model_copy(update={"provider_dispatched_at": now})
+        await session.execute(update(writer_jobs).where(
+            writer_jobs.c.job_id == job_id,
+        ).values(payload=job.model_dump_json(), updated_at=now))
+        await session.commit()
+    return job
+
+
 async def transition_writer_job(
     *, job_id: str, owner_id: int, token: str,
     success: bool, policy: JobPolicy, retryable: bool = True,
