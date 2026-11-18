@@ -206,7 +206,7 @@ textarea{min-height:76px;resize:vertical}
 button{border:0;border-radius:11px;padding:12px 15px;background:#545ac7;color:white;font:inherit;cursor:pointer}
 button.secondary{background:#e9ebfa;color:#323b80}
 nav{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0}
-nav button{flex:1} .hidden{display:none}.scene{display:flex;align-items:center;gap:8px;margin:9px 0}
+nav button{flex:1} .graph-node{border-left:4px solid #545ac7;padding:12px;margin:10px 0;background:#f0f1fc;border-radius:8px}.graph-arrow{text-align:center;color:#545ac7;font-weight:bold}.hidden{display:none}.scene{display:flex;align-items:center;gap:8px;margin:9px 0}
 .scene span{min-width:25px;color:#626d85}.scene textarea{min-height:58px}
 .note{font-size:13px;color:#677187}.error{color:#ad263a}
 </style></head><body>
@@ -230,11 +230,12 @@ nav button{flex:1} .hidden{display:none}.scene{display:flex;align-items:center;g
 <label>Любимые выражения (необязательно)</label><textarea id="phrases" maxlength="2000"></textarea>
 <p class="note">Загрузка детских фотографий будет включена после добавления согласия родителей и защищённого хранилища.</p></section>
 <section id="scenes" class="card hidden"><h2>Режиссёрская раскадровка</h2><p class="note">Изменяйте поворот в любой сцене. Автоматическая генерация графа появится на следующем этапе.</p><div id="sceneList"></div></section>
+<section id="graph" class="card hidden"><h2>Story Graph · причинно-следственная карта</h2><p class="note">Это линейный каркас сюжета. Для изменения содержания редактируйте сцены, затем сохраняйте черновик.</p><div id="graphList"></div><p id="graphReport" class="note"></p></section>
 <section id="edition" class="card hidden"><h2>Персональное издание</h2>
 <label>Посвящение</label><textarea id="dedication" maxlength="1000"></textarea>
 <label>Город выпуска</label><input id="city" maxlength="100">
 <p class="note">Авторство, год и номер экземпляра будут оформлены в финальном PDF.</p></section>
-<div class="card"><button onclick="save()">Сохранить черновик</button> <button class="secondary" onclick="fresh()">Новая книга</button><p id="status" class="note"></p></div>
+<div class="card"><button class="secondary" onclick="showGraph()">Посмотреть граф</button> <button class="secondary" onclick="proof()">PDF-макет A5</button><p class="note">PDF содержит план сцен, а не готовую книгу для печати.</p><button onclick="save()">Сохранить черновик</button> <button class="secondary" onclick="fresh()">Новая книга</button><p id="status" class="note"></p></div>
 <div class="card"><h2>Мои книги</h2><div id="books"></div></div>
 </div>
 <script>
@@ -243,13 +244,15 @@ const auth=tg?.initData;let storyId=null;
 const fields=['title','genre','setup','mystery','ending','habits','phrases','dedication','city'];
 const defaults=['Знакомство с героем','Необычное событие','Первый союзник','Тайное послание','Первая загадка','Опасная находка','Неожиданный поворот','Испытание дружбы','Разгадка тайны','План спасения','Главное испытание','Развязка и новая тайна'];
 const $=id=>document.getElementById(id);
-function tab(id){['idea','hero','scenes','edition'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
+function tab(id){['idea','hero','scenes','edition','graph'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
 function drawScenes(items){$('sceneList').replaceChildren();items.forEach((value,i)=>{let row=document.createElement('div');row.className='scene';let n=document.createElement('span');n.textContent=i+1;let t=document.createElement('textarea');t.maxLength=4000;t.value=value;t.dataset.scene=i;row.append(n,t);$('sceneList').append(row)})}
 function collect(){let obj={};fields.forEach(k=>obj[k]=$(k).value);obj.hero=$('heroName').value;obj.scenes=[...document.querySelectorAll('[data-scene]')].map(x=>x.value);return obj}
 function fill(data){fields.forEach(k=>$(k).value=data[k]||'');$('heroName').value=data.hero||'Оля';drawScenes(data.scenes||defaults)}
 async function api(path,method='GET',data){let r=await fetch('/little-legend/api'+path,{method,headers:{Authorization:'tma '+auth,'Content-Type':'application/json'},body:data?JSON.stringify(data):undefined});if(!r.ok)throw Error('HTTP '+r.status);return r.json()}
 async function load(){let books=await api('/stories');$('books').replaceChildren();books.forEach(b=>{let button=document.createElement('button');button.className='secondary';button.style.margin='4px';button.textContent=b.title+' · '+b.hero;button.onclick=async()=>{try{fill(await api('/stories/'+b.id));storyId=b.id;$('status').textContent='Черновик открыт'}catch(e){$('status').textContent=e.message}};$('books').append(button)})}
 async function save(){try{let data=collect();if(!data.title.trim()||!data.hero.trim()){throw Error('Укажите название и имя героя')}let result=await api(storyId?'/stories/'+storyId:'/stories',storyId?'PUT':'POST',data);storyId=storyId||result.id;$('status').textContent='Сохранено';await load()}catch(e){$('status').textContent='Ошибка: '+e.message}}
+async function showGraph(){try{if(!storyId){$('status').textContent='Сначала сохраните книгу';return}const result=await api('/stories/'+storyId+'/graph');const nodes=result.graph.nodes;$('graphList').replaceChildren();nodes.forEach((n,i)=>{let el=document.createElement('div');el.className='graph-node';let h=document.createElement('strong');h.textContent='Акт '+n.act+' · '+n.title;let p=document.createElement('p');p.textContent=n.summary||'Сцена не заполнена';let goal=document.createElement('small');goal.textContent='Задача: '+n.goal;el.append(h,p,goal);$('graphList').append(el);if(i<nodes.length-1){let arrow=document.createElement('div');arrow.className='graph-arrow';arrow.textContent='↓ вызывает следующее событие';$('graphList').append(arrow)}});$('graphReport').textContent='Пустых сцен: '+result.report.empty_scenes.length+' · Без описания конфликта: '+result.report.missing_conflicts.length;tab('graph')}catch(e){$('status').textContent=e.message}}
+async function proof(){try{if(!storyId){$('status').textContent='Сначала сохраните книгу';return}const r=await fetch('/little-legend/api/stories/'+storyId+'/proof.pdf',{headers:{Authorization:'tma '+auth}});if(!r.ok)throw Error('PDF HTTP '+r.status);const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='little-legend-proof.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000)}catch(e){$('status').textContent=e.message}}
 function fresh(){storyId=null;fill({title:'Новая история',hero:'Оля',genre:'Научная фантастика',scenes:defaults});$('status').textContent='Новый черновик — сохраните его'}
 fresh();if(auth){$('workspace').classList.remove('hidden');load().catch(e=>$('status').textContent='Не удалось загрузить книги: '+e.message)}else{$('authError').classList.remove('hidden')}
 </script></body></html>"""
