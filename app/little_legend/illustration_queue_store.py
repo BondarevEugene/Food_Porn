@@ -1,0 +1,198 @@
+"""Durable, owner-scoped illustration jobs in Neon PostgreSQL.
+
+Provider dispatch is fenced before a paid request. Dispatched jobs cannot be
+reclaimed automatically after a crash, preventing ambiguous double billing.
+"""
+from __future__ import annotations
+
+import secrets
+from datetime import UTC, datetime
+
+from pydantic import BaseModel, Field
+from sqlalchemy import (
+    BigInteger, Column, DateTime, Integer, MetaData, String, Table,
+    Text, insert, select, update,
+)
+
+from app.database.session import async_session_maker
+from app.little_legend.writer_queue import (
+    JobPolicy, JobStatus, WriterJob, claim_job, finish_job,
+)
+
+illustration_metadata = MetaData()
+illustration_jobs = Table(
+    "little_legend_illustration_jobs", illustration_metadata,
+    Column("job_id", String(120), primary_key=True),
+    Column("story_id", Integer, nullable=False, index=True),
+    Column("owner_id", BigInteger, nullable=False, index=True),
+    Column("scene_id", String(100), nullable=False),
+    Column("status", String(20), nullable=False, index=True),
+    Column("payload", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+
+class IllustrationJob(WriterJob):
+    """Reuses the proven lease and dispatch state machine for paid image jobs."""
+
+
+class IllustrationQueuePolicy(BaseModel):
+    max_scene_jobs: int = Field(default=40, ge=1, le=40)
+    max_estimated_total_usd: float = Field(default=5, gt=0, le=50)
+
+
+async def enqueue_illustration_jobs(
+    *, story_id: int, owner_id: int, scene_ids: list[str],
+    estimated_cost_usd: float = 0.05,
+    policy: IllustrationQueuePolicy | None = None,
+) -> list[str]:
+    """Atomically enqueue one job per approved scene; never call AI here."""
+    from app.little_legend.image_ai_consent import (
+        configured_image_ai_disclosure, consent_allows_image_ai,
+    )
+    from app.little_legend.router import StoryDraft, stories
+
+    policy = policy or IllustrationQueuePolicy()
+    if not scene_ids or len(scene_ids) > policy.max_scene_jobs:
+        raise ValueError("Invalid number of illustration scenes")
+    if len(set(scene_ids)) != len(scene_ids):
+        raise ValueError("Duplicate scene IDs")
+    if estimated_cost_usd <= 0 or (
+        estimated_cost_usd * len(scene_ids) > policy.max_estimated_total_usd
+    ):
+        raise ValueError("Illustration budget exceeds limit")
+    now = datetime.now(UTC)
+    async with async_session_maker() as session:
+        raw = (await session.execute(select(stories.c.data).where(
+            stories.c.id == story_id, stories.c.owner_id == owner_id,
+        ).with_for_update())).scalar_one_or_none()
+        if raw is None:
+            raise ValueError("Story not found")
+        draft = StoryDraft.model_validate_json(raw)
+        if not consent_allows_image_ai(
+            draft.image_ai_consent, configured_image_ai_disclosure(),
+        ):
+            raise PermissionError("Image AI consent is missing or outdated")
+        if draft.manuscript is None or draft.graph is None:
+            raise PermissionError("Approved manuscript and graph required")
+        expected = {node.id for node in draft.graph.nodes}
+        chapters = {c.scene_id: c for c in draft.manuscript.chapters}
+        if (set(scene_ids) != expected or set(chapters) != expected
+                or not draft.manuscript.parent_approved
+                or any(not c.approved for c in chapters.values())):
+            raise PermissionError("Complete approved manuscript required")
+        existing = (await session.execute(
+            select(illustration_jobs.c.job_id).where(
+                illustration_jobs.c.story_id == story_id,
+                illustration_jobs.c.owner_id == owner_id,
+            )
+        )).scalars().all()
+        if existing:
+            raise PermissionError("Illustration batch already exists")
+        ids = []
+        for scene_id in scene_ids:
+            job = IllustrationJob(
+                job_id="lli_" + secrets.token_urlsafe(24),
+                story_id=story_id, owner_id=owner_id,
+                scene_id=scene_id, expected_revision=chapters[scene_id].revision,
+                estimated_cost_usd=estimated_cost_usd,
+            )
+            await session.execute(insert(illustration_jobs).values(
+                job_id=job.job_id, story_id=story_id, owner_id=owner_id,
+                scene_id=scene_id, status=job.status.value,
+                payload=job.model_dump_json(), created_at=now, updated_at=now,
+            ))
+            ids.append(job.job_id)
+        await session.commit()
+    return ids
+
+
+async def claim_next_illustration_job(
+    policy: JobPolicy,
+) -> IllustrationJob | None:
+    now = datetime.now(UTC)
+    async with async_session_maker() as session:
+        rows = (await session.execute(
+            select(illustration_jobs).where(illustration_jobs.c.status.in_([
+                JobStatus.QUEUED.value, JobStatus.RETRY_WAIT.value,
+                JobStatus.RUNNING.value,
+            ])).order_by(illustration_jobs.c.created_at)
+            .with_for_update(skip_locked=True).limit(50)
+        )).mappings().all()
+        for row in rows:
+            job = IllustrationJob.model_validate_json(row["payload"])
+            try:
+                claimed = claim_job(
+                    job, token=secrets.token_urlsafe(32), policy=policy, now=now,
+                )
+            except (ValueError, PermissionError):
+                continue
+            await session.execute(update(illustration_jobs).where(
+                illustration_jobs.c.job_id == job.job_id,
+            ).values(
+                status=claimed.status.value,
+                payload=claimed.model_dump_json(), updated_at=now,
+            ))
+            await session.commit()
+            return IllustrationJob.model_validate(claimed)
+        await session.commit()
+    return None
+
+
+async def fence_illustration_dispatch(
+    *, job_id: str, owner_id: int, token: str,
+) -> IllustrationJob:
+    """Persist dispatch marker BEFORE invoking any billable image provider."""
+    now = datetime.now(UTC)
+    async with async_session_maker() as session:
+        raw = (await session.execute(
+            select(illustration_jobs.c.payload).where(
+                illustration_jobs.c.job_id == job_id,
+                illustration_jobs.c.owner_id == owner_id,
+            ).with_for_update()
+        )).scalar_one_or_none()
+        if raw is None:
+            raise ValueError("Illustration job not found")
+        job = IllustrationJob.model_validate_json(raw)
+        if (job.status != JobStatus.RUNNING or job.lease_token != token
+                or job.lease_expires_at is None or job.lease_expires_at <= now
+                or job.provider_dispatched_at is not None):
+            raise PermissionError("Invalid or already dispatched illustration lease")
+        job = job.model_copy(update={"provider_dispatched_at": now})
+        await session.execute(update(illustration_jobs).where(
+            illustration_jobs.c.job_id == job_id,
+        ).values(payload=job.model_dump_json(), updated_at=now))
+        await session.commit()
+    return job
+
+
+async def complete_illustration_job(
+    *, job_id: str, owner_id: int, token: str,
+    success: bool, policy: JobPolicy,
+) -> IllustrationJob:
+    now = datetime.now(UTC)
+    async with async_session_maker() as session:
+        raw = (await session.execute(
+            select(illustration_jobs.c.payload).where(
+                illustration_jobs.c.job_id == job_id,
+                illustration_jobs.c.owner_id == owner_id,
+            ).with_for_update()
+        )).scalar_one_or_none()
+        if raw is None:
+            raise ValueError("Illustration job not found")
+        job = IllustrationJob.model_validate_json(raw)
+        if job.provider_dispatched_at is None:
+            raise PermissionError("Provider dispatch was not fenced")
+        changed = finish_job(
+            job, token=token, success=success, policy=policy,
+            retryable=False, now=now,
+        )
+        await session.execute(update(illustration_jobs).where(
+            illustration_jobs.c.job_id == job_id,
+        ).values(
+            status=changed.status.value, payload=changed.model_dump_json(),
+            updated_at=now,
+        ))
+        await session.commit()
+    return IllustrationJob.model_validate(changed)
