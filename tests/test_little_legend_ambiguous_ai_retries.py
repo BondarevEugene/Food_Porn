@@ -26,9 +26,6 @@ async def test_provider_timeout_requires_manual_review(monkeypatch):
     async def claim(_policy):
         return job
 
-    async def load(*_args, **_kwargs):
-        return None
-
     class FakeSession:
         async def __aenter__(self):
             return self
