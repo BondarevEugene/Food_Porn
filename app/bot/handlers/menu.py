@@ -146,6 +146,7 @@ def format_premium_dashboard(menu: Menu) -> str:
     cover = bool(menu.cover_photo_path)
     spread = bool(menu.spread_photo_path)
     complete = int(count > 0) + int(cover) + int(spread)
+    progress = "●" * complete + "○" * (3 - complete)
     if not count:
         next_step = "Выберите блюда — по категориям, списком или по кухне мира."
     elif not cover:
@@ -153,13 +154,20 @@ def format_premium_dashboard(menu: Menu) -> str:
     elif not spread:
         next_step = "Загрузите фотографию для разворота."
     else:
-        next_step = "Всё готово. Проверьте заказ и запустите создание."
+        if menu.status == MenuStatus.COMPLETED:
+            next_step = "Меню создано. Готовые файлы доступны в заказе."
+        elif menu.status == MenuStatus.PARTIAL_SUCCESS:
+            next_step = "Часть файлов готова. Проверьте результат заказа."
+        elif menu.status in (MenuStatus.QUEUED, MenuStatus.PROCESSING):
+            next_step = "Меню формируется. Повторно запускать создание не нужно."
+        else:
+            next_step = "Всё готово. Проверьте заказ и запустите создание."
     details = [f"  • {escape_title(item.title)}" for item in menu.items if item.title != "—"]
     return "\n".join([
         f"⚜️ <b>{meal_label(menu.meal_period, language)} · #{menu.id}</b>",
         "<i>Персональная гастрономическая студия</i>",
         "",
-        f"<b>Готовность: {complete}/3</b>",
+        f"<b>Подготовка: {progress} {complete}/3</b>",
         f"{'✅' if count else '①'} Блюда · {count}",
         f"{'✅' if cover else '②'} Фото обложки",
         f"{'✅' if spread else '③'} Фото разворота",
@@ -186,7 +194,7 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
     elif not menu.spread_photo_path:
         builder.button(text="📖 Шаг 2 · Добавить разворот",
                        callback_data=MenuAction(action="req_spread", menu_id=menu.id))
-    elif can_generate and menu.status in (MenuStatus.DRAFT, MenuStatus.FAILED, MenuStatus.QUEUED):
+    elif can_generate and menu.status in (MenuStatus.DRAFT, MenuStatus.FAILED):
         builder.button(text="✨ Шаг 3 · Создать гастрономический сет",
                        callback_data=MenuAction(action="generate", menu_id=menu.id))
     if getattr(menu, "is_paid", False) and menu.status in (
@@ -196,8 +204,6 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
                        callback_data=MenuAction(action="resend", menu_id=menu.id))
     builder.button(text="⚙️ Изменить или дополнить",
                    callback_data=MenuAction(action="menu_more", menu_id=menu.id))
-    builder.button(text="ℹ️ Что нужно для генерации",
-                   callback_data=MenuAction(action="requirements", menu_id=menu.id))
     builder.button(text="⬅️ Назад", callback_data="prod_food_porn")
     builder.adjust(1)
     return builder.as_markup()
