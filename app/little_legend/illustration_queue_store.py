@@ -5,44 +5,31 @@ reclaimed automatically after a crash, preventing ambiguous double billing.
 """
 from __future__ import annotations
 
-import secrets
 from datetime import UTC, datetime
+import secrets
 
 from pydantic import BaseModel, Field
 from sqlalchemy import (
     BigInteger,
     Column,
     DateTime,
-    insert,
     Integer,
     MetaData,
-    select,
     String,
     Table,
     Text,
+    insert,
+    select,
     update,
 )
 
 from app.database.session import async_session_maker
 from app.little_legend.writer_queue import (
-    claim_job,
-    finish_job,
     JobPolicy,
     JobStatus,
     WriterJob,
-)
-
-illustration_metadata = MetaData()
-illustration_jobs = Table(
-    "little_legend_illustration_jobs", illustration_metadata,
-    Column("job_id", String(120), primary_key=True),
-    Column("story_id", Integer, nullable=False, index=True),
-    Column("owner_id", BigInteger, nullable=False, index=True),
-    Column("scene_id", String(100), nullable=False),
-    Column("status", String(20), nullable=False, index=True),
-    Column("payload", Text, nullable=False),
-    Column("created_at", DateTime(timezone=True), nullable=False),
-    Column("updated_at", DateTime(timezone=True), nullable=False),
+    claim_job,
+    finish_job,
 )
 
 
