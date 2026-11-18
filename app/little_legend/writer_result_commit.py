@@ -13,12 +13,30 @@ from app.database.session import async_session_maker
 from app.little_legend.editorial_review import EditorialDecision
 from app.little_legend.story_graph import build_graph
 from app.little_legend.story_writer import StoryManuscript
+from app.little_legend.text_ai_disclosure import (
+    configured_text_ai_disclosure,
+    consent_allows_provider,
+)
 from app.little_legend.writer_checkpoints import (
     WriterCheckpoint,
     apply_writer_checkpoint,
 )
 from app.little_legend.writer_queue import JobPolicy, JobStatus, WriterJob, finish_job
 from app.little_legend.writer_queue_store import writer_jobs
+
+
+def verify_commit_authorization(draft: object) -> None:
+    """Recheck consent under the story row lock before persisting AI output."""
+    if not consent_allows_provider(
+        draft.text_ai_consent, configured_text_ai_disclosure()
+    ):
+        raise PermissionError("AI consent was withdrawn or disclosure changed")
+    if not draft.outline_approved:
+        raise PermissionError("Parent outline approval was withdrawn")
+    if draft.parent_sketch is None or draft.graph is None:
+        raise PermissionError("Approved source outline is missing")
+    if draft.blueprint is None or not draft.blueprint.family_approved:
+        raise PermissionError("Family blueprint approval is missing")
 
 
 def verify_checkpoint_lease(
@@ -71,6 +89,10 @@ async def commit_writer_result(
         if raw_story is None:
             raise HTTPException(404, "Story not found")
         draft = StoryDraft.model_validate_json(raw_story)
+        try:
+            verify_commit_authorization(draft)
+        except PermissionError as exc:
+            raise HTTPException(409, str(exc)) from exc
         manuscript = draft.manuscript or StoryManuscript(hero_name=draft.hero)
         if manuscript.hero_name != draft.hero:
             raise HTTPException(409, "Manuscript hero mismatch")
