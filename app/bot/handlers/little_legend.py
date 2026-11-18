@@ -2,8 +2,8 @@
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
-from app.config import get_settings
 from app.bot.handlers.wallpaper import language_for, text_for
+from app.config import get_settings
 
 router = Router(name="little_legend")
 
