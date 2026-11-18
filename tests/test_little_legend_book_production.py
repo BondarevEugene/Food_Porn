@@ -1,13 +1,13 @@
 """Production orchestration: approvals before provider calls and real PDF output."""
 from io import BytesIO
 
-import pytest
 from PIL import Image
+import pytest
 
 from app.little_legend.book_production import produce_illustrated_book
 from app.little_legend.image_ai_consent import (
-    accept_image_ai_consent,
     ImageAIDisclosure,
+    accept_image_ai_consent,
 )
 from app.little_legend.story_graph import build_graph
 from app.little_legend.story_writer import ChapterDraft, StoryManuscript
