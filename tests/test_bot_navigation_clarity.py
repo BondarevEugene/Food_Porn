@@ -20,10 +20,11 @@ def _actions(markup):
     return [button.callback_data for row in markup.inline_keyboard for button in row]
 
 
-def test_main_menu_contains_two_products_and_orders_before_services():
+def test_main_menu_contains_three_products_and_orders_before_services():
     actions = _actions(get_products_menu_keyboard(user_id=123, lang="uk"))
-    assert actions[:4] == [
-        "prod_food_porn", "prod_manifestation", "home_orders", "home_services"
+    assert actions[:5] == [
+        "prod_food_porn", "prod_manifestation", "prod_little_legend",
+        "home_orders", "home_services",
     ]
     assert not any(action in actions for action in (
         "home_instruction", "home_faq", "home_support",
@@ -33,8 +34,9 @@ def test_main_menu_contains_two_products_and_orders_before_services():
 
 def test_main_menu_admin_entry_is_separate():
     actions = _actions(get_products_menu_keyboard(user_id=123, lang="en", is_admin=True))
-    assert actions[:4] == [
-        "prod_food_porn", "prod_manifestation", "home_orders", "home_services"
+    assert actions[:5] == [
+        "prod_food_porn", "prod_manifestation", "prod_little_legend",
+        "home_orders", "home_services",
     ]
     assert actions[-1] == "admin_home"
 

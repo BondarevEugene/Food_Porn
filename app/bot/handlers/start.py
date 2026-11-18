@@ -189,6 +189,10 @@ def get_products_menu_keyboard(
             callback_data="prod_manifestation",
         )],
         [InlineKeyboardButton(
+            text=text_for(lang, "📚 Книга про дитину", "📚 Книга о ребёнке", "📚 Personal storybook"),
+            callback_data="prod_little_legend",
+        )],
+        [InlineKeyboardButton(
             text=text_for(lang, "📦 Мої замовлення", "📦 Мои заказы", "📦 My orders"),
             callback_data="home_orders",
         )],

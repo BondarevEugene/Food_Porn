@@ -20,6 +20,7 @@ from app.crm.router import router as crm_router
 from app.crm.service import load_runtime_settings
 from app.database.models import AppSetting, Customer, Menu, WallpaperOrder
 from app.database.session import async_session_maker, engine
+from app.little_legend.router import initialize_schema as initialize_little_legend_schema
 from src.billing.models import Account, Transaction
 from src.orchestrator.models import ServiceInstance
 
@@ -183,6 +184,7 @@ class ServiceInstanceAdmin(ModelView, model=ServiceInstance):
 @asynccontextmanager
 async def application_lifespan(_app):
     await initialize_schema(engine)
+    await initialize_little_legend_schema()
     # The orchestrator has separate metadata; provision only its registry table.
     # Existing tables and data are left untouched.
     async with engine.begin() as connection:
