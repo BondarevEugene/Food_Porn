@@ -5,7 +5,6 @@ validates file envelopes and defines persistent lifecycle metadata contracts.
 """
 from __future__ import annotations
 
-import hashlib
 import hmac
 import secrets
 from datetime import UTC, datetime, timedelta
