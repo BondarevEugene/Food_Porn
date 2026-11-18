@@ -1,8 +1,8 @@
 """Little Legend: owner-scoped story drafts inside the existing Food_Porn app."""
 from __future__ import annotations
 
-from datetime import UTC, datetime
 import json
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -103,6 +103,26 @@ from app.little_legend.text_ai_disclosure import (
 )
 from app.little_legend.vault_registry import vault_summary
 from app.miniapp.auth import current_user
+
+
+router = APIRouter(prefix="/little-legend", tags=["little-legend"])
+metadata = MetaData()
+stories = Table(
+    "little_legend_stories", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("owner_id", BigInteger, nullable=False, index=True),
+    Column("title", String(180), nullable=False),
+    Column("hero", String(100), nullable=False),
+    Column("data", Text, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+DEFAULT_SCENES = [
+    "Знакомство с героем", "Необычное событие", "Первый союзник",
+    "Тайное послание", "Первая загадка", "Опасная находка",
+    "Неожиданный поворот", "Испытание дружбы", "Разгадка тайны",
+    "План спасения", "Главное испытание", "Развязка и новая тайна",
+]
 
 
 class StoryDraft(BaseModel):
