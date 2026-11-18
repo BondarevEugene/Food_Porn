@@ -289,13 +289,31 @@ nav{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0}
 nav button{flex:1} .graph-node{border-left:4px solid #545ac7;padding:12px;margin:10px 0;background:#f0f1fc;border-radius:8px}.graph-arrow{text-align:center;color:#545ac7;font-weight:bold}.hidden{display:none}.scene{display:flex;align-items:center;gap:8px;margin:9px 0}
 .scene span{min-width:25px;color:#626d85}.scene textarea{min-height:58px}
 .note{font-size:13px;color:#677187}.error{color:#ad263a}
+
+:root{--ink:#293149;--muted:#6b7492;--line:#e4e8f4;--shadow:0 14px 38px rgba(62,67,123,.08)}
+body{background:radial-gradient(ellipse at top left,#e8efff 0,transparent 48%),linear-gradient(150deg,#f9f7ff,#f4f8ff);color:var(--ink);padding:18px 16px 110px;min-height:100vh}
+header{background:rgba(255,255,255,.78);border:1px solid var(--line);border-radius:16px;padding:14px 16px;box-shadow:var(--shadow)}
+h1{font-family:Georgia,serif;font-size:clamp(27px,6vw,37px);letter-spacing:-.6px;line-height:1.15;margin:25px 0 10px}
+h2{font-family:Georgia,serif;font-size:22px;margin:0 0 12px}
+.card{border-color:var(--line);box-shadow:var(--shadow);padding:21px;border-radius:20px}
+input,textarea,select{background:#fcfdff;border:1px solid #d8dff0;outline:none}
+input:focus,textarea:focus,select:focus{border-color:#8982d4;box-shadow:0 0 0 3px #e9e5ff}
+button{background:linear-gradient(130deg,#6253b7,#516fc2);font-weight:650}
+button:active{transform:scale(.98)}
+button.secondary{background:#e9ecfb;color:#3e478b}
+nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+nav button{font-size:13px;padding:12px 8px}
+.hero-lead{color:var(--muted);line-height:1.6;max-width:520px}
+.graph-node{border-left:4px solid #8571ca;background:#f8f8ff}
+.note{line-height:1.55}
+@media(min-width:640px){nav{grid-template-columns:repeat(3,minmax(0,1fr))}}
 </style></head><body>
 <header><strong>✦ LITTLE LEGEND</strong><span>Story Director</span></header>
-<h1>Книга о вашем ребёнке</h1>
-<p class="note">Черновик сохраняется в вашем Telegram-аккаунте. Все личные детали необязательны.</p>
+<h1>История, в которой ваш ребёнок — герой</h1>
+<p class="hero-lead">Придумайте приключение за пару минут или станьте режиссёром каждой сцены. Личные детали необязательны.</p>
 <div id="authError" class="error hidden">Откройте студию кнопкой из Telegram-бота.</div>
 <div id="workspace" class="hidden">
-<nav><button class="secondary" onclick="tab('idea')">Быстрая сказка</button><button class="secondary" onclick="tab('hero')">Герой</button><button class="secondary" onclick="tab('scenes')">12 сцен</button><button class="secondary" onclick="tab('edition')">Издание</button></nav>
+<nav><button class="secondary" onclick="tab('idea')">01 · Идея</button><button class="secondary" onclick="tab('hero')">02 · Герой</button><button class="secondary" onclick="openDesign()">03 · Драматургия</button><button class="secondary" onclick="tab('scenes')">04 · Сцены</button><button class="secondary" onclick="openDirector()">05 · Стиль</button><button class="secondary" onclick="tab('edition')">06 · Издание</button></nav>
 <section id="idea" class="card">
 <h2>Ваша история</h2>
 <label>Название</label><input id="title" maxlength="180">
