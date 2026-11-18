@@ -159,6 +159,36 @@ async def fence_illustration_dispatch(
                 or job.lease_expires_at is None or job.lease_expires_at <= now
                 or job.provider_dispatched_at is not None):
             raise PermissionError("Invalid or already dispatched illustration lease")
+        # Recheck under the story row lock immediately before a billable call.
+        # A revoked consent or edited chapter must block dispatch even when
+        # the worker loaded an older snapshot.
+        from app.little_legend.image_ai_consent import (
+            configured_image_ai_disclosure, consent_allows_image_ai,
+        )
+        from app.little_legend.router import StoryDraft, stories
+
+        story_raw = (await session.execute(select(stories.c.data).where(
+            stories.c.id == job.story_id,
+            stories.c.owner_id == owner_id,
+        ).with_for_update())).scalar_one_or_none()
+        if story_raw is None:
+            raise PermissionError("Story was deleted or ownership changed")
+        draft = StoryDraft.model_validate_json(story_raw)
+        if not consent_allows_image_ai(
+            draft.image_ai_consent, configured_image_ai_disclosure(),
+        ):
+            raise PermissionError("Image AI consent was revoked")
+        if draft.graph is None or draft.manuscript is None:
+            raise PermissionError("Approved story is unavailable")
+        chapter = next((
+            chapter for chapter in draft.manuscript.chapters
+            if chapter.scene_id == job.scene_id
+        ), None)
+        if (not draft.manuscript.parent_approved or chapter is None
+                or not chapter.approved
+                or chapter.revision != job.expected_revision
+                or job.scene_id not in {node.id for node in draft.graph.nodes}):
+            raise PermissionError("Story approval or revision changed")
         job = job.model_copy(update={"provider_dispatched_at": now})
         await session.execute(update(illustration_jobs).where(
             illustration_jobs.c.job_id == job_id,
