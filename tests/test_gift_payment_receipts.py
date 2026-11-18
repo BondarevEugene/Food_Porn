@@ -28,6 +28,7 @@ async def payment_factory(tmp_path):
 
 
 async def _quote(factory, tmp_path, user_id=42, choice="both"):
+    (tmp_path / "portrait.jpg").write_bytes(b"gift fixture photo")
     return await create_gift_quote(
         factory,
         settings=Settings(
