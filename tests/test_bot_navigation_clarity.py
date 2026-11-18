@@ -122,3 +122,41 @@ async def test_change_product_rejects_stale_review():
     await wallpaper.change_gift_product_from_review(callback, state)
     assert callback.answer.await_args.kwargs["show_alert"] is True
     callback.message.answer.assert_not_awaited()
+
+
+def test_saved_goals_keyboard_keeps_primary_action_first():
+    actions = _actions(wallpaper.gift_saved_goals_keyboard("ru", "light"))
+    assert actions[0] == "gift_goals_continue"
+    assert actions[1:4] == ["gift_style:dark", "gift_style:light", "gift_style:color"]
+    assert actions[-1] == "back_to_products"
+
+
+@pytest.mark.asyncio
+async def test_saved_goals_continue_rejects_missing_goals():
+    callback = SimpleNamespace(answer=AsyncMock(), message=SimpleNamespace(answer=AsyncMock()))
+    state = SimpleNamespace(
+        get_state=AsyncMock(return_value=WallpaperStates.waiting_for_goals.state),
+        get_data=AsyncMock(return_value={"lang": "ru", "goals": []}),
+    )
+    await wallpaper.continue_saved_gift_goals(callback, state, Settings(_env_file=None), None)
+    assert callback.answer.await_args.kwargs["show_alert"] is True
+    callback.message.answer.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_saved_goals_continue_uses_customer_identity(monkeypatch):
+    goals = ["Мечта " + str(i) for i in range(5)]
+    customer = SimpleNamespace(id=91)
+    original = SimpleNamespace(model_copy=lambda update: SimpleNamespace(**update))
+    callback = SimpleNamespace(answer=AsyncMock(), message=original, from_user=customer)
+    state = SimpleNamespace(
+        get_state=AsyncMock(return_value=WallpaperStates.waiting_for_goals.state),
+        get_data=AsyncMock(return_value={"lang": "ru", "goals": goals}),
+    )
+    collect = AsyncMock()
+    monkeypatch.setattr(wallpaper, "collect_goals", collect)
+    await wallpaper.continue_saved_gift_goals(callback, state, Settings(_env_file=None), None)
+    assert collect.await_count == 1
+    message = collect.await_args.args[0]
+    assert message.from_user is customer
+    assert message.text == "\\n".join(goals)
