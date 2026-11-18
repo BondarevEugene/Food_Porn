@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import (
     BigInteger,
@@ -24,6 +24,8 @@ from sqlalchemy import (
 )
 
 from app.database.session import async_session_maker, engine
+from app.little_legend.print_renderer import render_print_proof
+from app.little_legend.story_graph import StoryGraph, build_graph, graph_report
 from app.miniapp.auth import current_user
 
 router = APIRouter(prefix="/little-legend", tags=["little-legend"])
@@ -58,6 +60,7 @@ class StoryDraft(BaseModel):
     dedication: str = Field(default="", max_length=1000)
     city: str = Field(default="", max_length=100)
     scenes: list[str] = Field(default_factory=lambda: list(DEFAULT_SCENES), min_length=1, max_length=40)
+    graph: StoryGraph | None = None
 
 
 async def initialize_schema() -> None:
@@ -126,6 +129,59 @@ async def remove_story(story_id: int, owner: Annotated[int, Depends(_owner)]):
     if result.rowcount == 0:
         raise HTTPException(404, "Story not found")
     return {"deleted": True}
+
+
+
+
+
+async def _owned_draft(story_id: int, owner: int) -> StoryDraft:
+    async with async_session_maker() as session:
+        raw = (await session.execute(
+            select(stories.c.data).where(
+                stories.c.id == story_id, stories.c.owner_id == owner
+            )
+        )).scalar_one_or_none()
+    if raw is None:
+        raise HTTPException(404, "Story not found")
+    return StoryDraft.model_validate_json(raw)
+
+
+@router.get("/api/stories/{story_id}/graph")
+async def story_graph(story_id: int, owner: Annotated[int, Depends(_owner)]):
+    draft = await _owned_draft(story_id, owner)
+    graph = draft.graph or build_graph(draft.scenes)
+    return {"graph": graph.model_dump(), "report": graph_report(graph)}
+
+
+@router.put("/api/stories/{story_id}/graph")
+async def save_story_graph(
+    story_id: int, graph: StoryGraph, owner: Annotated[int, Depends(_owner)],
+):
+    draft = await _owned_draft(story_id, owner)
+    draft.graph = graph
+    draft.scenes = [
+        node.summary for node in sorted(graph.nodes, key=lambda n: n.order)
+    ]
+    await save_story(story_id, draft, owner)
+    return {"saved": True, "report": graph_report(graph)}
+
+
+@router.get("/api/stories/{story_id}/proof.pdf")
+async def story_proof(story_id: int, owner: Annotated[int, Depends(_owner)]):
+    draft = await _owned_draft(story_id, owner)
+    graph = draft.graph or build_graph(draft.scenes)
+    data = render_print_proof(
+        title=draft.title, hero=draft.hero, dedication=draft.dedication,
+        city=draft.city, graph=graph,
+    )
+    return Response(
+        content=data, media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="little-legend-proof.pdf"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get("", response_class=HTMLResponse)
