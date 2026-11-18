@@ -82,8 +82,13 @@ from app.little_legend.story_writer import (
 )
 from app.little_legend.text_ai_consent import (
     TextAIConsent,
+    TextAIConsentDecision,
     text_ai_consent_status,
     withdraw_text_ai_consent,
+)
+from app.little_legend.text_ai_disclosure import (
+    accept_server_disclosure,
+    configured_text_ai_disclosure,
 )
 from app.little_legend.vault_registry import vault_summary
 from app.miniapp.auth import current_user
@@ -486,6 +491,55 @@ async def set_manuscript_chapter_approval(
     return {"saved": True, "manuscript": manuscript.model_dump(mode="json")}
 
 
+
+
+
+@router.get("/api/stories/{story_id}/text-ai-disclosure")
+async def read_text_ai_disclosure(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Show only the actual deployment-owned AI processor disclosure."""
+    await _owned_draft(story_id, owner)
+    disclosure = configured_text_ai_disclosure()
+    return {
+        "available": disclosure.ready,
+        "provider": disclosure.provider if disclosure.ready else None,
+        "notice": disclosure.notice() if disclosure.ready else None,
+    }
+
+
+@router.post("/api/stories/{story_id}/text-ai-consent")
+async def grant_text_ai_consent(
+    story_id: int, decision: TextAIConsentDecision,
+    owner: Annotated[int, Depends(_owner)],
+):
+    """Store a deliberate opt-in, only when the operator disclosed a provider."""
+    async with async_session_maker() as session:
+        raw = (await session.execute(select(stories.c.data).where(
+            stories.c.id == story_id, stories.c.owner_id == owner,
+        ).with_for_update())).scalar_one_or_none()
+        if raw is None:
+            raise HTTPException(404, "Story not found")
+        draft = StoryDraft.model_validate_json(raw)
+        terms_accepted = (
+            draft.consent.terms_accepted_at is not None
+            and draft.consent.parental_authority_declared
+            and draft.consent.version == consent_status(draft.consent)["version"]
+        )
+        try:
+            draft.text_ai_consent = accept_server_disclosure(
+                decision=decision, terms_accepted=terms_accepted,
+                disclosure=configured_text_ai_disclosure(),
+            )
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        await session.execute(update(stories).where(
+            stories.c.id == story_id, stories.c.owner_id == owner,
+        ).values(data=draft.model_dump_json(), updated_at=datetime.now(UTC)))
+        await session.commit()
+    return text_ai_consent_status(draft.text_ai_consent)
 
 @router.get("/api/stories/{story_id}/text-ai-consent")
 async def read_text_ai_consent(
