@@ -901,6 +901,63 @@ async def set_image_ai_consent(
     return {"active": draft.image_ai_consent.active}
 
 
+class IllustrationBatchRequest(BaseModel):
+    estimated_cost_usd_per_scene: float = Field(default=0.05, gt=0, le=1)
+
+
+@router.post("/api/stories/{story_id}/illustrations/queue")
+async def queue_story_illustrations(
+    story_id: int, request: IllustrationBatchRequest,
+    owner: Annotated[int, Depends(_owner)],
+):
+    """Queue an approved book without making a billable AI call."""
+    from app.little_legend.illustration_queue_store import enqueue_illustration_jobs
+
+    draft = await _owned_draft(story_id, owner)
+    if draft.graph is None:
+        raise HTTPException(409, "Story graph is required")
+    try:
+        ids = await enqueue_illustration_jobs(
+            story_id=story_id, owner_id=owner,
+            scene_ids=[node.id for node in draft.graph.nodes],
+            estimated_cost_usd=request.estimated_cost_usd_per_scene,
+        )
+    except PermissionError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"status": "queued", "job_count": len(ids)}
+
+
+@router.get("/api/stories/{story_id}/illustrations/status")
+async def story_illustration_status(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    from app.little_legend.illustration_queue_store import list_owner_illustration_jobs
+
+    try:
+        jobs = await list_owner_illustration_jobs(
+            story_id=story_id, owner_id=owner,
+        )
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {
+        "total": len(jobs),
+        "jobs": [
+            {
+                "scene_id": job.scene_id,
+                "status": job.status.value,
+                "attempt": job.attempt,
+                "requires_reconciliation": (
+                    job.provider_dispatched_at is not None
+                    and job.status.value not in {"completed", "failed", "cancelled"}
+                ),
+            }
+            for job in jobs
+        ],
+    }
+
+
 @router.get("/api/stories/{story_id}/manuscript.pdf")
 async def download_manuscript_pdf(
     story_id: int, owner: Annotated[int, Depends(_owner)],
