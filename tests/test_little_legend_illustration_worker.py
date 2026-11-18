@@ -4,13 +4,16 @@ from io import BytesIO
 import pytest
 from PIL import Image
 
-from app.little_legend.image_ai_consent import (
-    ImageAIConsent, ImageAIDisclosure, accept_image_ai_consent,
-)
 from app.little_legend.illustration_queue_store import IllustrationJob
 from app.little_legend.illustration_worker import (
-    IllustrationContext, run_illustration_job,
+    IllustrationContext,
+    run_illustration_job,
     run_illustration_job_with_private_store,
+)
+from app.little_legend.image_ai_consent import (
+    ImageAIConsent,
+    ImageAIDisclosure,
+    accept_image_ai_consent,
 )
 from app.little_legend.story_graph import build_graph
 from app.little_legend.writer_queue import JobStatus
