@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
 from app.crm.models import GiftFulfillment, GiftPaymentReceipt, GiftPurchase
-from app.database.models import VideoStoryOrder
+from app.database.models import VideoStoryOrder, WallpaperOrder
 from app.database.repositories import WallpaperOrderRepository
 from app.services.goal_story import GoalScenePlanner
 from app.services.replicate_vision_board import ReplicateVisionBoardRenderer
@@ -57,6 +57,24 @@ async def process_paid_gift_purchase(
         if checkpoint.status in {"delivering", "delivered"}:
             return checkpoint
         if checkpoint.status == "ready":
+            if purchase.includes_collage:
+                artwork = (
+                    await session.get(WallpaperOrder, checkpoint.wallpaper_order_id)
+                    if checkpoint.wallpaper_order_id is not None else None
+                )
+                if not (
+                    artwork and artwork.paid
+                    and artwork.telegram_user_id == purchase.telegram_user_id
+                    and artwork.mobile_path and artwork.desktop_path
+                    and Path(artwork.mobile_path).is_file()
+                    and Path(artwork.desktop_path).is_file()
+                ):
+                    # Never report success or deliver a partial paid bundle.
+                    # Source regeneration needs an explicit recovery workflow.
+                    checkpoint.status = "failed"
+                    checkpoint.last_error = "Paid collage assets missing; recovery required"
+                    await session.commit()
+                    raise FileNotFoundError("Paid collage assets missing; recovery required")
             if not purchase.includes_video:
                 return checkpoint
             video = (
