@@ -188,7 +188,7 @@ def get_products_menu_keyboard(
             text=text_for(lang, "🎁 Створити подарунок", "🎁 Создать подарок", "🎁 Create a gift"),
             callback_data="prod_manifestation",
         )],
-        [InlineKeyboardButton(
+        [InlineKeyboardButton(\n            text=text_for(lang, "📚 Книга про дитину", "📚 Книга о ребёнке", "📚 Personal storybook"),\n            callback_data="prod_little_legend",\n        )],\n        [InlineKeyboardButton(
             text=text_for(lang, "📦 Мої замовлення", "📦 Мои заказы", "📦 My orders"),
             callback_data="home_orders",
         )],
@@ -350,9 +350,9 @@ async def home_services(callback: CallbackQuery) -> None:
     await callback.message.answer(
         text_for(
             lang,
-            "⚙️ <b>Допомога та налаштування</b>\\nОберіть потрібний розділ.",
-            "⚙️ <b>Помощь и настройки</b>\\nВыберите нужный раздел.",
-            "⚙️ <b>Help & settings</b>\\nChoose a section.",
+            "⚙️ <b>Допомога та налаштування</b>\nОберіть потрібний розділ.",
+            "⚙️ <b>Помощь и настройки</b>\nВыберите нужный раздел.",
+            "⚙️ <b>Help & settings</b>\nChoose a section.",
         ),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
