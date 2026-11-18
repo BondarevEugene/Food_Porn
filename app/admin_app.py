@@ -16,11 +16,11 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import get_settings
 from app.crm.models import initialize_schema
-from app.little_legend.router import initialize_schema as initialize_little_legend_schema
 from app.crm.router import router as crm_router
 from app.crm.service import load_runtime_settings
 from app.database.models import AppSetting, Customer, Menu, WallpaperOrder
 from app.database.session import async_session_maker, engine
+from app.little_legend.router import initialize_schema as initialize_little_legend_schema
 from src.billing.models import Account, Transaction
 from src.orchestrator.models import ServiceInstance
 
