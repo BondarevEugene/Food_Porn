@@ -5,6 +5,9 @@ import pytest
 from PIL import Image
 
 from app.little_legend.book_production import produce_illustrated_book
+from app.little_legend.image_ai_consent import (
+    ImageAIDisclosure, accept_image_ai_consent,
+)
 from app.little_legend.story_graph import build_graph
 from app.little_legend.story_writer import ChapterDraft, StoryManuscript
 
@@ -18,6 +21,19 @@ class Illustrator:
         output = BytesIO()
         Image.new("RGB", (600, 600), "white").save(output, "PNG")
         return output.getvalue()
+
+
+def _consent():
+    disclosure = ImageAIDisclosure(
+        provider='OpenAI', legal_entity='OpenAI', processing_countries='US',
+        retention_policy='See provider policy',
+        privacy_url='https://openai.com/policies/privacy-policy/', enabled=True,
+    )
+    consent = accept_image_ai_consent(
+        provider=disclosure.provider, notice=disclosure.notice(),
+        terms_accepted=True, disclosure=disclosure,
+    )
+    return dict(image_ai_consent=consent, image_ai_disclosure=disclosure)
 
 
 def _approved():
@@ -40,7 +56,7 @@ async def test_approved_book_generates_real_pdf():
     pdf = await produce_illustrated_book(
         illustrator=provider, title="Marta's Garden", dedication="For Marta",
         graph=graph, manuscript=manuscript, style="watercolor",
-        approved_scene_ids={"scene_1"},
+        approved_scene_ids={"scene_1"}, **_consent(),
     )
     assert pdf.startswith(b"%PDF-")
     assert provider.calls == ["scene_1"]
@@ -68,6 +84,19 @@ async def test_missing_scene_approval_does_not_call_provider():
         await produce_illustrated_book(
             illustrator=provider, title="Marta", dedication="",
             graph=graph, manuscript=manuscript, style="storybook",
-            approved_scene_ids=set(),
+            approved_scene_ids=set(), **_consent(),
+        )
+    assert provider.calls == []
+
+
+@pytest.mark.asyncio
+async def test_missing_image_consent_blocks_paid_provider():
+    graph, manuscript = _approved()
+    provider = Illustrator()
+    with pytest.raises(PermissionError, match="image AI consent"):
+        await produce_illustrated_book(
+            illustrator=provider, title="Marta", dedication="",
+            graph=graph, manuscript=manuscript, style="storybook",
+            approved_scene_ids={"scene_1"},
         )
     assert provider.calls == []
