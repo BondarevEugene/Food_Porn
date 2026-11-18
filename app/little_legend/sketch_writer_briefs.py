@@ -7,6 +7,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from app.little_legend.blueprint import BookBlueprint
+from app.little_legend.character_arc import plan_character_arc
 from app.little_legend.client_sketch import ParentSketch
 from app.little_legend.hero_contract import HeroContract
 from app.little_legend.literary_direction import build_literary_direction
@@ -78,6 +79,9 @@ def compose_sketch_chapter_briefs(
                 "complete_outline": all_summaries,
                 "previous_chapters": earlier,
             },
+            "character_arc": plan_character_arc(
+                graph, contract, design,
+            ).model_dump(mode="json"),
             "story_memory": build_story_memory(
                 graph, scene_id=job["scene_id"], manuscript=existing,
             ).model_dump(mode="json"),
