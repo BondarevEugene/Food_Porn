@@ -44,7 +44,6 @@ def editorial_preflight(
         and not presence["missing_text"]
         and not presence["missing_explicit_hero_name"]
         and required_reviews
-        and not diagnostics.findings
     )
     return {
         "hero_matches": name_matches,
