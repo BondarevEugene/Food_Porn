@@ -41,9 +41,12 @@ vault_assets = Table(
     Column("deleted_at", DateTime(timezone=True)),
     Column("deletion_attempts", Integer, nullable=False, default=0),
     Column("last_error_code", String(64)),
+    Column("last_deletion_attempt_at", DateTime(timezone=True)),
+    Column("next_deletion_attempt_at", DateTime(timezone=True)),
     CheckConstraint("deletion_attempts >= 0", name="ck_ll_vault_attempts"),
     Index("ix_ll_vault_owner_story", "owner_id", "story_id"),
     Index("ix_ll_vault_expiry", "state", "expires_at"),
+    Index("ix_ll_vault_retry_due", "state", "next_deletion_attempt_at"),
 )
 
 
@@ -108,11 +111,7 @@ async def request_expired_deletions(
                 and_(
                     vault_assets.c.expires_at <= instant,
                     vault_assets.c.state.in_(
-                        [
-                            AssetState.RESERVED.value,
-                            AssetState.STORED.value,
-                            AssetState.DELETE_FAILED.value,
-                        ]
+                        [AssetState.RESERVED.value, AssetState.STORED.value]
                     ),
                 )
             )

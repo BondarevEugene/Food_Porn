@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,13 @@ from app.little_legend.secure_vault import AssetState
 from app.little_legend.vault_registry import vault_assets
 
 logger = logging.getLogger(__name__)
+
+
+def retry_delay(attempts: int) -> timedelta:
+    """Exponential backoff capped at 24 hours, with no immediate retries."""
+    if attempts < 1:
+        raise ValueError("Attempt count must be positive")
+    return timedelta(minutes=min(1440, 5 * 2 ** min(attempts - 1, 9)))
 
 
 async def delete_pending_assets(
@@ -71,6 +78,8 @@ async def delete_pending_assets(
                     state=AssetState.DELETE_FAILED.value,
                     deletion_attempts=attempts + 1,
                     last_error_code="OBJECT_DELETE_FAILED",
+                    last_deletion_attempt_at=instant,
+                    next_deletion_attempt_at=instant + retry_delay(attempts + 1),
                 )
             )
             result["failed"] += 1
@@ -85,6 +94,8 @@ async def delete_pending_assets(
                     state=AssetState.DELETED.value,
                     deleted_at=instant,
                     last_error_code=None,
+                    last_deletion_attempt_at=instant,
+                    next_deletion_attempt_at=None,
                 )
             )
             result["deleted"] += 1

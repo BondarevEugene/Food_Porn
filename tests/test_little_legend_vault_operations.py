@@ -13,10 +13,11 @@ from app.little_legend.vault_operations import (
 
 
 @pytest.mark.asyncio
-async def test_retry_is_fail_closed_without_last_attempt_timestamp():
+async def test_retry_requires_due_timestamp_and_cooldown():
     session = MagicMock()
-    assert await requeue_failed_deletions(session) == 0
-    session.execute.assert_not_called()
+    session.execute = AsyncMock(return_value=MagicMock(rowcount=2))
+    assert await requeue_failed_deletions(session) == 2
+    session.execute.assert_awaited_once()
     with pytest.raises(ValueError):
         await requeue_failed_deletions(session, retry_after=timedelta(seconds=1))
 
@@ -64,6 +65,10 @@ async def test_cycle_commits_between_queue_and_delete():
 
     with (
         patch(
+            "app.little_legend.vault_operations.requeue_failed_deletions",
+            new_callable=AsyncMock, return_value=2,
+        ),
+        patch(
             "app.little_legend.vault_operations.request_expired_deletions",
             new_callable=AsyncMock, return_value=["a"],
         ) as queue,
@@ -80,6 +85,7 @@ async def test_cycle_commits_between_queue_and_delete():
     ):
         report = await run_retention_cycle(Session, MagicMock())
         assert report.queued == 1
+        assert report.retried == 2
         assert report.deleted == 1
         queue.assert_awaited_once()
         delete.assert_awaited_once()
