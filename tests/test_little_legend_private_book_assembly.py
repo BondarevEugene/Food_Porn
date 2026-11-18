@@ -86,3 +86,14 @@ def test_assembly_rejects_unfinished_jobs_before_storage_access():
             manuscript=manuscript, jobs=[job],
             owner_id=3, story_id=2, store=MemoryStore(),
         )
+
+
+def test_assembly_rejects_art_from_old_chapter_revision():
+    graph, manuscript, job = _book()
+    manuscript.chapters[0].revision = 2
+    with pytest.raises(PermissionError, match="completed"):
+        assemble_private_book(
+            title="Marta", dedication="", graph=graph,
+            manuscript=manuscript, jobs=[job],
+            owner_id=3, story_id=2, store=MemoryStore(),
+        )
