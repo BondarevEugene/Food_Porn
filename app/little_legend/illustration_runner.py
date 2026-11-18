@@ -11,18 +11,20 @@ import asyncio
 from sqlalchemy import select
 
 from app.database.session import async_session_maker
-from app.little_legend.generated_art_store import GeneratedArtStore
 from app.little_legend.image_ai_consent import configured_image_ai_disclosure
 from app.little_legend.illustration_queue_store import (
-    claim_next_illustration_job, complete_illustration_job,
+    claim_next_illustration_job,
+    complete_illustration_job,
     fence_illustration_dispatch,
 )
 from app.little_legend.illustration_worker import (
-    IllustrationContext, Illustrator, run_illustration_job,
+    IllustrationContext,
+    Illustrator,
+    run_illustration_job,
 )
 from app.little_legend.router import StoryDraft, stories
 from app.little_legend.writer_queue import JobPolicy
-from app.little_legend.generated_art_store import save_generated_illustration
+from app.little_legend.generated_art_store import GeneratedArtStore, save_generated_illustration
 
 
 async def process_next_illustration(
