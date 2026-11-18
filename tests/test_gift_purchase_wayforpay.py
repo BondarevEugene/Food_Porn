@@ -38,6 +38,7 @@ async def purchase_db(tmp_path):
         wayforpay_video_story_price_uah=Decimal("49.00"),
     )
     purchase = await create_gift_quote(
+    (tmp_path / "portrait.jpg").write_bytes(b"gift fixture photo")
         factory, settings=settings, user_id=42, choice="both",
         goals=[f"goal {i}" for i in range(5)],
         photo_paths=[tmp_path / "portrait.jpg"], style="dark",
