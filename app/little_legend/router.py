@@ -264,11 +264,26 @@ nav button{flex:1} .graph-node{border-left:4px solid #545ac7;padding:12px;margin
 <p class="note">Загрузка детских фотографий будет включена после добавления согласия родителей и защищённого хранилища.</p></section>
 <section id="scenes" class="card hidden"><h2>Режиссёрская раскадровка</h2><p class="note">Изменяйте поворот в любой сцене. Автоматическая генерация графа появится на следующем этапе.</p><div id="sceneList"></div></section>
 <section id="graph" class="card hidden"><h2>Story Graph · причинно-следственная карта</h2><p class="note">Это линейный каркас сюжета. Для изменения содержания редактируйте сцены, затем сохраняйте черновик.</p><div id="graphList"></div><p id="graphReport" class="note"></p></section>
+<section id="director" class="card hidden"><h2>Настройки истории</h2>
+<p class="note">Быстрый режим — минимум действий. Подробный — управление творческими параметрами.</p>
+<label>Режим</label><select id="creativeMode" onchange="directorMode()"><option value="quick">Быстро</option><option value="director">Подробно</option></select>
+<label>Возраст (необязательно)</label><input id="childAge" type="number" min="0" max="17">
+<div id="advancedControls" class="hidden">
+<label>Тон</label><select id="tone"><option value="balanced">Приключенческий</option><option value="gentle">Мягкий</option><option value="epic">Эпический</option></select>
+<label>Свобода AI</label><select id="freedom"><option value="balanced">Сбалансированная</option><option value="strict">Строго по замыслу</option><option value="creative">Творческая</option></select>
+<label>Объём</label><select id="length"><option value="standard">Стандартный</option><option value="short">Короткий</option><option value="long">Длинный</option></select>
+<label>Стиль рисунков</label><select id="artStyle"><option value="storybook">Книжный</option><option value="watercolor">Акварель</option><option value="cinematic">Кинематографический</option><option value="pencil">Карандаш</option><option value="gouache">Гуашь</option></select>
+<label>Описание внешности ребёнка</label><textarea id="appearance" maxlength="1200"></textarea>
+<label>Неизменные визуальные приметы</label><textarea id="visualNotes" maxlength="1200"></textarea>
+</div>
+<p class="note">Фотографии пока не принимаются. Для фотопохожести потребуются согласие родителя и утверждение контрольного портрета.</p>
+<button class="secondary" onclick="saveDirector()">Сохранить настройки</button><p id="directorStatus" class="note"></p>
+</section>
 <section id="edition" class="card hidden"><h2>Персональное издание</h2>
 <label>Посвящение</label><textarea id="dedication" maxlength="1000"></textarea>
 <label>Город выпуска</label><input id="city" maxlength="100">
 <p class="note">Авторство, год и номер экземпляра будут оформлены в финальном PDF.</p></section>
-<div class="card"><button class="secondary" onclick="showGraph()">Посмотреть граф</button> <button class="secondary" onclick="proof()">PDF-макет A5</button><p class="note">PDF содержит план сцен, а не готовую книгу для печати.</p><button onclick="save()">Сохранить черновик</button> <button class="secondary" onclick="fresh()">Новая книга</button><p id="status" class="note"></p></div>
+<div class="card"><button class="secondary" onclick="openDirector()">Настройки</button> <button class="secondary" onclick="showGraph()">Посмотреть граф</button> <button class="secondary" onclick="proof()">PDF-макет A5</button><p class="note">PDF содержит план сцен, а не готовую книгу для печати.</p><button onclick="save()">Сохранить черновик</button> <button class="secondary" onclick="fresh()">Новая книга</button><p id="status" class="note"></p></div>
 <div class="card"><h2>Мои книги</h2><div id="books"></div></div>
 </div>
 <script>
@@ -277,7 +292,7 @@ const auth=tg?.initData;let storyId=null;
 const fields=['title','genre','setup','mystery','ending','habits','phrases','dedication','city'];
 const defaults=['Знакомство с героем','Необычное событие','Первый союзник','Тайное послание','Первая загадка','Опасная находка','Неожиданный поворот','Испытание дружбы','Разгадка тайны','План спасения','Главное испытание','Развязка и новая тайна'];
 const $=id=>document.getElementById(id);
-function tab(id){['idea','hero','scenes','edition','graph'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
+function tab(id){['idea','hero','scenes','edition','graph','director'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
 function drawScenes(items){$('sceneList').replaceChildren();items.forEach((value,i)=>{let row=document.createElement('div');row.className='scene';let n=document.createElement('span');n.textContent=i+1;let t=document.createElement('textarea');t.maxLength=4000;t.value=value;t.dataset.scene=i;row.append(n,t);$('sceneList').append(row)})}
 function collect(){let obj={};fields.forEach(k=>obj[k]=$(k).value);obj.hero=$('heroName').value;obj.scenes=[...document.querySelectorAll('[data-scene]')].map(x=>x.value);return obj}
 function fill(data){fields.forEach(k=>$(k).value=data[k]||'');$('heroName').value=data.hero||'Оля';drawScenes(data.scenes||defaults)}
@@ -286,6 +301,9 @@ async function load(){let books=await api('/stories');$('books').replaceChildren
 async function save(){try{let data=collect();if(!data.title.trim()||!data.hero.trim()){throw Error('Укажите название и имя героя')}let result=await api(storyId?'/stories/'+storyId:'/stories',storyId?'PUT':'POST',data);storyId=storyId||result.id;$('status').textContent='Сохранено';await load()}catch(e){$('status').textContent='Ошибка: '+e.message}}
 async function showGraph(){try{if(!storyId){$('status').textContent='Сначала сохраните книгу';return}const result=await api('/stories/'+storyId+'/graph');const nodes=result.graph.nodes;$('graphList').replaceChildren();nodes.forEach((n,i)=>{let el=document.createElement('div');el.className='graph-node';let h=document.createElement('strong');h.textContent='Акт '+n.act+' · '+n.title;let p=document.createElement('p');p.textContent=n.summary||'Сцена не заполнена';let goal=document.createElement('small');goal.textContent='Задача: '+n.goal;el.append(h,p,goal);$('graphList').append(el);if(i<nodes.length-1){let arrow=document.createElement('div');arrow.className='graph-arrow';arrow.textContent='↓ вызывает следующее событие';$('graphList').append(arrow)}});$('graphReport').textContent='Пустых сцен: '+result.report.empty_scenes.length+' · Без описания конфликта: '+result.report.missing_conflicts.length;tab('graph')}catch(e){$('status').textContent=e.message}}
 async function proof(){try{if(!storyId){$('status').textContent='Сначала сохраните книгу';return}const r=await fetch('/little-legend/api/stories/'+storyId+'/proof.pdf',{headers:{Authorization:'tma '+auth}});if(!r.ok)throw Error('PDF HTTP '+r.status);const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='little-legend-proof.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000)}catch(e){$('status').textContent=e.message}}
+function directorMode(){$('advancedControls').classList.toggle('hidden',$('creativeMode').value!=='director')}
+async function openDirector(){tab('director');if(!storyId)return;try{let b=(await api('/stories/'+storyId+'/blueprint')).blueprint;$('creativeMode').value=b.controls.mode;$('childAge').value=b.controls.age??'';$('tone').value=b.controls.tone;$('freedom').value=b.controls.creative_freedom;$('length').value=b.controls.story_length;$('artStyle').value=b.controls.illustration_style;$('appearance').value=b.characters[0]?.appearance||'';$('visualNotes').value=b.characters[0]?.visual_identity_notes||'';directorMode()}catch(e){$('directorStatus').textContent=e.message}}
+async function saveDirector(){try{if(!storyId)throw Error('Сначала сохраните книгу');let b=(await api('/stories/'+storyId+'/blueprint')).blueprint;b.controls.mode=$('creativeMode').value;b.controls.age=$('childAge').value===''?null:Number($('childAge').value);b.controls.tone=$('tone').value;b.controls.creative_freedom=$('freedom').value;b.controls.story_length=$('length').value;b.controls.illustration_style=$('artStyle').value;if(!b.characters.length)b.characters=[{name:$('heroName').value,role:'hero'}];b.characters[0].appearance=$('appearance').value;b.characters[0].visual_identity_notes=$('visualNotes').value;await api('/stories/'+storyId+'/blueprint','PUT',b);$('directorStatus').textContent='Настройки сохранены'}catch(e){$('directorStatus').textContent=e.message}}
 function fresh(){storyId=null;fill({title:'Новая история',hero:'Оля',genre:'Научная фантастика',scenes:defaults});$('status').textContent='Новый черновик — сохраните его'}
 fresh();if(auth){$('workspace').classList.remove('hidden');load().catch(e=>$('status').textContent='Не удалось загрузить книги: '+e.message)}else{$('authError').classList.remove('hidden')}
 </script></body></html>"""
