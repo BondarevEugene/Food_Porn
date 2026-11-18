@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from app.little_legend.editorial_diagnostics import diagnose_manuscript
 from app.little_legend.hero_contract import HeroContract, audit_hero_presence
 from app.little_legend.story_graph import StoryGraph
 from app.little_legend.story_writer import StoryManuscript, manuscript_review
@@ -26,6 +27,7 @@ def editorial_preflight(
     decision: EditorialDecision,
 ) -> dict:
     structural = manuscript_review(manuscript, graph)
+    diagnostics = diagnose_manuscript(manuscript)
     texts = {chapter.scene_id: chapter.text for chapter in manuscript.chapters}
     presence = audit_hero_presence(contract, texts, graph)
     name_matches = manuscript.hero_name == contract.hero_name
@@ -48,6 +50,7 @@ def editorial_preflight(
         "structure": structural,
         "hero_presence": presence,
         "human_reviews_complete": bool(required_reviews),
+        "editorial_diagnostics": diagnostics.model_dump(mode="json"),
         "ready_for_print_proof": bool(ready),
         "ready_for_publication": False,
         "semantic_fidelity_automatically_verified": False,
