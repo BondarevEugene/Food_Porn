@@ -7,15 +7,19 @@ only after consent, provider configuration and storage are provisioned.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Protocol
+from collections.abc import Awaitable, Callable
+from typing import Protocol
 
+from app.little_legend.generated_art_store import (
+    GeneratedArtStore,
+    save_generated_illustration,
+)
 from app.little_legend.image_ai_consent import (
-    ImageAIConsent, ImageAIDisclosure, consent_allows_image_ai,
+    ImageAIConsent,
+    ImageAIDisclosure,
+    consent_allows_image_ai,
 )
 from app.little_legend.image_safety import sanitize_image
-from app.little_legend.generated_art_store import (
-    GeneratedArtStore, save_generated_illustration,
-)
 from app.little_legend.illustration_queue_store import IllustrationJob
 from app.little_legend.story_graph import SceneNode
 from app.little_legend.writer_queue import JobStatus
