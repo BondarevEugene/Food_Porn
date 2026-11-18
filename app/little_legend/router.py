@@ -960,6 +960,60 @@ async def story_illustration_status(
     }
 
 
+@router.get("/api/stories/{story_id}/illustrations/book.pdf")
+async def download_stored_illustrated_book(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Deliver a private editorial PDF only after all scene jobs complete."""
+    import asyncio
+    import os
+
+    from app.little_legend.generated_art_store import (
+        GeneratedArtS3Settings,
+        S3GeneratedArtStore,
+    )
+    from app.little_legend.illustration_queue_store import list_owner_illustration_jobs
+    from app.little_legend.stored_book_proof import assemble_stored_book_proof
+
+    draft = await _owned_draft(story_id, owner)
+    if draft.graph is None or draft.manuscript is None:
+        raise HTTPException(409, "Complete manuscript is required")
+    jobs = await list_owner_illustration_jobs(story_id=story_id, owner_id=owner)
+    # Fail before loading any private object or credentials for incomplete jobs.
+    from app.little_legend.writer_queue import JobStatus
+
+    if not jobs or any(job.status != JobStatus.COMPLETED for job in jobs):
+        raise HTTPException(409, "Illustrations are not all completed")
+    try:
+        settings = GeneratedArtS3Settings(
+            endpoint_url=os.getenv("LITTLE_LEGEND_ART_S3_ENDPOINT", ""),
+            bucket=os.getenv("LITTLE_LEGEND_ART_S3_BUCKET", ""),
+            region=os.getenv("LITTLE_LEGEND_ART_S3_REGION", ""),
+            access_key_id=os.getenv("LITTLE_LEGEND_ART_S3_ACCESS_KEY", ""),
+            secret_access_key=os.getenv("LITTLE_LEGEND_ART_S3_SECRET_KEY", ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(503, "Private illustration storage is unavailable") from exc
+    try:
+        data = await asyncio.to_thread(
+            assemble_stored_book_proof,
+            store=S3GeneratedArtStore(settings),
+            owner_id=owner, story_id=story_id,
+            title=draft.title, dedication=draft.dedication,
+            graph=draft.graph, manuscript=draft.manuscript, jobs=jobs,
+        )
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return Response(
+        content=data, media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="little-legend-book.pdf"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.get("/api/stories/{story_id}/manuscript.pdf")
 async def download_manuscript_pdf(
     story_id: int, owner: Annotated[int, Depends(_owner)],
