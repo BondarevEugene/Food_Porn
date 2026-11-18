@@ -52,13 +52,18 @@ from app.little_legend.hero_contract import (
     scene_directives,
 )
 from app.little_legend.narrative_design import StoryDesign, design_guidance
-from app.little_legend.story_writer import StoryManuscript, manuscript_review
+from app.little_legend.story_writer import (
+    ChapterDraft,
+    StoryManuscript,
+    manuscript_review,
+)
 from app.little_legend.manuscript_repository import (
     ChapterApproval,
     ChapterEdit,
     approve_chapter,
     edit_chapter,
     mutate_owned_manuscript,
+    upsert_generated_chapter,
 )
 from app.little_legend.portrait_studio import PortraitPlan, portrait_preflight
 from app.little_legend.print_renderer import render_print_proof
@@ -184,7 +189,7 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
             draft.identity_bible = previous.identity_bible
         if "manuscript" not in draft.model_fields_set:
             draft.manuscript = previous.manuscript
-        elif previous.manuscript is not None and draft.manuscript != previous.manuscript:
+        elif draft.manuscript != previous.manuscript:
             raise HTTPException(409, "Use chapter editor to modify the manuscript")
         # Consent is never overwritten by a generic story editor payload.
         draft.consent = previous.consent
@@ -273,6 +278,29 @@ async def read_manuscript(
         "review": manuscript_review(manuscript, graph),
     }
 
+
+
+
+@router.post("/api/stories/{story_id}/manuscript/{scene_id}/draft")
+async def create_manuscript_chapter_draft(
+    story_id: int, scene_id: str, edit: ChapterEdit,
+    owner: Annotated[int, Depends(_owner)],
+):
+    """Create an initial chapter; later edits use the revision-safe PUT."""
+    def transform(manuscript, draft):
+        graph = draft.graph or build_graph(draft.scenes)
+        if scene_id not in {node.id for node in graph.nodes}:
+            raise ValueError("Unknown story scene")
+        if any(chapter.scene_id == scene_id for chapter in manuscript.chapters):
+            raise PermissionError("Chapter already exists; use the chapter editor")
+        return upsert_generated_chapter(
+            manuscript, ChapterDraft(scene_id=scene_id, text=edit.text, notes=edit.notes),
+        )
+
+    manuscript = await mutate_owned_manuscript(
+        story_id=story_id, owner_id=owner, transform=transform,
+    )
+    return {"saved": True, "manuscript": manuscript.model_dump(mode="json")}
 
 @router.put("/api/stories/{story_id}/manuscript/{scene_id}")
 async def edit_manuscript_chapter(
