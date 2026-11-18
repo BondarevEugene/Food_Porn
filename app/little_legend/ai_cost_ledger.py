@@ -111,8 +111,7 @@ async def record_confirmed_cost(
             )
         )).mappings().one_or_none()
         if existing is not None and (
-            existing["receipt_id"] == receipt.receipt_id
-            and existing["job_id"] == receipt.job_id
+            existing["job_id"] == receipt.job_id
             and existing["owner_id"] == owner_id
             and existing["story_id"] == story_id
             and existing["amount_usd"] == receipt.amount_usd
