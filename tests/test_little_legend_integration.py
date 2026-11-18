@@ -29,7 +29,7 @@ def test_story_draft_rejects_unbounded_input():
 
 def test_studio_does_not_embed_secrets_or_unsafe_html():
     from app.little_legend.router import STUDIO_HTML
-    assert "Telegram.WebApp" in STUDIO_HTML
+    assert "window.Telegram?.WebApp" in STUDIO_HTML
     assert "textContent" in STUDIO_HTML
     assert "innerHTML" not in STUDIO_HTML
     assert "Authorization:'tma '" in STUDIO_HTML
