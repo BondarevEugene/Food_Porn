@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -14,11 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.little_legend.deletion_worker import delete_pending_assets
 from app.little_legend.object_store import ObjectStore
 from app.little_legend.secure_vault import AssetState
-from app.little_legend.vault_registry import request_expired_deletions, vault_assets
-
-
-class StoreFactory(Protocol):
-    def __call__(self) -> ObjectStore: ...
+from app.little_legend.vault_registry import (
+    request_expired_deletions,
+    stories_table,
+    vault_assets,
+)
 
 
 @dataclass(frozen=True)
@@ -139,16 +138,10 @@ async def queue_story_deletion(
             vault_assets.c.story_id == story_id,
             vault_assets.c.state.in_(eligible),
             select(1)
-            .select_from(__import__(
-                "app.little_legend.vault_registry", fromlist=["stories_table"]
-            ).stories_table)
+            .select_from(stories_table)
             .where(
-                __import__(
-                    "app.little_legend.vault_registry", fromlist=["stories_table"]
-                ).stories_table.c.id == story_id,
-                __import__(
-                    "app.little_legend.vault_registry", fromlist=["stories_table"]
-                ).stories_table.c.owner_id == owner_id,
+                stories_table.c.id == story_id,
+                stories_table.c.owner_id == owner_id,
             )
             .exists(),
         )
