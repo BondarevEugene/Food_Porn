@@ -47,12 +47,12 @@ from app.little_legend.consent import (
 from app.little_legend.editorial import audit_story
 from app.little_legend.narrative_design import StoryDesign, design_guidance
 from app.little_legend.portrait_studio import PortraitPlan, portrait_preflight
+from app.little_legend.print_renderer import render_print_proof
 from app.little_legend.privacy_lifecycle import (
     PrivacyLaunchConfig,
     photo_launch_preflight,
     reset_photo_approvals,
 )
-from app.little_legend.print_renderer import render_print_proof
 from app.little_legend.story_graph import StoryGraph, build_graph, graph_report
 from app.miniapp.auth import current_user
 
