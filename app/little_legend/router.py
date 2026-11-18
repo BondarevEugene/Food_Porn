@@ -35,6 +35,15 @@ from app.little_legend.character_identity import (
     identity_review,
     quick_identity_bible,
 )
+from app.little_legend.consent import (
+    PHOTO_NOTICE,
+    TERMS,
+    ConsentDecision,
+    ConsentRecord,
+    consent_status,
+    record_decision,
+    withdraw_photo_consent,
+)
 from app.little_legend.editorial import audit_story
 from app.little_legend.narrative_design import StoryDesign, design_guidance
 from app.little_legend.print_renderer import render_print_proof
@@ -77,6 +86,7 @@ class StoryDraft(BaseModel):
     blueprint: BookBlueprint | None = None
     design: StoryDesign = Field(default_factory=StoryDesign)
     identity_bible: IdentityBible | None = None
+    consent: ConsentRecord = Field(default_factory=ConsentRecord)
 
 
 async def initialize_schema() -> None:
@@ -148,6 +158,8 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
             draft.design = previous.design
         if "identity_bible" not in draft.model_fields_set:
             draft.identity_bible = previous.identity_bible
+        # Consent is never overwritten by a generic story editor payload.
+        draft.consent = previous.consent
         result = await session.execute(update(stories).where(
             stories.c.id == story_id, stories.c.owner_id == owner
         ).values(title=draft.title, hero=draft.hero, data=draft.model_dump_json(),
@@ -183,6 +195,62 @@ async def _owned_draft(story_id: int, owner: int) -> StoryDraft:
     if raw is None:
         raise HTTPException(404, "Story not found")
     return StoryDraft.model_validate_json(raw)
+
+
+@router.get("/api/stories/{story_id}/consent")
+async def read_consent(story_id: int, owner: Annotated[int, Depends(_owner)]):
+    draft = await _owned_draft(story_id, owner)
+    return {
+        "terms": TERMS,
+        "photo_notice": PHOTO_NOTICE,
+        "status": consent_status(draft.consent),
+    }
+
+
+@router.post("/api/stories/{story_id}/consent")
+async def accept_consent(
+    story_id: int, decision: ConsentDecision,
+    owner: Annotated[int, Depends(_owner)],
+):
+    draft = await _owned_draft(story_id, owner)
+    try:
+        updated = record_decision(draft.consent, decision)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    # Preserve the existing consent in save_story, then write via a dedicated
+    # owner-scoped SQL update under row lock.
+    async with async_session_maker() as session:
+        row = (await session.execute(select(stories.c.data).where(
+            stories.c.id == story_id, stories.c.owner_id == owner
+        ).with_for_update())).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(404, "Story not found")
+        current = StoryDraft.model_validate_json(row)
+        current.consent = updated
+        await session.execute(update(stories).where(
+            stories.c.id == story_id, stories.c.owner_id == owner
+        ).values(data=current.model_dump_json(), updated_at=datetime.now(UTC)))
+        await session.commit()
+    return {"status": consent_status(updated)}
+
+
+@router.post("/api/stories/{story_id}/consent/withdraw")
+async def withdraw_consent(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    async with async_session_maker() as session:
+        row = (await session.execute(select(stories.c.data).where(
+            stories.c.id == story_id, stories.c.owner_id == owner
+        ).with_for_update())).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(404, "Story not found")
+        current = StoryDraft.model_validate_json(row)
+        current.consent = withdraw_photo_consent(current.consent)
+        await session.execute(update(stories).where(
+            stories.c.id == story_id, stories.c.owner_id == owner
+        ).values(data=current.model_dump_json(), updated_at=datetime.now(UTC)))
+        await session.commit()
+    return {"status": consent_status(current.consent)}
 
 
 @router.get("/api/stories/{story_id}/identity")
