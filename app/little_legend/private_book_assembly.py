@@ -30,8 +30,10 @@ def assemble_private_book(
         raise ValueError("Incomplete manuscript")
     if len(jobs) != len(expected) or {job.scene_id for job in jobs} != expected:
         raise PermissionError("All illustration jobs are required")
+    chapters = {chapter.scene_id: chapter for chapter in manuscript.chapters}
     if any(
-        job.owner_id != owner_id or job.story_id != story_id
+        job.expected_revision != chapters[job.scene_id].revision
+        or job.owner_id != owner_id or job.story_id != story_id
         or job.status != JobStatus.COMPLETED
         or job.provider_dispatched_at is None
         for job in jobs
