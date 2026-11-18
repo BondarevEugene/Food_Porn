@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import uuid
 from pathlib import Path
-from zipfile import ZIP_DEFLATED, ZipFile
+from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
 from PIL import Image
 
@@ -27,12 +27,22 @@ def create_print_bundle(
     poster_name = f"poster_{width_mm}x{height_mm}mm_{dpi}dpi.png"
     pdf_name = f"poster_{width_mm}x{height_mm}mm.pdf"
     if archive.is_file():
-        with ZipFile(archive) as existing:
-            if existing.testzip() is None and {
-                poster_name, pdf_name,
-                "mobile_original.png", "desktop_original.png", "PRINT_INFO.txt",
-            } <= set(existing.namelist()):
-                return archive
+        # Never resend an obsolete or partially written print package.
+        # A failed previous write must be recoverable without operator action.
+        try:
+            sources_unchanged = archive.stat().st_mtime_ns >= max(
+                mobile.stat().st_mtime_ns, desktop.stat().st_mtime_ns,
+            )
+            if sources_unchanged:
+                with ZipFile(archive) as existing:
+                    required = {
+                        poster_name, pdf_name,
+                        "mobile_original.png", "desktop_original.png", "PRINT_INFO.txt",
+                    }
+                    if required <= set(existing.namelist()) and existing.testzip() is None:
+                        return archive
+        except (BadZipFile, OSError, ValueError):
+            pass  # Rebuild the archive atomically below.
     renderer = ReplicateVisionBoardRenderer(output_dir=folder)
     poster = renderer._print_sync(order_id, str(mobile), width_mm, height_mm, dpi, 3)
     pdf = folder / f"print_order_{order_id}.pdf"
