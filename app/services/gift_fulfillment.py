@@ -54,8 +54,22 @@ async def process_paid_gift_purchase(
             checkpoint = GiftFulfillment(purchase_id=purchase_id)
             session.add(checkpoint)
             await session.flush()
-        if checkpoint.status in {"ready", "delivering", "delivered"}:
+        if checkpoint.status in {"delivering", "delivered"}:
             return checkpoint
+        if checkpoint.status == "ready":
+            if not purchase.includes_video:
+                return checkpoint
+            video = (
+                await session.get(VideoStoryOrder, checkpoint.video_order_id)
+                if checkpoint.video_order_id is not None else None
+            )
+            if video is not None and video.output_path and Path(video.output_path).is_file():
+                return checkpoint
+            # A ready checkpoint with a deleted MP4 is not deliverable.
+            # Reuse the existing order and artwork rather than charge or render twice.
+            checkpoint.status = "failed"
+            checkpoint.last_error = "Video output missing; retry required"
+            await session.flush()
         if checkpoint.status == "processing" and checkpoint.updated_at:
             timestamp = checkpoint.updated_at
             if timestamp.tzinfo is None:
@@ -133,8 +147,15 @@ async def process_paid_gift_purchase(
                     previous = await session.get(
                         VideoStoryOrder, video_order_id, with_for_update=True
                     )
-                    if previous is not None and previous.status == "failed":
+                    if previous is not None and (
+                        previous.status == "failed"
+                        or (
+                            previous.status == "ready"
+                            and (not previous.output_path or not Path(previous.output_path).is_file())
+                        )
+                    ):
                         previous.status = "paid"
+                        previous.output_path = None
                         previous.failure_reason = None
                         await session.commit()
             if video_order_id is None:
