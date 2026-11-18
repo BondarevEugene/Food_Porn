@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Table,
     insert,
+    literal,
     select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -68,7 +69,8 @@ async def append_consent_event(
         insert(consent_events).from_select(
             ["owner_id", "story_id", "policy_version", "event_type", "created_at"],
             select(
-                owner_id, story_id, POLICY_VERSION, event_type.value, instant
+                literal(owner_id), literal(story_id), literal(POLICY_VERSION),
+                literal(event_type.value), literal(instant)
             ).where(
                 select(1).select_from(stories_table).where(
                     stories_table.c.id == story_id,
