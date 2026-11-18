@@ -1,0 +1,61 @@
+name: Restaurant Edition preview PDFs
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "app/render/booklet.py"
+      - "scripts/demo_render.py"
+      - "scripts/demo_restaurant_themes.py"
+      - "scripts/demo_one_restaurant_menu.py"
+      - "app/services/menu_art_directions.py"
+      - "app/services/menu_romance_copy.py"
+      - ".github/workflows/restaurant-previews.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  render-previews:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql+asyncpg://demo:demo@localhost:5432/demo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install renderer dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Render all three A3 menu themes
+        run: python -m scripts.demo_restaurant_themes
+      - name: Render featured creative direction
+        run: python -m scripts.demo_one_restaurant_menu
+      - name: Verify 3 PDFs and 6 previews exist
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          for theme in ("dark", "light", "color"):
+              root = Path("storage/demo_restaurant") / theme / "999"
+              for filename in (
+                  "food_porn_menu_999_A3_print.pdf",
+                  "preview_outside.jpg",
+                  "preview_inside.jpg",
+              ):
+                  path = root / filename
+                  assert path.is_file() and path.stat().st_size > 1000, path
+          featured = Path("storage/demo_restaurant/featured/999")
+          for filename in ("food_porn_menu_999_A3_print.pdf", "preview_outside.jpg", "preview_inside.jpg"):
+              path = featured / filename
+              assert path.is_file() and path.stat().st_size > 1000, path
+          print("Four PDFs and eight previews generated.")
+          PY
+      - name: Upload phone-friendly preview images and printable PDFs
+        uses: actions/upload-artifact@v4
+        with:
+          name: restaurant-edition-three-themes
+          path: storage/demo_restaurant/
+          if-no-files-found: error
+          retention-days: 14

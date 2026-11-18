@@ -14,17 +14,20 @@ Responsibilities:
 
 from __future__ import annotations
 
+import colorsys
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
-from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 
 from app.database.models import FileKind, ItemCategory, Language, Menu
 from app.locales.messages import t
+from app.services.menu_art_directions import BY_CODE, choose_direction
+from app.services.menu_romance_copy import romantic_copy
 from app.services.menu_wizard import (
     MEAL_FULL_DAY,
     display_dish_title,
@@ -57,6 +60,9 @@ def menu_render_snapshot(menu: Menu) -> SimpleNamespace:
         cover_photo_path=menu.cover_photo_path,
         spread_photo_path=menu.spread_photo_path,
         meal_period=menu.meal_period,
+        visual_style=getattr(menu, "visual_style", "dark"),
+        design_seed=getattr(menu, "design_seed", menu.id),
+        design_preset=getattr(menu, "design_preset", None),
         customer=SimpleNamespace(
             name=customer.name,
             language=customer.language,
@@ -87,6 +93,53 @@ class BookletRenderer:
     CREAM = (244, 232, 211)
     MUTED = (182, 169, 151)
 
+    # Restaurant Edition palettes. The existing dark look remains the default
+    # until a customer-facing style selector persists a choice on the order.
+    PALETTES = {
+        "dark": ((10, 11, 14), (17, 19, 23), (218, 184, 126), (249, 243, 232), (182, 177, 167)),
+        "light": ((248, 246, 240), (255, 253, 248), (103, 95, 73), (38, 39, 35), (107, 105, 96)),
+        "color": ((255, 247, 239), (255, 252, 246), (174, 49, 83), (47, 43, 39), (114, 133, 75)),
+    }
+
+    def _apply_style(self, menu: Menu) -> None:
+        style = str(getattr(menu, "visual_style", "dark") or "dark").lower()
+        self.style = style if style in self.PALETTES else "dark"
+        seed = getattr(menu, "design_seed", None) or getattr(menu, "id", 0)
+        preset = getattr(menu, "design_preset", None)
+        direction = BY_CODE.get(preset) if preset else None
+        if direction is None or direction.theme != self.style:
+            direction = choose_direction(self.style, seed)
+        self.direction = direction
+        self.layout_variant = (int(direction.code[-2:]) - 1) % 5
+        self.BG, self.PANEL, self.GOLD, self.CREAM, self.MUTED = self.PALETTES[self.style]
+        # Preserve the established dark fallback for old orders and fixtures.
+        if style not in self.PALETTES:
+            return
+        # Each direction gets a deterministic color family, rather than merely
+        # reusing one of three theme-wide palettes.
+        index = int(direction.code[-2:]) - 1
+        hue = ((index * 0.61803398875) + {"light": 0.08, "dark": 0.1, "color": 0.0}[self.style]) % 1
+        def rgb(h: float, lightness: float, saturation: float) -> tuple[int, int, int]:
+            return tuple(round(255 * value) for value in colorsys.hls_to_rgb(h, lightness, saturation))
+        if self.style == "light":
+            self.BG = rgb(hue, 0.967, 0.22)
+            self.PANEL = rgb(hue, 0.987, 0.12)
+            self.GOLD = rgb(hue, 0.35, 0.39)
+            self.CREAM = (35, 35, 35)
+            self.MUTED = rgb(hue, 0.43, 0.15)
+        elif self.style == "dark":
+            self.BG = rgb(hue, 0.068, 0.29)
+            self.PANEL = rgb(hue, 0.105, 0.31)
+            self.GOLD = rgb((hue + 0.11) % 1, 0.72, 0.53)
+            self.CREAM = (248, 242, 231)
+            self.MUTED = rgb(hue, 0.64, 0.12)
+        else:
+            self.BG = rgb(hue, 0.93, 0.53)
+            self.PANEL = rgb((hue + 0.07) % 1, 0.975, 0.33)
+            self.GOLD = rgb(hue, 0.35, 0.69)
+            self.CREAM = (38, 35, 34)
+            self.MUTED = rgb((hue + 0.3) % 1, 0.43, 0.29)
+
     def __init__(self, output_root: Path) -> None:
         self.output_root = output_root
         self.bleed = self._px(self.BLEED_MM)
@@ -99,6 +152,7 @@ class BookletRenderer:
     def render(self, menu: Menu) -> RenderedFiles:
         if not menu.cover_photo_path or not menu.spread_photo_path:
             raise ValueError("Both customer photos are required")
+        self._apply_style(menu)
         directory = self.output_root / str(menu.id)
         directory.mkdir(parents=True, exist_ok=True)
 
@@ -126,13 +180,69 @@ class BookletRenderer:
     def _new_page(self) -> Image.Image:
         page = Image.new("RGB", (self.page_w, self.page_h), self.BG)
         draw = ImageDraw.Draw(page)
-        # Subtle warm speckle pattern for a tactile print feel.
+        # Palette-aware subtle print texture, without dark dots on ivory.
         step = max(16, self._px(1.8))
         for y in range(0, self.page_h, step):
             offset = (y // step % 2) * (step // 2)
             for x in range(offset, self.page_w, step):
-                draw.point((x, y), fill=(27, 23, 22))
+                draw.point((x, y), fill=tuple(max(0, channel - 3) for channel in self.BG))
         return page
+
+    def _decorate_panel(self, page: Image.Image, box: tuple[int, int, int, int]) -> None:
+        """Print-safe vector ornaments, distinct by theme and away from content."""
+        draw = ImageDraw.Draw(page)
+        x1, y1, x2, y2 = box
+        inset = self._px(4)
+        if self.style == "light":
+            gold = (192, 165, 111)
+            # Imperial double rules and symmetric scrollwork.
+            for delta in (0, self._px(1.4)):
+                draw.rounded_rectangle(
+                    (x1 + inset + delta, y1 + inset + delta,
+                     x2 - inset - delta, y2 - inset - delta),
+                    radius=self._px(3), outline=gold, width=max(1, self._px(.12)),
+                )
+            for cx in (x1 + self._px(18), x2 - self._px(18)):
+                for cy in (y1 + self._px(17), y2 - self._px(17)):
+                    for r in (self._px(4), self._px(7)):
+                        draw.arc((cx-r, cy-r, cx+r, cy+r), 10, 170,
+                                 fill=gold, width=max(1, self._px(.2)))
+                        draw.arc((cx-r, cy-r, cx+r, cy+r), 190, 350,
+                                 fill=gold, width=max(1, self._px(.2)))
+        elif self.style == "color":
+            # Floral corners: botanical leaves and flowers drawn as vector
+            # shapes, not overlays or filters on the customer's photographs.
+            stems = (82, 132, 83)
+            petals = ((224, 83, 114), (242, 153, 89), (175, 91, 159))
+            for cx, cy, sx, sy in (
+                (x1+self._px(11), y1+self._px(12), 1, 1),
+                (x2-self._px(11), y1+self._px(12), -1, 1),
+                (x1+self._px(11), y2-self._px(12), 1, -1),
+                (x2-self._px(11), y2-self._px(12), -1, -1),
+            ):
+                for index in range(3):
+                    dx = sx * self._px(5 + index * 5)
+                    dy = sy * self._px(3 + index * 4)
+                    draw.line((cx, cy, cx+dx, cy+dy), fill=stems,
+                              width=max(1, self._px(.25)))
+                    leaf_r = self._px(2.3)
+                    draw.ellipse((cx+dx-leaf_r, cy+dy-leaf_r,
+                                  cx+dx+leaf_r, cy+dy+leaf_r), fill=stems)
+                flower_r = self._px(3)
+                for index, (ox, oy) in enumerate(((0,-4),(4,0),(0,4),(-4,0))):
+                    px, py = cx+self._px(ox), cy+self._px(oy)
+                    draw.ellipse((px-flower_r, py-flower_r,
+                                  px+flower_r, py+flower_r),
+                                 fill=petals[index % len(petals)])
+                core = self._px(1.8)
+                draw.ellipse((cx-core, cy-core, cx+core, cy+core),
+                             fill=(244, 192, 78))
+        else:
+            line = (90, 77, 58)
+            draw.line((x1+inset, y1+self._px(5), x2-inset, y1+self._px(5)),
+                      fill=line, width=max(1, self._px(.15)))
+            draw.line((x1+inset, y2-self._px(5), x2-inset, y2-self._px(5)),
+                      fill=line, width=max(1, self._px(.15)))
 
     @staticmethod
     def _menu_title(menu: Menu) -> str:
@@ -159,6 +269,8 @@ class BookletRenderer:
 
         draw = ImageDraw.Draw(page)
         draw.rectangle(left, fill=self.PANEL)
+        self._decorate_panel(page, left)
+        self._decorate_panel(page, right)
         self._draw_back_cover(page, left, menu)
         self._draw_cover(page, right, menu)
 
@@ -169,10 +281,10 @@ class BookletRenderer:
         gold = self.GOLD
         draw.ellipse(
             (cx - self._px(32), y1 + self._px(28), cx + self._px(32), y1 + self._px(92)),
-            outline=(80, 62, 43),
+            outline=self.MUTED,
             width=self._px(0.7),
         )
-        self._center_text(draw, "♡", cx, y1 + self._px(47), self._font(39, serif=True), gold)
+        self._center_text(draw, "FOOD PORN", cx, y1 + self._px(58), self._font(10, serif=True, bold=True), gold)
         draw.line((cx-self._px(19), y1+self._px(109), cx+self._px(19), y1+self._px(109)),
                   fill=self.GOLD, width=max(2, self._px(.25)))
         self._fit_text(draw, t("love_letter", menu.customer.language),
@@ -182,14 +294,14 @@ class BookletRenderer:
         quote_y = y1 + self._px(220)
         draw.line((cx-self._px(31), quote_y, cx+self._px(31), quote_y),
                   fill=(101, 82, 56), width=max(2, self._px(.25)))
-        self._fit_text(draw, "“" + t("classic_quote", menu.customer.language) + "”",
+        self._fit_text(draw, "“" + romantic_copy(menu.customer.language, getattr(menu, "design_seed", None) or getattr(menu, "id", 0))[0] + "”",
                        (x1+self._px(25), quote_y+self._px(7), x2-self._px(25), quote_y+self._px(37)),
                        self._font(11, serif=True, italic=True), self.GOLD, max_lines=3)
-        self._fit_text(draw, t("classic_author", menu.customer.language),
+        self._fit_text(draw, "FOOD PORN",
                        (x1+self._px(25), quote_y+self._px(42), x2-self._px(25), quote_y+self._px(55)),
                        self._font(9, serif=True), self.MUTED)
         customer_name = getattr(menu.customer, "name", "Любимый")
-        self._center_text(draw, f"Сделано с любовью для тебя ✦ {customer_name}", cx, y2-self._px(15),
+        self._center_text(draw, f"Сделано с любовью для тебя - {customer_name}", cx, y2-self._px(15),
                           self._font(9.5, serif=True), self.MUTED)
 
     def _draw_cover(self, page: Image.Image, box: tuple[int, int, int, int], menu: Menu) -> None:
@@ -201,17 +313,16 @@ class BookletRenderer:
             height,
             centering=(0.6, 0.5),
         )
-        photo = ImageEnhance.Color(photo).enhance(0.86)
-        photo = ImageEnhance.Contrast(photo).enhance(1.08)
 
-        # The cover photograph is the page itself, not a separate photo card.
-        # The dark left side holds the title while the portrait remains visible.
+        # Keep the supplied photo's pixels intact. Only a narrow text-side
+        # overlay provides contrast; theme never color-grades customer photos.
         shade = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         shade_draw = ImageDraw.Draw(shade)
-        for x in range(width):
-            progress = x / max(1, width - 1)
-            alpha = int(205 - 155 * progress)
-            shade_draw.line((x, 0, x, height), fill=(12, 10, 10, alpha))
+        shade_width = max(1, self._px(128))
+        for x in range(min(width, shade_width)):
+            strength = 1.0 - x / shade_width
+            alpha = int((160 if self.style == "dark" else 90) * strength * strength)
+            shade_draw.line((x, 0, x, height), fill=(10, 10, 12, alpha))
         photo = Image.alpha_composite(photo.convert("RGBA"), shade).convert("RGB")
         page.paste(photo, (box[0], box[1]))
 
@@ -231,7 +342,7 @@ class BookletRenderer:
         )
         line_y = box[1] + self._px(104)
         draw.line((text_x, line_y, text_x + self._px(38), line_y), fill=self.GOLD, width=max(2, self._px(0.35)))
-        draw.text((text_x + self._px(44), line_y - self._px(9)), "♡", font=self._font(17, serif=True), fill=self.GOLD)
+        draw.ellipse((text_x + self._px(49), line_y - self._px(2), text_x + self._px(52), line_y + self._px(1)), fill=self.GOLD)
         draw.line(
             (text_x + self._px(59), line_y, text_x + self._px(97), line_y),
             fill=self.GOLD,
@@ -249,7 +360,9 @@ class BookletRenderer:
         right = (x0 + self.panel_w, y0, x0 + self.trim_w, y0 + self.trim_h)
         draw = ImageDraw.Draw(page)
         draw.rectangle(left, fill=self.BG)
-        draw.rectangle(right, fill=(24, 21, 20))
+        draw.rectangle(right, fill=self.PANEL)
+        self._decorate_panel(page, left)
+        self._decorate_panel(page, right)
 
         left_items = [
             item
@@ -262,7 +375,7 @@ class BookletRenderer:
         if len(left_items) > 18 or len(drinks) > 18:
             raise ValueError("Too many menu items for the two-panel print layout")
         self._draw_food_grid(page, left, left_items, menu, drinks=drinks)
-        self._draw_right_panel(page, right, menu)
+        self._draw_right_panel(page, right, menu, drinks=[])
 
     def _draw_food_grid(self, page: Image.Image, box: tuple[int, int, int, int], items: list, menu: Menu, *, drinks: list | None = None) -> None:
         draw = ImageDraw.Draw(page)
@@ -276,7 +389,7 @@ class BookletRenderer:
         )
         draw.line(
             (x1 + self._px(113), y1 + self._px(17), x2 - pad, y1 + self._px(17)),
-            fill=(113, 86, 53), width=max(2, self._px(0.35)),
+            fill=self.MUTED, width=max(1, self._px(0.2)),
         )
 
         meal_order = {"breakfast": 0, "lunch": 1, "dinner": 2, "other": 3}
@@ -294,9 +407,9 @@ class BookletRenderer:
             ),
         )
         drinks = drinks or []
-        columns = 2 if len(items) <= 6 else 3
+        columns = (2 if self.layout_variant in (0, 2, 4) else 3) if len(items) <= 9 else 3
         rows = (len(items) + columns - 1) // columns
-        gap = self._px(4)
+        gap = self._px((3, 5, 7, 4, 6)[self.layout_variant])
         grid_x, grid_y = x1 + pad, y1 + self._px(27)
         # Reserve dedicated space for drinks and the playful, non-monetary bill.
         drinks_rows = (len(drinks) + 2) // 3
@@ -308,6 +421,8 @@ class BookletRenderer:
         card_h = min(self._px(156), (grid_h - gap * (rows - 1)) // rows) if rows else 0
         for index, item in enumerate(items):
             row, col = divmod(index, columns)
+            if self.layout_variant in (1, 3):
+                col = columns - 1 - col
             bx = grid_x + col * (card_w + gap)
             by = grid_y + row * (card_h + gap)
             self._draw_item_card(page, (bx, by, bx + card_w, by + card_h), item, menu, compact=True)
@@ -339,12 +454,12 @@ class BookletRenderer:
         draw = ImageDraw.Draw(page)
         lang = str(getattr(menu.customer.language, "value", menu.customer.language) or "ru")
         translations = {
-            "uk": ("РАХУНОК ДО СПЛАТИ ♡", ("Ніжний поцілунок", "Теплі обійми", "Щирий комплімент"), ("2 шт.", "3 шт.", "1 шт."), "РАЗОМ: БЕЗЦІННО"),
-            "ru": ("СЧЁТ К ОПЛАТЕ ♡", ("Нежный поцелуй", "Тёплые объятия", "Искренний комплимент"), ("2 шт.", "3 шт.", "1 шт."), "ИТОГО: БЕСЦЕННО"),
-            "en": ("A BILL OF LOVE ♡", ("A tender kiss", "A warm hug", "A sincere compliment"), ("2", "3", "1"), "TOTAL: PRICELESS"),
+            "uk": ("РАХУНОК ДО СПЛАТИ", ("Ніжний поцілунок", "Теплі обійми", "Щирий комплімент"), ("2 шт.", "3 шт.", "1 шт."), "РАЗОМ: БЕЗЦІННО"),
+            "ru": ("СЧЁТ К ОПЛАТЕ", ("Нежный поцелуй", "Тёплые объятия", "Искренний комплимент"), ("2 шт.", "3 шт.", "1 шт."), "ИТОГО: БЕСЦЕННО"),
+            "en": ("A BILL OF LOVE", ("A tender kiss", "A warm hug", "A sincere compliment"), ("2", "3", "1"), "TOTAL: PRICELESS"),
         }
         title, labels, amounts, total = translations.get(lang, translations["ru"])
-        draw.rounded_rectangle((x1, y1, x2, y2), radius=self._px(4), outline=(132, 98, 57), width=max(2, self._px(.4)))
+        draw.rounded_rectangle((x1, y1, x2, y2), radius=self._px(4), outline=self.MUTED, width=max(1, self._px(.25)))
         self._center_text(draw, title, (x1 + x2) // 2, y1 + self._px(5), self._font(13, serif=True, bold=True), self.GOLD)
         draw.line((x1 + self._px(8), y1 + self._px(17), x2 - self._px(8), y1 + self._px(17)), fill=(113, 86, 53), width=max(1, self._px(.2)))
         for index, (label, amount) in enumerate(zip(labels, amounts, strict=True)):
@@ -376,24 +491,25 @@ class BookletRenderer:
             radius=radius,
             fill=(0, 0, 0, 150),
         )
-        shadow = shadow.filter(ImageFilter.GaussianBlur(self._px(1.6)))
-        page.paste(shadow, (x1, y1), shadow)
+        if self.style == "dark":
+            shadow = shadow.filter(ImageFilter.GaussianBlur(self._px(1.6)))
+            page.paste(shadow, (x1, y1), shadow)
 
         # Render directly to the actual photograph viewport. Cropping an image
         # sized for the entire card used to remove the lower half of dishes.
-        caption_h = min(height // 3, self._px(23 if compact else 27))
+        caption_h = min(height // 3, self._px(28 if compact else 32))
         photo_h = height - caption_h
         picture = self._safe_item_image(item.image_path, width, photo_h)
-        picture = ImageEnhance.Color(picture).enhance(1.05)
-        picture = ImageEnhance.Contrast(picture).enhance(1.03)
-        card = Image.new("RGB", (width, height), (34, 29, 27))
+        card_bg = self.PANEL
+        card = Image.new("RGB", (width, height), card_bg)
         card.paste(picture, (0, 0))
         mask = Image.new("L", card.size, 0)
         ImageDraw.Draw(mask).rounded_rectangle((0, 0, width - 1, height - 1), radius=radius, fill=255)
         page.paste(card, (x1, y1), mask)
 
         draw = ImageDraw.Draw(page)
-        draw.rounded_rectangle(box, radius=radius, outline=(132, 98, 57), width=max(2, self._px(0.35)))
+        card_border = self.MUTED if self.style == "dark" else self.GOLD
+        draw.rounded_rectangle(box, radius=radius, outline=card_border, width=max(1, self._px(0.18)))
         item_title = display_dish_title(item.title)
         self._fit_card_title(
             draw, item_title,
@@ -436,26 +552,78 @@ class BookletRenderer:
         # No ellipsis: fail visibly rather than ship a misleading shortened title.
         raise ValueError(f"Dish title does not fit the card: {text!r}")
 
-    def _draw_right_panel(self, page: Image.Image, box: tuple[int, int, int, int], menu: Menu) -> None:
-        """Immersive portrait with soft edges; no food or drink overlays."""
+    def _draw_right_panel(self, page: Image.Image, box: tuple[int, int, int, int], menu: Menu, *, drinks: list | None = None) -> None:
+        """Editorial portrait hero: about 40 percent of the full A3 spread.
+
+        The portrait occupies 80% of the right-hand panel, while the remaining
+        strip holds drinks. No food or text is painted over the customer's face.
+        """
         x1, y1, x2, y2 = box
+        width, height = x2 - x1, y2 - y1
+        pad = self._px(8)
+        portrait_height = round(height * 0.91)
+        portrait_box = (x1 + pad, y1 + pad, x2 - pad, y1 + portrait_height)
+        px1, py1, px2, py2 = portrait_box
+        portrait = self._portrait_contain_image(
+            Path(menu.spread_photo_path), px2 - px1, py2 - py1
+        )
+        if self.style == "light":
+            # Imperial gallery frame; do not overlay ornaments on the face.
+            frame_color = (183, 145, 76)
+            ImageDraw.Draw(page).rectangle(
+                (px1-self._px(2), py1-self._px(2),
+                 px2+self._px(2), py2+self._px(2)),
+                outline=frame_color, width=max(2, self._px(.4)),
+            )
+            page.paste(portrait, (px1, py1))
+        elif self.style == "color":
+            # Botanical theme: soft vertical edge blend into the ivory page.
+            alpha = Image.new("L", portrait.size, 255)
+            fade = max(1, self._px(5))
+            mask_draw = ImageDraw.Draw(alpha)
+            for offset in range(fade):
+                value = round(255 * offset / fade)
+                mask_draw.line((0, offset, alpha.width-1, offset), fill=value)
+                mask_draw.line(
+                    (0, alpha.height-1-offset, alpha.width-1, alpha.height-1-offset),
+                    fill=value,
+                )
+            page.paste(portrait, (px1, py1), alpha)
+        else:
+            # Noir: full-strength portrait, thin gold editorial border.
+            page.paste(portrait, (px1, py1))
+            ImageDraw.Draw(page).rectangle(
+                portrait_box, outline=self.GOLD, width=max(1, self._px(.25))
+            )
+
         draw = ImageDraw.Draw(page)
         lang = str(getattr(menu.customer.language, "value", menu.customer.language) or "ru")
-        main = {"uk": "ВАШ ОСОБЛИВИЙ ВЕЧІР", "ru": "ВАШ ОСОБЕННЫЙ ВЕЧЕР", "en": "A SPECIAL EVENING"}.get(lang, "ВАШ ОСОБЕННЫЙ ВЕЧЕР")
-        pad = self._px(11)
-        draw.text((x1 + pad, y1 + self._px(9)), main, font=self._font(17, serif=True, bold=True), fill=self.GOLD)
-        draw.line((x1 + pad, y1 + self._px(23), x2 - pad, y1 + self._px(23)), fill=(126, 95, 66), width=max(2, self._px(.35)))
-        photo_top = y1 + self._px(27)
-        photo_width, photo_height = x2 - x1, y2 - photo_top
-        portrait = self._portrait_contain_image(Path(menu.spread_photo_path), photo_width, photo_height)
-        portrait = ImageEnhance.Color(portrait).enhance(.9)
-        fade_x, fade_y = max(1, self._px(23)), max(1, self._px(24))
-        horizontal = Image.new("L", (photo_width, 1))
-        horizontal.putdata([max(0, int(255 * min(1.0, xx / fade_x, (photo_width - 1 - xx) / fade_x))) for xx in range(photo_width)])
-        vertical = Image.new("L", (1, photo_height))
-        vertical.putdata([max(0, int(240 * min(1.0, yy / fade_y, (photo_height - 1 - yy) / fade_y))) for yy in range(photo_height)])
-        alpha = ImageChops.multiply(horizontal.resize((photo_width, photo_height)), vertical.resize((photo_width, photo_height)))
-        page.paste(portrait, (x1, photo_top), alpha)
+        title = {"uk": "НАПОЇ", "ru": "НАПИТКИ", "en": "DRINKS"}.get(lang, "НАПИТКИ")
+        drinks_top = y1 + portrait_height + self._px(5)
+        draw.text(
+            (x1+pad, drinks_top), title,
+            font=self._font(15, serif=True, bold=True), fill=self.GOLD,
+        )
+        drinks = drinks or []
+        if not drinks:
+            return
+        columns = min(4, len(drinks))
+        rows = (len(drinks)+columns-1)//columns
+        gap = self._px(3)
+        cell_w = (width-2*pad-gap*(columns-1))//columns
+        cell_h = max(self._px(13), (y2-drinks_top-self._px(19))//rows)
+        for index, item in enumerate(drinks):
+            row, col = divmod(index, columns)
+            cx = x1+pad+col*(cell_w+gap)
+            cy = drinks_top+self._px(15)+row*cell_h
+            photo_h = max(self._px(6), cell_h-self._px(12))
+            photo = self._safe_item_image(item.image_path, cell_w, photo_h)
+            page.paste(photo, (cx, cy))
+            self._fit_text(
+                draw, display_dish_title(item.title),
+                (cx, cy+photo_h+self._px(1), cx+cell_w, cy+cell_h),
+                self._font(7.5, serif=True), self.CREAM, max_lines=2,
+            )
 
     def _draw_inside_letter(self, page: Image.Image, box: tuple[int, int, int, int], menu: Menu) -> None:
         draw = ImageDraw.Draw(page)
@@ -525,7 +693,6 @@ class BookletRenderer:
             backdrop = ImageOps.fit(
                 source, (width, height), method=Image.Resampling.LANCZOS
             ).filter(ImageFilter.GaussianBlur(radius=max(8, min(width, height) // 25)))
-            backdrop = ImageEnhance.Brightness(backdrop).enhance(0.60)
             foreground = ImageOps.contain(
                 source, (width, height), method=Image.Resampling.LANCZOS
             )

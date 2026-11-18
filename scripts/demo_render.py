@@ -12,6 +12,7 @@ Responsibilities:
 ==========================================================
 """
 
+import os
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -31,8 +32,23 @@ def picture(path: Path, color: tuple[int, int, int], label: str, size=(900, 900)
     return path
 
 
-cover = picture(ROOT / "cover.jpg", (65, 25, 20), "COVER PHOTO", (1000, 1500))
-spread = picture(ROOT / "spread.jpg", (45, 30, 35), "SPREAD PHOTO", (1000, 1500))
+# Optional real sample photos for a meaningful visual review.
+# FOOD_PORN_DEMO_PHOTOS can point to a folder containing cover.jpg,
+# spread.jpg and item_1.jpg ... item_12.jpg. No real customer data required.
+PHOTO_DIR = Path(os.environ["FOOD_PORN_DEMO_PHOTOS"]) if os.getenv("FOOD_PORN_DEMO_PHOTOS") else None
+
+
+def demo_photo(name: str, color: tuple[int, int, int], label: str, size=(900, 900)) -> Path:
+    if PHOTO_DIR is not None:
+        candidate = PHOTO_DIR / name
+        if not candidate.is_file():
+            raise FileNotFoundError(f"Demo photo missing: {candidate}")
+        return candidate
+    return picture(ROOT / name, color, label, size)
+
+
+cover = demo_photo("cover.jpg", (65, 25, 20), "COVER PHOTO", (1000, 1500))
+spread = demo_photo("spread.jpg", (45, 30, 35), "SPREAD PHOTO", (1000, 1500))
 
 customer = Customer(
     telegram_user_id=1,
@@ -46,7 +62,6 @@ menu = Menu(
     id=999,
     customer=customer,
     customer_id=1,
-    language=Language.RU,
     cover_photo_path=str(cover),
     spread_photo_path=str(spread),
 )
@@ -61,7 +76,7 @@ item_id = 0
 for category, titles in names.items():
     for index, title in enumerate(titles, 1):
         item_id += 1
-        image_path = picture(ROOT / f"item_{item_id}.jpg", (70 + item_id * 5, 45, 24), title)
+        image_path = demo_photo(f"item_{item_id}.jpg", (70 + item_id * 5, 45, 24), title)
         items.append(
             MenuItem(
                 id=item_id,
