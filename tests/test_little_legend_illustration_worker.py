@@ -1,6 +1,5 @@
 """Worker checks: consent, revisions, dispatch fence and sanitized persistence."""
 from io import BytesIO
-from types import SimpleNamespace
 
 import pytest
 from PIL import Image
@@ -11,6 +10,7 @@ from app.little_legend.image_ai_consent import (
 from app.little_legend.illustration_queue_store import IllustrationJob
 from app.little_legend.illustration_worker import (
     IllustrationContext, run_illustration_job,
+    run_illustration_job_with_private_store,
 )
 from app.little_legend.story_graph import build_graph
 from app.little_legend.writer_queue import JobStatus
