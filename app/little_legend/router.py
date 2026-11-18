@@ -31,6 +31,7 @@ from app.little_legend.blueprint import (
     visual_consistency_check,
 )
 from app.little_legend.editorial import audit_story
+from app.little_legend.narrative_design import StoryDesign, design_guidance
 from app.little_legend.print_renderer import render_print_proof
 from app.little_legend.story_graph import StoryGraph, build_graph, graph_report
 from app.miniapp.auth import current_user
@@ -69,6 +70,7 @@ class StoryDraft(BaseModel):
     scenes: list[str] = Field(default_factory=lambda: list(DEFAULT_SCENES), min_length=1, max_length=40)
     graph: StoryGraph | None = None
     blueprint: BookBlueprint | None = None
+    design: StoryDesign = Field(default_factory=StoryDesign)
 
 
 async def initialize_schema() -> None:
@@ -136,6 +138,8 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
                         node.summary = summary
         if "blueprint" not in draft.model_fields_set:
             draft.blueprint = previous.blueprint
+        if "design" not in draft.model_fields_set:
+            draft.design = previous.design
         result = await session.execute(update(stories).where(
             stories.c.id == story_id, stories.c.owner_id == owner
         ).values(title=draft.title, hero=draft.hero, data=draft.model_dump_json(),
@@ -171,6 +175,27 @@ async def _owned_draft(story_id: int, owner: int) -> StoryDraft:
     if raw is None:
         raise HTTPException(404, "Story not found")
     return StoryDraft.model_validate_json(raw)
+
+
+@router.get("/api/stories/{story_id}/design")
+async def read_design(story_id: int, owner: Annotated[int, Depends(_owner)]):
+    draft = await _owned_draft(story_id, owner)
+    graph = draft.graph or build_graph(draft.scenes)
+    blueprint = draft.blueprint or quick_blueprint(draft.hero)
+    return {
+        "design": draft.design.model_dump(),
+        "guidance": design_guidance(graph, draft.design, blueprint),
+    }
+
+
+@router.put("/api/stories/{story_id}/design")
+async def save_design(
+    story_id: int, design: StoryDesign, owner: Annotated[int, Depends(_owner)],
+):
+    draft = await _owned_draft(story_id, owner)
+    draft.design = design
+    await save_story(story_id, draft, owner)
+    return {"saved": True}
 
 
 @router.get("/api/stories/{story_id}/blueprint")
