@@ -158,8 +158,18 @@ def format_premium_dashboard(menu: Menu) -> str:
             next_step = "Меню создано. Готовые файлы доступны в заказе."
         elif menu.status == MenuStatus.PARTIAL_SUCCESS:
             next_step = "Часть файлов готова. Проверьте результат заказа."
-        elif menu.status in (MenuStatus.QUEUED, MenuStatus.IMAGES_READY):
-            next_step = "Меню формируется. Повторно запускать создание не нужно."
+        elif menu.status == MenuStatus.QUEUED:
+            next_step = "Меню поставлено в очередь. Повторно запускать создание не нужно."
+        elif menu.status == MenuStatus.IMAGES_READY:
+            next_step = "Иллюстрации готовы. Ожидайте следующего этапа обработки."
+        elif menu.status == MenuStatus.WAITING_FOR_PAYMENT:
+            next_step = "Предпросмотр готов. Перейдите к оплате заказа."
+        elif menu.status == MenuStatus.PAID:
+            next_step = "Оплата подтверждена. Ожидайте готовые файлы."
+        elif menu.status == MenuStatus.SENT_TO_PRINTSHOP:
+            next_step = "Заказ передан в типографию."
+        elif menu.status == MenuStatus.FAILED:
+            next_step = "Создание не удалось. Проверьте данные и попробуйте снова."
         else:
             next_step = "Всё готово. Проверьте заказ и запустите создание."
     details = [f"  • {escape_title(item.title)}" for item in menu.items if item.title != "—"]
