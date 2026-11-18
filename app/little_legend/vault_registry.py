@@ -11,7 +11,6 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     DateTime,
-    ForeignKey,
     Index,
     Integer,
     MetaData,
@@ -33,7 +32,6 @@ vault_assets = Table(
     Column("owner_id", BigInteger, nullable=False),
     Column(
         "story_id", Integer,
-        ForeignKey("little_legend_stories.id", ondelete="CASCADE"),
         nullable=False,
     ),
     Column("object_key", String(120), nullable=False, unique=True),
