@@ -14,18 +14,18 @@ from app.little_legend.writer_queue_store import writer_jobs
 
 class ChapterCostSummary(BaseModel):
     scene_id: str
-    estimated_usd: Decimal = Field(ge=0)
-    confirmed_usd: Decimal = Field(ge=0)
-    jobs: int = Field(ge=0)
-    dispatched_jobs: int = Field(ge=0)
+    estimated_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    confirmed_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    jobs: int = Field(default=0, ge=0)
+    dispatched_jobs: int = Field(default=0, ge=0)
 
 
 class StoryCostSummary(BaseModel):
     story_id: int
-    estimated_usd: Decimal = Field(ge=0)
-    confirmed_usd: Decimal = Field(ge=0)
-    jobs: int = Field(ge=0)
-    dispatched_jobs: int = Field(ge=0)
+    estimated_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    confirmed_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    jobs: int = Field(default=0, ge=0)
+    dispatched_jobs: int = Field(default=0, ge=0)
     chapters: list[ChapterCostSummary]
 
 
