@@ -55,9 +55,6 @@ from app.little_legend.privacy_lifecycle import (
 )
 from app.little_legend.secure_vault import upload_capability
 from app.little_legend.story_graph import StoryGraph, build_graph, graph_report
-from app.little_legend.vault_registry import (
-    metadata as vault_metadata,
-)
 from app.little_legend.vault_registry import vault_summary
 from app.miniapp.auth import current_user
 
@@ -104,7 +101,6 @@ class StoryDraft(BaseModel):
 async def initialize_schema() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(lambda sync: metadata.create_all(sync, checkfirst=True))
-        await conn.run_sync(lambda sync: vault_metadata.create_all(sync, checkfirst=True))
 
 
 def _owner(user: Annotated[dict, Depends(current_user)]) -> int:
