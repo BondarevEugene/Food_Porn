@@ -1,5 +1,5 @@
 """Object deletion worker safety contracts."""
-from datetime import UTC, datetime
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
