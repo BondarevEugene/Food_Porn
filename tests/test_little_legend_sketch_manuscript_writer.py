@@ -4,8 +4,8 @@ import pytest
 from app.little_legend.blueprint import quick_blueprint
 from app.little_legend.client_sketch import ParentSketch, outline_from_sketch
 from app.little_legend.hero_contract import contract_from_blueprint
-from app.little_legend.sketch_writer_briefs import SketchWritingSettings
 from app.little_legend.sketch_manuscript_writer import write_sketch_manuscript
+from app.little_legend.sketch_writer_briefs import SketchWritingSettings
 from app.little_legend.story_writer import WritingPolicy
 
 
