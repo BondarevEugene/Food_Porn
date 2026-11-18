@@ -1,10 +1,6 @@
 """Story Graph and print-proof regression tests."""
-from io import BytesIO
-
 import pytest
 from pydantic import ValidationError
-from pypdf import PdfReader
-
 from app.little_legend.print_renderer import render_print_proof
 from app.little_legend.story_graph import StoryEdge, StoryGraph, build_graph, graph_report
 
