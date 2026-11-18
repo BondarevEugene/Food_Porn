@@ -18,6 +18,7 @@ class ChapterCostSummary(BaseModel):
     confirmed_usd: Decimal = Field(default=Decimal("0"), ge=0)
     jobs: int = Field(default=0, ge=0)
     dispatched_jobs: int = Field(default=0, ge=0)
+    unreconciled_dispatched_jobs: int = Field(default=0, ge=0)
 
 
 class StoryCostSummary(BaseModel):
@@ -26,6 +27,7 @@ class StoryCostSummary(BaseModel):
     confirmed_usd: Decimal = Field(default=Decimal("0"), ge=0)
     jobs: int = Field(default=0, ge=0)
     dispatched_jobs: int = Field(default=0, ge=0)
+    unreconciled_dispatched_jobs: int = Field(default=0, ge=0)
     chapters: list[ChapterCostSummary]
 
 
@@ -44,12 +46,18 @@ def summarize_story_costs(
         chapter.estimated_usd += Decimal(str(job.estimated_cost_usd))
         chapter.confirmed_usd += charges.get(job.job_id, Decimal("0"))
         chapter.dispatched_jobs += int(job.provider_dispatched_at is not None)
+        chapter.unreconciled_dispatched_jobs += int(
+            job.provider_dispatched_at is not None and job.job_id not in charges
+        )
     return StoryCostSummary(
         story_id=story_id,
         estimated_usd=sum((c.estimated_usd for c in chapters.values()), Decimal("0")),
         confirmed_usd=sum((c.confirmed_usd for c in chapters.values()), Decimal("0")),
         jobs=len(jobs),
         dispatched_jobs=sum(c.dispatched_jobs for c in chapters.values()),
+        unreconciled_dispatched_jobs=sum(
+            c.unreconciled_dispatched_jobs for c in chapters.values()
+        ),
         chapters=list(chapters.values()),
     )
 
