@@ -1,5 +1,5 @@
 """Consent audit writes and withdrawal queue integration."""
-from datetime import UTC, datetime
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
