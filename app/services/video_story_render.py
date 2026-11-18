@@ -18,9 +18,13 @@ from app.services.wallpaper_studio import WallpaperExportService
 
 
 def validate_rendered_video(path: Path) -> None:
-    """Do not persist a successful render with an absent or empty output."""
-    if not path.is_file() or path.stat().st_size == 0:
+    """Require a nontrivial MP4 file with an ISO-BMFF file-type box."""
+    if not path.is_file() or path.stat().st_size < 1024:
         raise RuntimeError("Video renderer produced no playable file")
+    with path.open("rb") as source:
+        header = source.read(12)
+    if len(header) < 12 or header[4:8] != b"ftyp":
+        raise RuntimeError("Video renderer produced an invalid MP4 container")
 
 
 class VideoStoryNotPayable(ValueError):
