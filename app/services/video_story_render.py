@@ -17,6 +17,12 @@ from app.database.models import VideoStoryOrder, WallpaperOrder
 from app.services.wallpaper_studio import WallpaperExportService
 
 
+def validate_rendered_video(path: Path) -> None:
+    """Do not persist a successful render with an absent or empty output."""
+    if not path.is_file() or path.stat().st_size == 0:
+        raise RuntimeError("Video renderer produced no playable file")
+
+
 class VideoStoryNotPayable(ValueError):
     """The requested story is not an authorized paid order."""
 
@@ -99,6 +105,7 @@ async def render_verified_video_story(
         output = destination / f"video_story_{video_order_id}.mp4"
         if Path(rendered).resolve() != output.resolve():
             await asyncio.to_thread(shutil.copyfile, rendered, output)
+        validate_rendered_video(output)
         async with session_factory() as session:
             current = await session.get(VideoStoryOrder, video_order_id, with_for_update=True)
             if current is None or current.status != "processing":
