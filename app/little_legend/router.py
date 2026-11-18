@@ -45,6 +45,12 @@ from app.little_legend.consent import (
     withdraw_photo_consent,
 )
 from app.little_legend.editorial import audit_story
+from app.little_legend.hero_contract import (
+    audit_hero_presence,
+    contract_from_blueprint,
+    hero_writing_brief,
+    scene_directives,
+)
 from app.little_legend.narrative_design import StoryDesign, design_guidance
 from app.little_legend.portrait_studio import PortraitPlan, portrait_preflight
 from app.little_legend.print_renderer import render_print_proof
@@ -207,6 +213,38 @@ async def _owned_draft(story_id: int, owner: int) -> StoryDraft:
         raise HTTPException(404, "Story not found")
     return StoryDraft.model_validate_json(raw)
 
+
+
+
+@router.get("/api/stories/{story_id}/hero-contract")
+async def read_hero_contract(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Owner-scoped canonical hero facts and scene-writing directives."""
+    draft = await _owned_draft(story_id, owner)
+    blueprint = draft.blueprint or quick_blueprint(draft.hero)
+    hero_profile = next(
+        (item for item in blueprint.characters if item.role == "hero"), None
+    )
+    if hero_profile is None or hero_profile.name != draft.hero:
+        raise HTTPException(422, "Hero profile must match story hero")
+    # Older story forms stored habits and phrases outside the blueprint.
+    # Preserve these user-authored facts without overwriting richer settings.
+    blueprint = blueprint.model_copy(deep=True)
+    hero_profile = next(item for item in blueprint.characters if item.role == "hero")
+    if not hero_profile.mannerisms.strip() and draft.habits.strip():
+        hero_profile.mannerisms = draft.habits
+    if not hero_profile.favorite_phrases.strip() and draft.phrases.strip():
+        hero_profile.favorite_phrases = draft.phrases
+    contract = contract_from_blueprint(blueprint, draft.hero)
+    graph = draft.graph or build_graph(draft.scenes)
+    return {
+        "contract": contract.model_dump(mode="json"),
+        "writing_brief": hero_writing_brief(contract, blueprint),
+        "scene_directives": scene_directives(contract, graph),
+        "audit": audit_hero_presence(contract, {}, graph),
+        "ai_generated": False,
+    }
 
 @router.get("/api/stories/{story_id}/consent")
 async def read_consent(story_id: int, owner: Annotated[int, Depends(_owner)]):
