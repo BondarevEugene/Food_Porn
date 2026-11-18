@@ -167,7 +167,7 @@ def format_premium_dashboard(menu: Menu) -> str:
         f"⚜️ <b>{meal_label(menu.meal_period, language)} · #{menu.id}</b>",
         "<i>Персональная гастрономическая студия</i>",
         "",
-        f"<b>Подготовка: {progress} {complete}/3</b>",
+        f"<b>Готовность: {complete}/3</b> · {progress}",
         f"{'✅' if count else '①'} Блюда · {count}",
         f"{'✅' if cover else '②'} Фото обложки",
         f"{'✅' if spread else '③'} Фото разворота",
@@ -204,6 +204,8 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
                        callback_data=MenuAction(action="resend", menu_id=menu.id))
     builder.button(text="⚙️ Изменить или дополнить",
                    callback_data=MenuAction(action="menu_more", menu_id=menu.id))
+    builder.button(text="ℹ️ Что нужно для генерации",
+                   callback_data=MenuAction(action="requirements", menu_id=menu.id))
     builder.button(text="⬅️ Назад", callback_data="prod_food_porn")
     builder.adjust(1)
     return builder.as_markup()
