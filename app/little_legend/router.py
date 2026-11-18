@@ -30,6 +30,11 @@ from app.little_legend.blueprint import (
     quick_blueprint,
     visual_consistency_check,
 )
+from app.little_legend.character_identity import (
+    IdentityBible,
+    identity_review,
+    quick_identity_bible,
+)
 from app.little_legend.editorial import audit_story
 from app.little_legend.narrative_design import StoryDesign, design_guidance
 from app.little_legend.print_renderer import render_print_proof
@@ -71,6 +76,7 @@ class StoryDraft(BaseModel):
     graph: StoryGraph | None = None
     blueprint: BookBlueprint | None = None
     design: StoryDesign = Field(default_factory=StoryDesign)
+    identity_bible: IdentityBible | None = None
 
 
 async def initialize_schema() -> None:
@@ -140,6 +146,8 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
             draft.blueprint = previous.blueprint
         if "design" not in draft.model_fields_set:
             draft.design = previous.design
+        if "identity_bible" not in draft.model_fields_set:
+            draft.identity_bible = previous.identity_bible
         result = await session.execute(update(stories).where(
             stories.c.id == story_id, stories.c.owner_id == owner
         ).values(title=draft.title, hero=draft.hero, data=draft.model_dump_json(),
@@ -175,6 +183,28 @@ async def _owned_draft(story_id: int, owner: int) -> StoryDraft:
     if raw is None:
         raise HTTPException(404, "Story not found")
     return StoryDraft.model_validate_json(raw)
+
+
+@router.get("/api/stories/{story_id}/identity")
+async def read_identity(story_id: int, owner: Annotated[int, Depends(_owner)]):
+    draft = await _owned_draft(story_id, owner)
+    blueprint = draft.blueprint or quick_blueprint(draft.hero)
+    bible = draft.identity_bible or quick_identity_bible(blueprint, draft.hero)
+    graph = draft.graph or build_graph(draft.scenes)
+    return {"identity": bible.model_dump(), "review": identity_review(bible, graph)}
+
+
+@router.put("/api/stories/{story_id}/identity")
+async def save_identity(
+    story_id: int, bible: IdentityBible, owner: Annotated[int, Depends(_owner)],
+):
+    draft = await _owned_draft(story_id, owner)
+    if bible.hero_name != draft.hero:
+        raise HTTPException(422, "Hero name must match story hero")
+    draft.identity_bible = bible
+    await save_story(story_id, draft, owner)
+    graph = draft.graph or build_graph(draft.scenes)
+    return {"saved": True, "review": identity_review(bible, graph)}
 
 
 @router.get("/api/stories/{story_id}/design")
