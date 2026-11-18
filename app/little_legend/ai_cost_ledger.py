@@ -17,9 +17,10 @@ from sqlalchemy import (
     String,
     Table,
     UniqueConstraint,
-    insert,
     select,
 )
+
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.database.session import async_session_maker
 from app.little_legend.writer_queue_store import writer_jobs
@@ -88,29 +89,34 @@ async def record_confirmed_cost(
         )).scalar_one_or_none()
         if job is None:
             raise PermissionError("Cost receipt does not belong to story owner")
+        # PostgreSQL arbitrates simultaneous writers through the unique index.
+        # DO NOTHING also covers a receipt_id collision, which is checked below.
+        inserted = (await session.execute(
+            pg_insert(cost_receipts).values(
+                receipt_id=receipt.receipt_id,
+                job_id=receipt.job_id, owner_id=owner_id, story_id=story_id,
+                provider=receipt.provider,
+                provider_reference=receipt.provider_reference,
+                amount_usd=receipt.amount_usd, evidence=receipt.evidence.value,
+                recorded_at=datetime.now(UTC),
+            ).on_conflict_do_nothing().returning(cost_receipts.c.receipt_id)
+        )).scalar_one_or_none()
+        if inserted is not None:
+            await session.commit()
+            return True
         existing = (await session.execute(
             select(cost_receipts).where(
                 cost_receipts.c.provider == receipt.provider,
                 cost_receipts.c.provider_reference == receipt.provider_reference,
             )
         )).mappings().one_or_none()
-        if existing is not None:
-            if (
-                existing["job_id"] == receipt.job_id
-                and existing["owner_id"] == owner_id
-                and existing["story_id"] == story_id
-                and existing["amount_usd"] == receipt.amount_usd
-                and existing["evidence"] == receipt.evidence.value
-            ):
-                return False
-            raise ValueError("Conflicting provider cost evidence")
-        await session.execute(insert(cost_receipts).values(
-            receipt_id=receipt.receipt_id,
-            job_id=receipt.job_id, owner_id=owner_id, story_id=story_id,
-            provider=receipt.provider,
-            provider_reference=receipt.provider_reference,
-            amount_usd=receipt.amount_usd, evidence=receipt.evidence.value,
-            recorded_at=datetime.now(UTC),
-        ))
-        await session.commit()
-    return True
+        if existing is not None and (
+            existing["receipt_id"] == receipt.receipt_id
+            and existing["job_id"] == receipt.job_id
+            and existing["owner_id"] == owner_id
+            and existing["story_id"] == story_id
+            and existing["amount_usd"] == receipt.amount_usd
+            and existing["evidence"] == receipt.evidence.value
+        ):
+            return False
+        raise ValueError("Conflicting provider cost evidence or receipt ID")
