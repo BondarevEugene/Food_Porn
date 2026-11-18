@@ -75,6 +75,7 @@ from app.little_legend.sketch_writer_briefs import (
     SketchWritingSettings,
     compose_sketch_chapter_briefs,
 )
+from app.little_legend.story_cost_summary import get_story_cost_summary
 from app.little_legend.story_graph import StoryGraph, build_graph, graph_report
 from app.little_legend.story_writer import (
     ChapterDraft,
@@ -176,6 +177,22 @@ async def create_story(draft: StoryDraft, owner: Annotated[int, Depends(_owner)]
         story_id = result.scalar_one()
         await session.commit()
     return {"id": story_id}
+
+
+@router.get("/api/stories/{story_id}/costs")
+async def read_story_costs(story_id: int, owner: Annotated[int, Depends(_owner)]):
+    """Owner-only financial view; no manuscripts or child data are returned."""
+    if story_id <= 0:
+        raise HTTPException(404, "Story not found")
+    async with async_session_maker() as session:
+        exists = (await session.execute(
+            select(stories.c.id).where(
+                stories.c.id == story_id, stories.c.owner_id == owner
+            )
+        )).scalar_one_or_none()
+    if exists is None:
+        raise HTTPException(404, "Story not found")
+    return await get_story_cost_summary(owner_id=owner, story_id=story_id)
 
 
 @router.get("/api/stories/{story_id}")
