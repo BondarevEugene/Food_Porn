@@ -32,7 +32,6 @@ from app.little_legend.writer_queue import (
     finish_job,
 )
 
-
 illustration_metadata = MetaData()
 illustration_jobs = Table(
     "little_legend_illustration_jobs", illustration_metadata,
