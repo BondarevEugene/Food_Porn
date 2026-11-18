@@ -501,6 +501,7 @@ class BookletRenderer:
         photo_h = height - caption_h
         picture = self._safe_item_image(item.image_path, width, photo_h)
         card_bg = self.PANEL
+        caption_color = (24, 25, 26) if self.style != "dark" else (249, 243, 232)
         card = Image.new("RGB", (width, height), card_bg)
         card.paste(picture, (0, 0))
         mask = Image.new("L", card.size, 0)
@@ -515,11 +516,13 @@ class BookletRenderer:
             draw, item_title,
             (x1 + self._px(4), y2 - caption_h + self._px(2), x2 - self._px(4), y2 - self._px(2)),
             compact=compact,
+            text_color=caption_color,
         )
 
     def _fit_card_title(
         self, draw: ImageDraw.ImageDraw, text: str,
         box: tuple[int, int, int, int], *, compact: bool,
+        text_color: tuple[int, int, int] | None = None,
     ) -> None:
         """Fit the complete dish name; never silently truncate a paid menu."""
         x1, y1, x2, y2 = box
@@ -546,7 +549,7 @@ class BookletRenderer:
             if len(lines) * line_height <= available_height:
                 yy = y1 + max(0, (available_height - len(lines) * line_height) // 2)
                 for line in lines:
-                    draw.text((x1, yy), line, font=font, fill=self.CREAM)
+                    draw.text((x1, yy), line, font=font, fill=text_color or self.CREAM)
                     yy += line_height
                 return
         # No ellipsis: fail visibly rather than ship a misleading shortened title.
@@ -599,14 +602,14 @@ class BookletRenderer:
         draw = ImageDraw.Draw(page)
         lang = str(getattr(menu.customer.language, "value", menu.customer.language) or "ru")
         title = {"uk": "НАПОЇ", "ru": "НАПИТКИ", "en": "DRINKS"}.get(lang, "НАПИТКИ")
+        drinks = drinks or []
+        if not drinks:
+            return
         drinks_top = y1 + portrait_height + self._px(5)
         draw.text(
             (x1+pad, drinks_top), title,
             font=self._font(15, serif=True, bold=True), fill=self.GOLD,
         )
-        drinks = drinks or []
-        if not drinks:
-            return
         columns = min(4, len(drinks))
         rows = (len(drinks)+columns-1)//columns
         gap = self._px(3)
