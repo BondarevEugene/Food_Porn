@@ -70,6 +70,10 @@ from app.little_legend.privacy_lifecycle import (
     reset_photo_approvals,
 )
 from app.little_legend.secure_vault import upload_capability
+from app.little_legend.sketch_writer_briefs import (
+    SketchWritingSettings,
+    compose_sketch_chapter_briefs,
+)
 from app.little_legend.story_graph import StoryGraph, build_graph, graph_report
 from app.little_legend.story_writer import (
     ChapterDraft,
@@ -310,6 +314,32 @@ async def save_parent_sketch(
         ).values(data=draft.model_dump_json(), updated_at=datetime.now(UTC)))
         await session.commit()
     return {"saved": True, "outline": outline.model_dump(mode="json")}
+
+
+
+@router.get("/api/stories/{story_id}/sketch/writer-preview")
+async def preview_sketch_writer(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Review per-chapter writing context; never calls an AI provider."""
+    draft = await _owned_draft(story_id, owner)
+    if draft.parent_sketch is None:
+        raise HTTPException(409, "Parent sketch is missing")
+    blueprint = draft.blueprint or quick_blueprint(draft.hero)
+    try:
+        contract = contract_from_blueprint(blueprint, draft.hero)
+        briefs = compose_sketch_chapter_briefs(
+            sketch=draft.parent_sketch,
+            graph=draft.graph or build_graph(draft.scenes),
+            contract=contract, blueprint=blueprint,
+            design=draft.design, settings=SketchWritingSettings(require_parent_outline_approval=False),
+            outline_approved=False, existing=draft.manuscript,
+        )
+    except PermissionError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"chapters": briefs, "ai_generated": False}
 
 @router.get("/api/stories/{story_id}/hero-contract")
 async def read_hero_contract(
