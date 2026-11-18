@@ -35,6 +35,15 @@ from app.little_legend.character_identity import (
     identity_review,
     quick_identity_bible,
 )
+from app.little_legend.consent import (
+    PHOTO_NOTICE,
+    TERMS,
+    ConsentDecision,
+    ConsentRecord,
+    consent_status,
+    record_decision,
+    withdraw_photo_consent,
+)
 from app.little_legend.editorial import audit_story
 from app.little_legend.narrative_design import StoryDesign, design_guidance
 from app.little_legend.print_renderer import render_print_proof
@@ -77,6 +86,7 @@ class StoryDraft(BaseModel):
     blueprint: BookBlueprint | None = None
     design: StoryDesign = Field(default_factory=StoryDesign)
     identity_bible: IdentityBible | None = None
+    consent: ConsentRecord = Field(default_factory=ConsentRecord)
 
 
 async def initialize_schema() -> None:
@@ -148,6 +158,8 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
             draft.design = previous.design
         if "identity_bible" not in draft.model_fields_set:
             draft.identity_bible = previous.identity_bible
+        # Consent is never overwritten by a generic story editor payload.
+        draft.consent = previous.consent
         result = await session.execute(update(stories).where(
             stories.c.id == story_id, stories.c.owner_id == owner
         ).values(title=draft.title, hero=draft.hero, data=draft.model_dump_json(),
@@ -183,6 +195,62 @@ async def _owned_draft(story_id: int, owner: int) -> StoryDraft:
     if raw is None:
         raise HTTPException(404, "Story not found")
     return StoryDraft.model_validate_json(raw)
+
+
+@router.get("/api/stories/{story_id}/consent")
+async def read_consent(story_id: int, owner: Annotated[int, Depends(_owner)]):
+    draft = await _owned_draft(story_id, owner)
+    return {
+        "terms": TERMS,
+        "photo_notice": PHOTO_NOTICE,
+        "status": consent_status(draft.consent),
+    }
+
+
+@router.post("/api/stories/{story_id}/consent")
+async def accept_consent(
+    story_id: int, decision: ConsentDecision,
+    owner: Annotated[int, Depends(_owner)],
+):
+    draft = await _owned_draft(story_id, owner)
+    try:
+        updated = record_decision(draft.consent, decision)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    # Preserve the existing consent in save_story, then write via a dedicated
+    # owner-scoped SQL update under row lock.
+    async with async_session_maker() as session:
+        row = (await session.execute(select(stories.c.data).where(
+            stories.c.id == story_id, stories.c.owner_id == owner
+        ).with_for_update())).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(404, "Story not found")
+        current = StoryDraft.model_validate_json(row)
+        current.consent = updated
+        await session.execute(update(stories).where(
+            stories.c.id == story_id, stories.c.owner_id == owner
+        ).values(data=current.model_dump_json(), updated_at=datetime.now(UTC)))
+        await session.commit()
+    return {"status": consent_status(updated)}
+
+
+@router.post("/api/stories/{story_id}/consent/withdraw")
+async def withdraw_consent(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    async with async_session_maker() as session:
+        row = (await session.execute(select(stories.c.data).where(
+            stories.c.id == story_id, stories.c.owner_id == owner
+        ).with_for_update())).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(404, "Story not found")
+        current = StoryDraft.model_validate_json(row)
+        current.consent = withdraw_photo_consent(current.consent)
+        await session.execute(update(stories).where(
+            stories.c.id == story_id, stories.c.owner_id == owner
+        ).values(data=current.model_dump_json(), updated_at=datetime.now(UTC)))
+        await session.commit()
+    return {"status": consent_status(current.consent)}
 
 
 @router.get("/api/stories/{story_id}/identity")
@@ -343,7 +411,7 @@ nav button{font-size:13px;padding:12px 8px}
 <p class="hero-lead">Придумайте приключение за пару минут или станьте режиссёром каждой сцены. Личные детали необязательны.</p>
 <div id="authError" class="error hidden">Откройте студию кнопкой из Telegram-бота.</div>
 <div id="workspace" class="hidden">
-<nav><button class="secondary" onclick="tab('idea')">01 · Идея</button><button class="secondary" onclick="tab('hero')">02 · Герой</button><button class="secondary" onclick="openDesign()">03 · Драматургия</button><button class="secondary" onclick="tab('scenes')">04 · Сцены</button><button class="secondary" onclick="openIdentity()">05 · Внешность</button><button class="secondary" onclick="openDirector()">06 · Стиль</button><button class="secondary" onclick="tab('edition')">07 · Издание</button></nav>
+<nav><button class="secondary" onclick="tab('idea')">01 · Идея</button><button class="secondary" onclick="tab('hero')">02 · Герой</button><button class="secondary" onclick="openDesign()">03 · Драматургия</button><button class="secondary" onclick="tab('scenes')">04 · Сцены</button><button class="secondary" onclick="openConsent()">05 · Согласие</button><button class="secondary" onclick="openIdentity()">06 · Внешность</button><button class="secondary" onclick="openDirector()">07 · Стиль</button><button class="secondary" onclick="tab('edition')">08 · Издание</button></nav>
 <section id="idea" class="card">
 <h2>Ваша история</h2>
 <label>Название</label><input id="title" maxlength="180">
@@ -358,6 +426,17 @@ nav button{font-size:13px;padding:12px 8px}
 <label>Любимые выражения (необязательно)</label><textarea id="phrases" maxlength="2000"></textarea>
 <p class="note">Загрузка детских фотографий будет включена после добавления согласия родителей и защищённого хранилища.</p></section>
 <section id="scenes" class="card hidden"><h2>Режиссёрская раскадровка</h2><p class="note">Изменяйте поворот в любой сцене. Автоматическая генерация графа появится на следующем этапе.</p><div id="sceneList"></div></section>
+<section id="consent" class="card hidden"><h2>Безопасность и согласие</h2>
+<p class="note">Перед использованием фотографий ребёнка необходимо ознакомиться с условиями. Загрузка фотографий пока отключена.</p>
+<h3>Условия использования</h3><p class="note" id="consentTerms"></p>
+<h3>Фотографии ребёнка</h3><p class="note" id="consentPhotoNotice"></p>
+<label><input id="consentTermsCheck" type="checkbox" style="width:auto"> Я прочитал(а) и принимаю условия использования</label>
+<label><input id="consentParentCheck" type="checkbox" style="width:auto"> Я совершеннолетний родитель или законный представитель и вправе предоставлять материалы ребёнка</label>
+<label><input id="consentPhotoCheck" type="checkbox" disabled style="width:auto"> Отдельно соглашаюсь на будущую обработку фотографий ребёнка для создания книги</label>
+<button onclick="acceptConsent()">Сохранить согласия</button>
+<button class="secondary" onclick="withdrawConsent()">Отозвать согласие на фотографии</button>
+<p id="consentStatus" class="note" role="status"></p>
+</section>
 <section id="identity" class="card hidden"><h2>Визуальная библия героя</h2>
 <p class="note">Зафиксируйте внешность ребёнка. Фотографии пока не загружаются.</p>
 <label>Режим</label><select id="identityMode" onchange="identityMode()"><option value="quick">Быстро</option><option value="director">Подробно</option></select>
@@ -417,7 +496,7 @@ const auth=tg?.initData;let storyId=null;let activeGraph=null;
 const fields=['title','genre','setup','mystery','ending','habits','phrases','dedication','city'];
 const defaults=['Знакомство с героем','Необычное событие','Первый союзник','Тайное послание','Первая загадка','Опасная находка','Неожиданный поворот','Испытание дружбы','Разгадка тайны','План спасения','Главное испытание','Развязка и новая тайна'];
 const $=id=>document.getElementById(id);
-function tab(id){['idea','hero','scenes','edition','graph','director','design','identity'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
+function tab(id){['idea','hero','scenes','edition','graph','director','design','identity','consent'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
 function drawScenes(items){$('sceneList').replaceChildren();items.forEach((value,i)=>{let row=document.createElement('div');row.className='scene';let n=document.createElement('span');n.textContent=i+1;let t=document.createElement('textarea');t.maxLength=4000;t.value=value;t.dataset.scene=i;row.append(n,t);$('sceneList').append(row)})}
 function collect(){let obj={};fields.forEach(k=>obj[k]=$(k).value);obj.hero=$('heroName').value;obj.scenes=[...document.querySelectorAll('[data-scene]')].map(x=>x.value);return obj}
 function fill(data){fields.forEach(k=>$(k).value=data[k]||'');$('heroName').value=data.hero||'Оля';drawScenes(data.scenes||defaults)}
@@ -456,6 +535,9 @@ drawScenes(activeGraph.nodes.slice().sort((a,b)=>a.order-b.order).map(x=>x.summa
 $('graphStatus').textContent='Сохранено · редакторский индекс '+result.editorial.score+'/100';
 }catch(e){$('graphStatus').textContent='Ошибка: '+e.message}}
 async function proof(){try{if(!storyId){$('status').textContent='Сначала сохраните книгу';return}const r=await fetch('/little-legend/api/stories/'+storyId+'/proof.pdf',{headers:{Authorization:'tma '+auth}});if(!r.ok)throw Error('PDF HTTP '+r.status);const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='little-legend-proof.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000)}catch(e){$('status').textContent=e.message}}
+async function openConsent(){tab('consent');if(!storyId){$('consentStatus').textContent='Сначала сохраните книгу';return}try{const x=await api('/stories/'+storyId+'/consent');$('consentTerms').textContent=x.terms;$('consentPhotoNotice').textContent=x.photo_notice;$('consentTermsCheck').checked=x.status.terms_accepted;$('consentParentCheck').checked=x.status.terms_accepted;$('consentPhotoCheck').checked=x.status.photo_consent_active;$('consentStatus').textContent=x.status.photo_consent_active?'Согласие на фотографии записано; загрузка пока недоступна':'Согласие на фотографии не предоставлено'}catch(e){$('consentStatus').textContent=e.message}}
+async function acceptConsent(){try{if(!storyId)throw Error('Сначала сохраните книгу');const decision={accept_terms:$('consentTermsCheck').checked,declare_parental_authority:$('consentParentCheck').checked,consent_to_child_photos:false};const x=await api('/stories/'+storyId+'/consent','POST',decision);$('consentStatus').textContent=x.status.photo_consent_active?'Согласие записано. Загрузка фотографий пока отключена.':'Условия приняты без согласия на фотографии.'}catch(e){$('consentStatus').textContent='Ошибка: '+e.message}}
+async function withdrawConsent(){try{if(!storyId)throw Error('Сначала сохраните книгу');await api('/stories/'+storyId+'/consent/withdraw','POST',{});$('consentPhotoCheck').checked=false;$('consentStatus').textContent='Согласие на фотографии отозвано. Фотографии здесь не хранятся.'}catch(e){$('consentStatus').textContent='Ошибка: '+e.message}}
 let activeIdentity=null;
 function identityMode(){$('identityAdvanced').classList.toggle('hidden',$('identityMode').value!=='director')}
 function identityLines(id){return $(id).value.split(String.fromCharCode(10)).map(x=>x.trim()).filter(Boolean).slice(0,12)}
