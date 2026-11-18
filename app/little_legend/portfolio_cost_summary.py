@@ -8,7 +8,6 @@ from sqlalchemy import func, select
 
 from app.database.session import async_session_maker
 from app.little_legend.ai_cost_ledger import cost_receipts
-from app.little_legend.router import stories
 from app.little_legend.story_cost_summary import StoryCostSummary, summarize_story_costs
 from app.little_legend.writer_queue import WriterJob
 from app.little_legend.writer_queue_store import writer_jobs
@@ -44,6 +43,8 @@ async def get_portfolio_cost_summary(
     """Return a bounded owner-only overview; excludes manuscripts and child data."""
     if owner_id <= 0 or not 1 <= limit <= 100:
         raise ValueError("Invalid owner or portfolio limit")
+    from app.little_legend.router import stories
+
     async with async_session_maker() as session:
         ids = (await session.execute(
             select(stories.c.id).where(stories.c.owner_id == owner_id)
