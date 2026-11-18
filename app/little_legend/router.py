@@ -31,6 +31,7 @@ from app.little_legend.blueprint import (
     visual_consistency_check,
 )
 from app.little_legend.editorial import audit_story
+from app.little_legend.narrative_design import StoryDesign, design_guidance
 from app.little_legend.print_renderer import render_print_proof
 from app.little_legend.story_graph import StoryGraph, build_graph, graph_report
 from app.miniapp.auth import current_user
@@ -69,6 +70,7 @@ class StoryDraft(BaseModel):
     scenes: list[str] = Field(default_factory=lambda: list(DEFAULT_SCENES), min_length=1, max_length=40)
     graph: StoryGraph | None = None
     blueprint: BookBlueprint | None = None
+    design: StoryDesign = Field(default_factory=StoryDesign)
 
 
 async def initialize_schema() -> None:
@@ -136,6 +138,8 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
                         node.summary = summary
         if "blueprint" not in draft.model_fields_set:
             draft.blueprint = previous.blueprint
+        if "design" not in draft.model_fields_set:
+            draft.design = previous.design
         result = await session.execute(update(stories).where(
             stories.c.id == story_id, stories.c.owner_id == owner
         ).values(title=draft.title, hero=draft.hero, data=draft.model_dump_json(),
@@ -171,6 +175,27 @@ async def _owned_draft(story_id: int, owner: int) -> StoryDraft:
     if raw is None:
         raise HTTPException(404, "Story not found")
     return StoryDraft.model_validate_json(raw)
+
+
+@router.get("/api/stories/{story_id}/design")
+async def read_design(story_id: int, owner: Annotated[int, Depends(_owner)]):
+    draft = await _owned_draft(story_id, owner)
+    graph = draft.graph or build_graph(draft.scenes)
+    blueprint = draft.blueprint or quick_blueprint(draft.hero)
+    return {
+        "design": draft.design.model_dump(),
+        "guidance": design_guidance(graph, draft.design, blueprint),
+    }
+
+
+@router.put("/api/stories/{story_id}/design")
+async def save_design(
+    story_id: int, design: StoryDesign, owner: Annotated[int, Depends(_owner)],
+):
+    draft = await _owned_draft(story_id, owner)
+    draft.design = design
+    await save_story(story_id, draft, owner)
+    return {"saved": True}
 
 
 @router.get("/api/stories/{story_id}/blueprint")
@@ -264,13 +289,31 @@ nav{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0}
 nav button{flex:1} .graph-node{border-left:4px solid #545ac7;padding:12px;margin:10px 0;background:#f0f1fc;border-radius:8px}.graph-arrow{text-align:center;color:#545ac7;font-weight:bold}.hidden{display:none}.scene{display:flex;align-items:center;gap:8px;margin:9px 0}
 .scene span{min-width:25px;color:#626d85}.scene textarea{min-height:58px}
 .note{font-size:13px;color:#677187}.error{color:#ad263a}
+
+:root{--ink:#293149;--muted:#6b7492;--line:#e4e8f4;--shadow:0 14px 38px rgba(62,67,123,.08)}
+body{background:radial-gradient(ellipse at top left,#e8efff 0,transparent 48%),linear-gradient(150deg,#f9f7ff,#f4f8ff);color:var(--ink);padding:18px 16px 110px;min-height:100vh}
+header{background:rgba(255,255,255,.78);border:1px solid var(--line);border-radius:16px;padding:14px 16px;box-shadow:var(--shadow)}
+h1{font-family:Georgia,serif;font-size:clamp(27px,6vw,37px);letter-spacing:-.6px;line-height:1.15;margin:25px 0 10px}
+h2{font-family:Georgia,serif;font-size:22px;margin:0 0 12px}
+.card{border-color:var(--line);box-shadow:var(--shadow);padding:21px;border-radius:20px}
+input,textarea,select{background:#fcfdff;border:1px solid #d8dff0;outline:none}
+input:focus,textarea:focus,select:focus{border-color:#8982d4;box-shadow:0 0 0 3px #e9e5ff}
+button{background:linear-gradient(130deg,#6253b7,#516fc2);font-weight:650}
+button:active{transform:scale(.98)}
+button.secondary{background:#e9ecfb;color:#3e478b}
+nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+nav button{font-size:13px;padding:12px 8px}
+.hero-lead{color:var(--muted);line-height:1.6;max-width:520px}
+.graph-node{border-left:4px solid #8571ca;background:#f8f8ff}
+.note{line-height:1.55}
+@media(min-width:640px){nav{grid-template-columns:repeat(3,minmax(0,1fr))}}
 </style></head><body>
 <header><strong>✦ LITTLE LEGEND</strong><span>Story Director</span></header>
-<h1>Книга о вашем ребёнке</h1>
-<p class="note">Черновик сохраняется в вашем Telegram-аккаунте. Все личные детали необязательны.</p>
+<h1>История, в которой ваш ребёнок — герой</h1>
+<p class="hero-lead">Придумайте приключение за пару минут или станьте режиссёром каждой сцены. Личные детали необязательны.</p>
 <div id="authError" class="error hidden">Откройте студию кнопкой из Telegram-бота.</div>
 <div id="workspace" class="hidden">
-<nav><button class="secondary" onclick="tab('idea')">Быстрая сказка</button><button class="secondary" onclick="tab('hero')">Герой</button><button class="secondary" onclick="tab('scenes')">12 сцен</button><button class="secondary" onclick="tab('edition')">Издание</button></nav>
+<nav><button class="secondary" onclick="tab('idea')">01 · Идея</button><button class="secondary" onclick="tab('hero')">02 · Герой</button><button class="secondary" onclick="openDesign()">03 · Драматургия</button><button class="secondary" onclick="tab('scenes')">04 · Сцены</button><button class="secondary" onclick="openDirector()">05 · Стиль</button><button class="secondary" onclick="tab('edition')">06 · Издание</button></nav>
 <section id="idea" class="card">
 <h2>Ваша история</h2>
 <label>Название</label><input id="title" maxlength="180">
@@ -285,6 +328,22 @@ nav button{flex:1} .graph-node{border-left:4px solid #545ac7;padding:12px;margin
 <label>Любимые выражения (необязательно)</label><textarea id="phrases" maxlength="2000"></textarea>
 <p class="note">Загрузка детских фотографий будет включена после добавления согласия родителей и защищённого хранилища.</p></section>
 <section id="scenes" class="card hidden"><h2>Режиссёрская раскадровка</h2><p class="note">Изменяйте поворот в любой сцене. Автоматическая генерация графа появится на следующем этапе.</p><div id="sceneList"></div></section>
+<section id="design" class="card hidden"><h2>Душа вашей истории</h2>
+<p class="note">Быстро: можно пропустить. Подробно: задайте эмоциональную арку героя.</p>
+<label>Режим драматургии</label><select id="designMode" onchange="designMode()"><option value="quick">Быстро</option><option value="director">Подробно</option></select>
+<div id="designAdvanced" class="hidden">
+<label>Желание героя</label><textarea id="desire" maxlength="1000"></textarea>
+<label>Чему он научится</label><textarea id="need" maxlength="1000"></textarea>
+<label>Что поставлено на карту</label><textarea id="stakes" maxlength="1000"></textarea>
+<label>Решающий выбор героя</label><textarea id="decisive_choice" maxlength="1000"></textarea>
+<label>Как он изменится</label><textarea id="transformation" maxlength="1000"></textarea>
+<label>Главная тема</label><input id="theme" maxlength="300">
+<label>Повторяющийся символ</label><input id="recurring_symbol" maxlength="300">
+<label>Чего не должно быть в истории</label><textarea id="emotional_safety_note" maxlength="600"></textarea>
+</div>
+<button class="secondary" onclick="saveDesign()">Сохранить драматургию</button><p id="designStatus" class="note"></p>
+<p id="designTips" class="note"></p>
+</section>
 <section id="graph" class="card hidden"><h2>Story Graph · причинно-следственная карта</h2><p class="note">Это линейный каркас сюжета. Для изменения содержания редактируйте сцены, затем сохраняйте черновик.</p><div id="graphList"></div><p id="graphReport" class="note"></p><button onclick="saveGraph()">Сохранить режиссуру</button> <button class="secondary" onclick="showGraph()">Обновить карту</button><p id="graphStatus" class="note"></p></section>
 <section id="director" class="card hidden"><h2>Настройки истории</h2>
 <p class="note">Быстрый режим — минимум действий. Подробный — управление творческими параметрами.</p>
@@ -314,7 +373,7 @@ const auth=tg?.initData;let storyId=null;let activeGraph=null;
 const fields=['title','genre','setup','mystery','ending','habits','phrases','dedication','city'];
 const defaults=['Знакомство с героем','Необычное событие','Первый союзник','Тайное послание','Первая загадка','Опасная находка','Неожиданный поворот','Испытание дружбы','Разгадка тайны','План спасения','Главное испытание','Развязка и новая тайна'];
 const $=id=>document.getElementById(id);
-function tab(id){['idea','hero','scenes','edition','graph','director'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
+function tab(id){['idea','hero','scenes','edition','graph','director','design'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
 function drawScenes(items){$('sceneList').replaceChildren();items.forEach((value,i)=>{let row=document.createElement('div');row.className='scene';let n=document.createElement('span');n.textContent=i+1;let t=document.createElement('textarea');t.maxLength=4000;t.value=value;t.dataset.scene=i;row.append(n,t);$('sceneList').append(row)})}
 function collect(){let obj={};fields.forEach(k=>obj[k]=$(k).value);obj.hero=$('heroName').value;obj.scenes=[...document.querySelectorAll('[data-scene]')].map(x=>x.value);return obj}
 function fill(data){fields.forEach(k=>$(k).value=data[k]||'');$('heroName').value=data.hero||'Оля';drawScenes(data.scenes||defaults)}
@@ -353,6 +412,10 @@ drawScenes(activeGraph.nodes.slice().sort((a,b)=>a.order-b.order).map(x=>x.summa
 $('graphStatus').textContent='Сохранено · редакторский индекс '+result.editorial.score+'/100';
 }catch(e){$('graphStatus').textContent='Ошибка: '+e.message}}
 async function proof(){try{if(!storyId){$('status').textContent='Сначала сохраните книгу';return}const r=await fetch('/little-legend/api/stories/'+storyId+'/proof.pdf',{headers:{Authorization:'tma '+auth}});if(!r.ok)throw Error('PDF HTTP '+r.status);const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='little-legend-proof.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000)}catch(e){$('status').textContent=e.message}}
+const designKeys=['desire','need','stakes','decisive_choice','transformation','theme','recurring_symbol','emotional_safety_note'];
+function designMode(){$('designAdvanced').classList.toggle('hidden',$('designMode').value!=='director')}
+async function openDesign(){tab('design');if(!storyId){$('designStatus').textContent='Сначала сохраните черновик';return}try{const result=await api('/stories/'+storyId+'/design');designKeys.forEach(k=>$(k).value=result.design[k]||'');$('designMode').value=designKeys.some(k=>result.design[k])?'director':'quick';designMode();$('designTips').textContent=result.guidance.audience_guidance+' · '+result.guidance.missing_arc_elements.length+' элементов арки ещё не заполнены'}catch(e){$('designStatus').textContent=e.message}}
+async function saveDesign(){try{if(!storyId)throw Error('Сначала сохраните черновик');const data={};designKeys.forEach(k=>data[k]=$(k).value);await api('/stories/'+storyId+'/design','PUT',data);$('designStatus').textContent='Драматургия сохранена'}catch(e){$('designStatus').textContent=e.message}}
 function directorMode(){$('advancedControls').classList.toggle('hidden',$('creativeMode').value!=='director')}
 async function openDirector(){tab('director');if(!storyId)return;try{let b=(await api('/stories/'+storyId+'/blueprint')).blueprint;$('creativeMode').value=b.controls.mode;$('childAge').value=b.controls.age??'';$('tone').value=b.controls.tone;$('freedom').value=b.controls.creative_freedom;$('length').value=b.controls.story_length;$('artStyle').value=b.controls.illustration_style;$('appearance').value=b.characters[0]?.appearance||'';$('visualNotes').value=b.characters[0]?.visual_identity_notes||'';directorMode()}catch(e){$('directorStatus').textContent=e.message}}
 async function saveDirector(){try{if(!storyId)throw Error('Сначала сохраните книгу');let b=(await api('/stories/'+storyId+'/blueprint')).blueprint;b.controls.mode=$('creativeMode').value;b.controls.age=$('childAge').value===''?null:Number($('childAge').value);b.controls.tone=$('tone').value;b.controls.creative_freedom=$('freedom').value;b.controls.story_length=$('length').value;b.controls.illustration_style=$('artStyle').value;if(!b.characters.length)b.characters=[{name:$('heroName').value,role:'hero'}];b.characters[0].appearance=$('appearance').value;b.characters[0].visual_identity_notes=$('visualNotes').value;await api('/stories/'+storyId+'/blueprint','PUT',b);$('directorStatus').textContent='Настройки сохранены'}catch(e){$('directorStatus').textContent=e.message}}
