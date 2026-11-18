@@ -30,6 +30,7 @@ from app.little_legend.blueprint import (
     quick_blueprint,
     visual_consistency_check,
 )
+from app.little_legend.client_sketch import ParentSketch, outline_from_sketch
 from app.little_legend.character_identity import (
     IdentityBible,
     identity_review,
@@ -117,6 +118,7 @@ class StoryDraft(BaseModel):
     consent: ConsentRecord = Field(default_factory=ConsentRecord)
     portrait_plan: PortraitPlan = Field(default_factory=PortraitPlan)
     manuscript: StoryManuscript | None = None
+    parent_sketch: ParentSketch | None = None
     writer_job_ids: dict[str, str] = Field(default_factory=dict)
     editorial_decision: EditorialDecision = Field(default_factory=EditorialDecision)
 
@@ -195,6 +197,10 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
             draft.identity_bible = previous.identity_bible
         if previous.manuscript is not None and draft.hero != previous.hero:
             raise HTTPException(409, "Cannot change the hero of an existing manuscript")
+        if "parent_sketch" not in draft.model_fields_set:
+            draft.parent_sketch = previous.parent_sketch
+        elif draft.parent_sketch != previous.parent_sketch:
+            raise HTTPException(409, "Use the parent sketch endpoint")
         if "writer_job_ids" not in draft.model_fields_set:
             draft.writer_job_ids = previous.writer_job_ids
         elif draft.writer_job_ids != previous.writer_job_ids:
@@ -249,6 +255,61 @@ async def _owned_draft(story_id: int, owner: int) -> StoryDraft:
 
 
 
+
+
+
+@router.post("/api/stories/{story_id}/sketch/preview")
+async def preview_parent_sketch(
+    story_id: int, sketch: ParentSketch,
+    owner: Annotated[int, Depends(_owner)],
+    chapter_count: int = 12,
+):
+    """Preview an editable story plan without modifying the manuscript."""
+    await _owned_draft(story_id, owner)
+    try:
+        outline = outline_from_sketch(sketch, chapter_count=chapter_count)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return outline.model_dump(mode="json")
+
+
+@router.put("/api/stories/{story_id}/sketch")
+async def save_parent_sketch(
+    story_id: int, sketch: ParentSketch,
+    owner: Annotated[int, Depends(_owner)],
+    chapter_count: int = 12,
+):
+    """Atomically store parent source and outline; never replace written chapters."""
+    try:
+        outline = outline_from_sketch(sketch, chapter_count=chapter_count)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    async with async_session_maker() as session:
+        raw = (await session.execute(
+            select(stories.c.data).where(
+                stories.c.id == story_id, stories.c.owner_id == owner,
+            ).with_for_update()
+        )).scalar_one_or_none()
+        if raw is None:
+            raise HTTPException(404, "Story not found")
+        draft = StoryDraft.model_validate_json(raw)
+        if draft.manuscript is not None and draft.manuscript.chapters:
+            raise HTTPException(409, "Approve or archive the existing manuscript first")
+        if draft.writer_job_ids:
+            raise HTTPException(409, "Story has writer checkpoints")
+        draft.parent_sketch = sketch
+        draft.graph = outline.graph
+        draft.scenes = [node.summary or node.goal for node in outline.graph.nodes]
+        draft.design = outline.design
+        draft.setup = sketch.premise
+        draft.mystery = sketch.challenge
+        draft.ending = sketch.ending
+        draft.editorial_decision = EditorialDecision()
+        await session.execute(update(stories).where(
+            stories.c.id == story_id, stories.c.owner_id == owner,
+        ).values(data=draft.model_dump_json(), updated_at=datetime.now(UTC)))
+        await session.commit()
+    return {"saved": True, "outline": outline.model_dump(mode="json")}
 
 @router.get("/api/stories/{story_id}/hero-contract")
 async def read_hero_contract(
