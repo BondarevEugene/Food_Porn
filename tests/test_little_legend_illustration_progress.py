@@ -1,7 +1,9 @@
 """Public illustration progress contains no private worker credentials."""
 from datetime import UTC, datetime, timedelta
 
+from app.little_legend.blueprint import BookBlueprint, CharacterProfile
 from app.little_legend.illustration_queue_store import IllustrationJob
+from app.little_legend.illustration_runner import fictional_character_continuity
 from app.little_legend.writer_queue import JobStatus
 
 
@@ -38,3 +40,25 @@ def test_dispatched_running_job_requires_reconciliation():
         provider_dispatched_at=datetime.now(UTC),
     )
     assert job.provider_dispatched_at is not None
+
+
+def test_runner_uses_fictional_hero_notes_without_photo_references():
+    blueprint = BookBlueprint(characters=[
+        CharacterProfile(
+            name="Marta", role="hero", appearance="Curly auburn hair",
+            visual_identity_notes="Always wears a blue scarf",
+            photo_consent_confirmed=False, visual_reference_approved=False,
+        ),
+    ])
+    assert fictional_character_continuity(blueprint) == (
+        "Curly auburn hair Always wears a blue scarf"
+    )
+
+
+def test_runner_continuity_is_bounded_and_optional():
+    assert fictional_character_continuity(None) == ""
+    blueprint = BookBlueprint(characters=[
+        CharacterProfile(name="Marta", appearance="A" * 1200,
+                         visual_identity_notes="B" * 1200),
+    ])
+    assert len(fictional_character_continuity(blueprint)) == 1200
