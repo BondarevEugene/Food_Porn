@@ -11,6 +11,8 @@ from app.little_legend.blueprint import (
     quick_blueprint,
     visual_consistency_check,
 )
+from app.little_legend.illustration_direction import build_illustration_brief
+from app.little_legend.story_graph import build_graph
 
 
 def test_quick_mode_requires_only_hero():
@@ -57,3 +59,15 @@ def test_duplicate_primary_hero_is_rejected():
             CharacterProfile(name="Оля"),
             CharacterProfile(name="Ася"),
         ])
+
+
+def test_illustration_brief_preserves_character_identity():
+    blueprint = quick_blueprint("Оля", age=11)
+    blueprint.characters[0].appearance = "Каштановые волосы и зелёные глаза"
+    blueprint.characters[0].visual_identity_notes = "Три веснушки на носу"
+    scene = build_graph(["Оля нашла говорящую лису"]).nodes[0]
+    brief = build_illustration_brief(scene, blueprint, hero="Оля")
+    assert "Три веснушки" in brief.prompt
+    assert "Каштановые волосы" in brief.prompt
+    assert brief.reference_approval_required is True
+    assert brief.generation_enabled is False
