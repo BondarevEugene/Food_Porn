@@ -146,6 +146,9 @@ async def initialize_schema() -> None:
         from app.little_legend.writer_queue_store import queue_metadata
 
         await conn.run_sync(lambda sync: queue_metadata.create_all(sync, checkfirst=True))
+        from app.little_legend.ai_cost_ledger import ledger_metadata
+
+        await conn.run_sync(lambda sync: ledger_metadata.create_all(sync, checkfirst=True))
 
 
 def _owner(user: Annotated[dict, Depends(current_user)]) -> int:
