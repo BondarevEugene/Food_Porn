@@ -25,6 +25,7 @@ from sqlalchemy import (
 
 from app.database.session import async_session_maker, engine
 from app.little_legend.book_export import IllustratedBookRequest
+from app.little_legend.image_ai_consent import ImageAIConsent
 from app.little_legend.illustrated_pdf import render_illustrated_proof
 from app.little_legend.blueprint import (
     BookBlueprint,
@@ -141,6 +142,7 @@ class StoryDraft(BaseModel):
     parent_sketch: ParentSketch | None = None
     outline_approved: bool = False
     text_ai_consent: TextAIConsent = Field(default_factory=TextAIConsent)
+    image_ai_consent: ImageAIConsent = Field(default_factory=ImageAIConsent)
     writer_job_ids: dict[str, str] = Field(default_factory=dict)
     editorial_decision: EditorialDecision = Field(default_factory=EditorialDecision)
 
@@ -151,6 +153,9 @@ async def initialize_schema() -> None:
         from app.little_legend.writer_queue_store import queue_metadata
 
         await conn.run_sync(lambda sync: queue_metadata.create_all(sync, checkfirst=True))
+        from app.little_legend.illustration_queue_store import illustration_metadata
+
+        await conn.run_sync(lambda sync: illustration_metadata.create_all(sync, checkfirst=True))
         from app.little_legend.ai_cost_ledger import ledger_metadata
 
         await conn.run_sync(lambda sync: ledger_metadata.create_all(sync, checkfirst=True))
