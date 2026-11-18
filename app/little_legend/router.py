@@ -30,6 +30,7 @@ from app.little_legend.blueprint import (
     quick_blueprint,
     visual_consistency_check,
 )
+from app.little_legend.editorial import audit_story
 from app.little_legend.print_renderer import render_print_proof
 from app.little_legend.story_graph import StoryGraph, build_graph, graph_report
 from app.miniapp.auth import current_user
@@ -116,6 +117,25 @@ async def read_story(story_id: int, owner: Annotated[int, Depends(_owner)]):
 @router.put("/api/stories/{story_id}")
 async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Depends(_owner)]):
     async with async_session_maker() as session:
+        current = (await session.execute(
+            select(stories.c.data).where(
+                stories.c.id == story_id, stories.c.owner_id == owner
+            ).with_for_update()
+        )).scalar_one_or_none()
+        if current is None:
+            raise HTTPException(404, "Story not found")
+        previous = StoryDraft.model_validate_json(current)
+        # Older clients submit only basic fields. Preserve independent graph
+        # and character settings rather than silently deleting their work.
+        if "graph" not in draft.model_fields_set:
+            draft.graph = previous.graph
+            if draft.graph is not None:
+                ordered = sorted(draft.graph.nodes, key=lambda node: node.order)
+                if draft.scenes != previous.scenes:
+                    for node, summary in zip(ordered, draft.scenes):
+                        node.summary = summary
+        if "blueprint" not in draft.model_fields_set:
+            draft.blueprint = previous.blueprint
         result = await session.execute(update(stories).where(
             stories.c.id == story_id, stories.c.owner_id == owner
         ).values(title=draft.title, hero=draft.hero, data=draft.model_dump_json(),
@@ -183,7 +203,8 @@ async def save_blueprint(
 async def story_graph(story_id: int, owner: Annotated[int, Depends(_owner)]):
     draft = await _owned_draft(story_id, owner)
     graph = draft.graph or build_graph(draft.scenes)
-    return {"graph": graph.model_dump(), "report": graph_report(graph)}
+    return {"graph": graph.model_dump(), "report": graph_report(graph),
+            "editorial": audit_story(graph).model_dump()}
 
 
 @router.put("/api/stories/{story_id}/graph")
@@ -196,7 +217,8 @@ async def save_story_graph(
         node.summary for node in sorted(graph.nodes, key=lambda n: n.order)
     ]
     await save_story(story_id, draft, owner)
-    return {"saved": True, "report": graph_report(graph)}
+    return {"saved": True, "report": graph_report(graph),
+            "editorial": audit_story(graph).model_dump()}
 
 
 @router.get("/api/stories/{story_id}/proof.pdf")
