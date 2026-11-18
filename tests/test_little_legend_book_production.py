@@ -6,7 +6,8 @@ from PIL import Image
 
 from app.little_legend.book_production import produce_illustrated_book
 from app.little_legend.image_ai_consent import (
-    ImageAIDisclosure, accept_image_ai_consent,
+    accept_image_ai_consent,
+    ImageAIDisclosure,
 )
 from app.little_legend.story_graph import build_graph
 from app.little_legend.story_writer import ChapterDraft, StoryManuscript
