@@ -117,6 +117,7 @@ class StoryDraft(BaseModel):
     consent: ConsentRecord = Field(default_factory=ConsentRecord)
     portrait_plan: PortraitPlan = Field(default_factory=PortraitPlan)
     manuscript: StoryManuscript | None = None
+    writer_job_ids: dict[str, str] = Field(default_factory=dict)
     editorial_decision: EditorialDecision = Field(default_factory=EditorialDecision)
 
 
@@ -191,6 +192,10 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
             draft.identity_bible = previous.identity_bible
         if previous.manuscript is not None and draft.hero != previous.hero:
             raise HTTPException(409, "Cannot change the hero of an existing manuscript")
+        if "writer_job_ids" not in draft.model_fields_set:
+            draft.writer_job_ids = previous.writer_job_ids
+        elif draft.writer_job_ids != previous.writer_job_ids:
+            raise HTTPException(409, "Writer checkpoints are managed internally")
         if "editorial_decision" not in draft.model_fields_set:
             draft.editorial_decision = previous.editorial_decision
         elif draft.editorial_decision != previous.editorial_decision:
