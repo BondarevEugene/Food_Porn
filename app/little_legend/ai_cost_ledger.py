@@ -16,6 +16,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Table,
+    UniqueConstraint,
     insert,
     select,
 )
@@ -59,10 +60,11 @@ cost_receipts = Table(
     Column("owner_id", BigInteger, nullable=False),
     Column("story_id", Integer, nullable=False),
     Column("provider", String(100), nullable=False),
-    Column("provider_reference", String(200), nullable=False, unique=True),
+    Column("provider_reference", String(200), nullable=False),
     Column("amount_usd", Numeric(12, 6), nullable=False),
     Column("evidence", String(30), nullable=False),
     Column("recorded_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("provider", "provider_reference"),
 )
 
 
