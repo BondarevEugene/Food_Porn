@@ -15,7 +15,6 @@ from reportlab.platypus import (
     BaseDocTemplate,
     Frame,
     KeepTogether,
-    NextPageTemplate,
     PageBreak,
     PageTemplate,
     Paragraph,
