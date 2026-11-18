@@ -25,7 +25,9 @@ from sqlalchemy import (
 
 from app.database.session import async_session_maker, engine
 from app.little_legend.book_export import IllustratedBookRequest
-from app.little_legend.image_ai_consent import ImageAIConsent
+from app.little_legend.image_ai_consent import (
+    ImageAIConsent, accept_image_ai_consent, configured_image_ai_disclosure,
+)
 from app.little_legend.illustrated_pdf import render_illustrated_proof
 from app.little_legend.blueprint import (
     BookBlueprint,
@@ -250,6 +252,7 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
         if previous.manuscript is not None and draft.hero != previous.hero:
             raise HTTPException(409, "Cannot change the hero of an existing manuscript")
         draft.text_ai_consent = previous.text_ai_consent
+        draft.image_ai_consent = previous.image_ai_consent
         draft.outline_approved = previous.outline_approved
         if "parent_sketch" not in draft.model_fields_set:
             draft.parent_sketch = previous.parent_sketch
@@ -845,6 +848,57 @@ async def save_story_graph(
     await save_story(story_id, draft, owner)
     return {"saved": True, "report": graph_report(graph),
             "editorial": audit_story(graph).model_dump()}
+
+
+class ImageAIConsentDecision(BaseModel):
+    provider: str
+    notice: str
+    accept: bool = False
+
+
+@router.get("/api/stories/{story_id}/image-ai-consent")
+async def image_ai_consent_status(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    draft = await _owned_draft(story_id, owner)
+    disclosure = configured_image_ai_disclosure()
+    return {
+        "enabled": disclosure.ready,
+        "provider": disclosure.provider if disclosure.ready else "",
+        "notice": disclosure.notice() if disclosure.ready else "",
+        "active": draft.image_ai_consent.active,
+    }
+
+
+@router.post("/api/stories/{story_id}/image-ai-consent")
+async def set_image_ai_consent(
+    story_id: int, decision: ImageAIConsentDecision,
+    owner: Annotated[int, Depends(_owner)],
+):
+    disclosure = configured_image_ai_disclosure()
+    async with async_session_maker() as session:
+        raw = (await session.execute(select(stories.c.data).where(
+            stories.c.id == story_id, stories.c.owner_id == owner,
+        ).with_for_update())).scalar_one_or_none()
+        if raw is None:
+            raise HTTPException(404, "Story not found")
+        draft = StoryDraft.model_validate_json(raw)
+        if not decision.accept:
+            draft.image_ai_consent = ImageAIConsent()
+        else:
+            try:
+                draft.image_ai_consent = accept_image_ai_consent(
+                    provider=decision.provider, notice=decision.notice,
+                    terms_accepted=draft.consent.terms_accepted,
+                    disclosure=disclosure,
+                )
+            except (ValueError, PermissionError) as exc:
+                raise HTTPException(403, str(exc)) from exc
+        await session.execute(update(stories).where(
+            stories.c.id == story_id, stories.c.owner_id == owner,
+        ).values(data=draft.model_dump_json(), updated_at=datetime.now(UTC)))
+        await session.commit()
+    return {"active": draft.image_ai_consent.active}
 
 
 @router.get("/api/stories/{story_id}/manuscript.pdf")
