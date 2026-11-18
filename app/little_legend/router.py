@@ -55,6 +55,10 @@ from app.little_legend.privacy_lifecycle import (
 )
 from app.little_legend.secure_vault import upload_capability
 from app.little_legend.story_graph import StoryGraph, build_graph, graph_report
+from app.little_legend.vault_registry import (
+    metadata as vault_metadata,
+    vault_summary,
+)
 from app.miniapp.auth import current_user
 
 router = APIRouter(prefix="/little-legend", tags=["little-legend"])
@@ -100,6 +104,7 @@ class StoryDraft(BaseModel):
 async def initialize_schema() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(lambda sync: metadata.create_all(sync, checkfirst=True))
+        await conn.run_sync(lambda sync: vault_metadata.create_all(sync, checkfirst=True))
 
 
 def _owner(user: Annotated[dict, Depends(current_user)]) -> int:
@@ -261,6 +266,16 @@ async def withdraw_consent(
         ).values(data=current.model_dump_json(), updated_at=datetime.now(UTC)))
         await session.commit()
     return {"status": consent_status(current.consent)}
+
+
+@router.get("/api/stories/{story_id}/vault-summary")
+async def read_vault_summary(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    await _owned_draft(story_id, owner)
+    async with async_session_maker() as session:
+        counts = await vault_summary(session, owner_id=owner, story_id=story_id)
+    return {"counts": counts, "media_upload_enabled": False}
 
 
 @router.get("/api/stories/{story_id}/photo-vault")
