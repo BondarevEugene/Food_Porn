@@ -40,15 +40,15 @@ def test_photo_consent_separate_and_revocable():
     )
     assert consent_status(accepted)["terms_accepted"] is True
     assert consent_status(accepted)["photo_consent_active"] is False
-    opted_in = record_decision(
-        accepted,
-        ConsentDecision(
-            accept_terms=True, declare_parental_authority=True,
-            consent_to_child_photos=True,
-        ),
-    )
-    assert consent_status(opted_in)["photo_consent_active"] is True
-    withdrawn = withdraw_photo_consent(opted_in)
+    with pytest.raises(ValueError, match="unavailable"):
+        record_decision(
+            accepted,
+            ConsentDecision(
+                accept_terms=True, declare_parental_authority=True,
+                consent_to_child_photos=True,
+            ),
+        )
+    withdrawn = withdraw_photo_consent(accepted)
     assert consent_status(withdrawn)["photo_consent_active"] is False
     assert consent_status(withdrawn)["photo_upload_enabled"] is False
 
