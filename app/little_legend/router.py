@@ -24,6 +24,8 @@ from sqlalchemy import (
 )
 
 from app.database.session import async_session_maker, engine
+from app.little_legend.book_export import IllustratedBookRequest
+from app.little_legend.illustrated_pdf import render_illustrated_proof
 from app.little_legend.blueprint import (
     BookBlueprint,
     print_preflight,
@@ -860,6 +862,39 @@ async def download_manuscript_pdf(
         content=data, media_type="application/pdf",
         headers={
             "Content-Disposition": 'attachment; filename="little-legend-manuscript.pdf"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.post("/api/stories/{story_id}/illustrated.pdf")
+async def download_illustrated_book(
+    story_id: int,
+    payload: IllustratedBookRequest,
+    owner: Annotated[int, Depends(_owner)],
+):
+    """Render an owner-scoped illustrated A5 PDF without persisting image bytes."""
+    draft = await _owned_draft(story_id, owner)
+    if draft.manuscript is None:
+        raise HTTPException(409, "Manuscript is not created")
+    graph = draft.graph or build_graph(draft.scenes)
+    try:
+        data = render_illustrated_proof(
+            title=draft.title,
+            dedication=draft.dedication,
+            graph=graph,
+            manuscript=draft.manuscript,
+            illustrations=payload.decoded_images(),
+            approved_scene_ids=payload.approved_scene_ids,
+        )
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="little-legend-illustrated.pdf"',
             "Cache-Control": "private, no-store",
             "X-Content-Type-Options": "nosniff",
         },
