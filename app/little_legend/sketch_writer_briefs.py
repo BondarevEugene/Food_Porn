@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from app.little_legend.blueprint import BookBlueprint
 from app.little_legend.client_sketch import ParentSketch
 from app.little_legend.hero_contract import HeroContract
+from app.little_legend.literary_direction import build_literary_direction
 from app.little_legend.manuscript_studio import chapter_writing_jobs
 from app.little_legend.narrative_design import StoryDesign
 from app.little_legend.story_graph import StoryGraph
@@ -76,6 +77,11 @@ def compose_sketch_chapter_briefs(
                 "complete_outline": all_summaries,
                 "previous_chapters": earlier,
             },
+            "literary_direction": build_literary_direction(
+                blueprint.controls, design, mode=settings.mode,
+                scene_goal=str(job.get("goal", "")),
+                scene_conflict=str(job.get("conflict", "")),
+            ).model_dump(mode="json"),
             "length": {
                 "minimum_words": settings.chapter_min_words,
                 "maximum_words": settings.chapter_max_words,
