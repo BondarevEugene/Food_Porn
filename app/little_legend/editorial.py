@@ -56,7 +56,7 @@ def audit_story(graph: StoryGraph) -> EditorialReport:
                 suggestion="Добавьте начало, испытания и развязку.",
             ))
     links = {(edge.source, edge.target) for edge in graph.edges}
-    for first, second in zip(ordered, ordered[1:]):
+    for first, second in zip(ordered, ordered[1:], strict=False):
         if (first.id, second.id) not in links:
             issues.append(EditorialIssue(
                 code="missing_direct_link", severity="info", scene_id=second.id,
