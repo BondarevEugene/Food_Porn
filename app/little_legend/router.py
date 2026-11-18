@@ -221,13 +221,6 @@ async def accept_consent(
     story_id: int, decision: ConsentDecision,
     owner: Annotated[int, Depends(_owner)],
 ):
-    draft = await _owned_draft(story_id, owner)
-    try:
-        updated = record_decision(draft.consent, decision)
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
-    # Preserve the existing consent in save_story, then write via a dedicated
-    # owner-scoped SQL update under row lock.
     async with async_session_maker() as session:
         row = (await session.execute(select(stories.c.data).where(
             stories.c.id == story_id, stories.c.owner_id == owner
@@ -235,6 +228,10 @@ async def accept_consent(
         if row is None:
             raise HTTPException(404, "Story not found")
         current = StoryDraft.model_validate_json(row)
+        try:
+            updated = record_decision(current.consent, decision)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
         current.consent = updated
         await session.execute(update(stories).where(
             stories.c.id == story_id, stories.c.owner_id == owner
