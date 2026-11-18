@@ -27,6 +27,8 @@ def test_invalid_confirmed_cost_rejected(amount):
 
 def test_receipt_requires_provider_reference():
     with pytest.raises(ValidationError):
-        make_receipt("0.01").model_copy(
-            update={"provider_reference": ""},
+        CostReceipt(
+            receipt_id="receipt_12345678", job_id="writer_job_12345678",
+            provider="example_provider", provider_reference="",
+            amount_usd="0.01", evidence=CostEvidence.PROVIDER_RECEIPT,
         )
