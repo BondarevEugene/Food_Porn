@@ -46,6 +46,7 @@ from app.little_legend.consent import (
 )
 from app.little_legend.editorial import audit_story
 from app.little_legend.narrative_design import StoryDesign, design_guidance
+from app.little_legend.portrait_studio import PortraitPlan, portrait_preflight
 from app.little_legend.print_renderer import render_print_proof
 from app.little_legend.story_graph import StoryGraph, build_graph, graph_report
 from app.miniapp.auth import current_user
@@ -87,6 +88,7 @@ class StoryDraft(BaseModel):
     design: StoryDesign = Field(default_factory=StoryDesign)
     identity_bible: IdentityBible | None = None
     consent: ConsentRecord = Field(default_factory=ConsentRecord)
+    portrait_plan: PortraitPlan = Field(default_factory=PortraitPlan)
 
 
 async def initialize_schema() -> None:
@@ -160,6 +162,8 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
             draft.identity_bible = previous.identity_bible
         # Consent is never overwritten by a generic story editor payload.
         draft.consent = previous.consent
+        if "portrait_plan" not in draft.model_fields_set:
+            draft.portrait_plan = previous.portrait_plan
         result = await session.execute(update(stories).where(
             stories.c.id == story_id, stories.c.owner_id == owner
         ).values(title=draft.title, hero=draft.hero, data=draft.model_dump_json(),
@@ -251,6 +255,35 @@ async def withdraw_consent(
         ).values(data=current.model_dump_json(), updated_at=datetime.now(UTC)))
         await session.commit()
     return {"status": consent_status(current.consent)}
+
+
+@router.get("/api/stories/{story_id}/portrait")
+async def read_portrait(story_id: int, owner: Annotated[int, Depends(_owner)]):
+    draft = await _owned_draft(story_id, owner)
+    bible = draft.identity_bible or quick_identity_bible(
+        draft.blueprint or quick_blueprint(draft.hero), draft.hero
+    )
+    return {
+        "plan": draft.portrait_plan.model_dump(),
+        "preflight": portrait_preflight(draft.portrait_plan, bible, draft.consent),
+    }
+
+
+@router.put("/api/stories/{story_id}/portrait")
+async def save_portrait(
+    story_id: int, plan: PortraitPlan,
+    owner: Annotated[int, Depends(_owner)],
+):
+    draft = await _owned_draft(story_id, owner)
+    draft.portrait_plan = plan
+    await save_story(story_id, draft, owner)
+    bible = draft.identity_bible or quick_identity_bible(
+        draft.blueprint or quick_blueprint(draft.hero), draft.hero
+    )
+    return {
+        "saved": True,
+        "preflight": portrait_preflight(plan, bible, draft.consent),
+    }
 
 
 @router.get("/api/stories/{story_id}/identity")
