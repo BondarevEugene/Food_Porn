@@ -52,6 +52,7 @@ async def test_quote_persists_and_is_idempotent_across_sessions(tmp_path):
         goals=[f"wish {i}" for i in range(5)],
         photo_paths=[tmp_path / "portrait.jpg"], style="light",
     )
+    (tmp_path / "portrait.jpg").write_bytes(b"test portrait bytes")
     first = await create_gift_quote(factory, **payload)
     second = await create_gift_quote(factory, **payload)
     assert first.id == second.id
@@ -63,8 +64,12 @@ async def test_quote_persists_and_is_idempotent_across_sessions(tmp_path):
         factory, **{**payload, "goals": ["changed", *payload["goals"][1:]]}
     )
     assert third.id != first.id
+    # A replaced image at the same path is a distinct, immutable quote.
+    (tmp_path / "portrait.jpg").write_bytes(b"new portrait bytes")
+    fourth = await create_gift_quote(factory, **payload)
+    assert fourth.id not in {first.id, third.id}
     async with factory() as session:
-        assert await session.scalar(select(func.count()).select_from(GiftPurchase)) == 2
+        assert await session.scalar(select(func.count()).select_from(GiftPurchase)) == 3
     await db.dispose()
 
 
