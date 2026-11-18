@@ -104,7 +104,7 @@ class BookletRenderer:
     def _apply_style(self, menu: Menu) -> None:
         style = str(getattr(menu, "visual_style", "dark") or "dark").lower()
         self.style = style if style in self.PALETTES else "dark"
-        seed = getattr(menu, "design_seed", None) or menu.id
+        seed = getattr(menu, "design_seed", None) or getattr(menu, "id", 0)
         preset = getattr(menu, "design_preset", None)
         direction = BY_CODE.get(preset) if preset else None
         if direction is None or direction.theme != self.style:
@@ -284,14 +284,14 @@ class BookletRenderer:
         self._center_text(draw, "FOOD PORN", cx, y1 + self._px(58), self._font(10, serif=True, bold=True), gold)
         draw.line((cx-self._px(19), y1+self._px(109), cx+self._px(19), y1+self._px(109)),
                   fill=self.GOLD, width=max(2, self._px(.25)))
-        self._fit_text(draw, romantic_copy(menu.customer.language, getattr(menu, "design_seed", None) or menu.id)[1],
+        self._fit_text(draw, romantic_copy(menu.customer.language, getattr(menu, "design_seed", None) or getattr(menu, "id", 0))[1],
                        (x1+self._px(25), y1+self._px(125),
                         x2-self._px(25), y1+self._px(212)),
                        self._font(15.5, serif=True, italic=True), self.CREAM, max_lines=12)
         quote_y = y1 + self._px(220)
         draw.line((cx-self._px(31), quote_y, cx+self._px(31), quote_y),
                   fill=(101, 82, 56), width=max(2, self._px(.25)))
-        self._fit_text(draw, "“" + romantic_copy(menu.customer.language, getattr(menu, "design_seed", None) or menu.id)[0] + "”",
+        self._fit_text(draw, "“" + romantic_copy(menu.customer.language, getattr(menu, "design_seed", None) or getattr(menu, "id", 0))[0] + "”",
                        (x1+self._px(25), quote_y+self._px(7), x2-self._px(25), quote_y+self._px(37)),
                        self._font(11, serif=True, italic=True), self.GOLD, max_lines=3)
         self._fit_text(draw, "FOOD PORN",
