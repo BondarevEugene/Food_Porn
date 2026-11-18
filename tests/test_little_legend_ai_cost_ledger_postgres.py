@@ -5,6 +5,7 @@ random schema that is removed after the test.
 """
 import asyncio
 import os
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -60,8 +61,8 @@ async def test_cost_receipt_concurrency_and_conflicts_on_postgres(monkeypatch):
             await conn.execute(insert(writer_jobs).values(
                 job_id=job.job_id, story_id=42, owner_id=7,
                 status=job.status.value, payload=job.model_dump_json(),
-                created_at="2026-11-18T00:00:00+00:00",
-                updated_at="2026-11-18T00:00:00+00:00",
+                created_at=datetime(2026, 11, 18, tzinfo=UTC),
+                updated_at=datetime(2026, 11, 18, tzinfo=UTC),
             ))
         factory = async_sessionmaker(isolated, expire_on_commit=False)
         monkeypatch.setattr(ai_cost_ledger, "async_session_maker", factory)
