@@ -2,15 +2,29 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from html import escape
+from datetime import UTC, datetime
+
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import BigInteger, Column, DateTime, Integer, MetaData, String, Table, Text, delete, insert, select, update
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    DateTime,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    Text,
+    delete,
+    insert,
+    select,
+    update,
+)
 
-from app.database.session import engine, async_session_maker
+from app.database.session import async_session_maker, engine
 from app.miniapp.auth import current_user
 
 router = APIRouter(prefix="/little-legend", tags=["little-legend"])
@@ -52,12 +66,12 @@ async def initialize_schema() -> None:
         await conn.run_sync(lambda sync: metadata.create_all(sync, checkfirst=True))
 
 
-def _owner(user: dict = Depends(current_user)) -> int:
+def _owner(user: Annotated[dict, Depends(current_user)]) -> int:
     return int(user["id"])
 
 
 @router.get("/api/stories")
-async def list_stories(owner: int = Depends(_owner)):
+async def list_stories(owner: Annotated[int, Depends(_owner)]):
     async with async_session_maker() as session:
         rows = (await session.execute(
             select(stories.c.id, stories.c.title, stories.c.hero, stories.c.updated_at)
@@ -67,8 +81,8 @@ async def list_stories(owner: int = Depends(_owner)):
 
 
 @router.post("/api/stories", status_code=201)
-async def create_story(draft: StoryDraft, owner: int = Depends(_owner)):
-    now = datetime.now(timezone.utc)
+async def create_story(draft: StoryDraft, owner: Annotated[int, Depends(_owner)]):
+    now = datetime.now(UTC)
     async with async_session_maker() as session:
         result = await session.execute(insert(stories).values(
             owner_id=owner, title=draft.title, hero=draft.hero,
@@ -80,7 +94,7 @@ async def create_story(draft: StoryDraft, owner: int = Depends(_owner)):
 
 
 @router.get("/api/stories/{story_id}")
-async def read_story(story_id: int, owner: int = Depends(_owner)):
+async def read_story(story_id: int, owner: Annotated[int, Depends(_owner)]):
     async with async_session_maker() as session:
         row = (await session.execute(select(stories.c.data).where(
             stories.c.id == story_id, stories.c.owner_id == owner
@@ -91,12 +105,12 @@ async def read_story(story_id: int, owner: int = Depends(_owner)):
 
 
 @router.put("/api/stories/{story_id}")
-async def save_story(story_id: int, draft: StoryDraft, owner: int = Depends(_owner)):
+async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Depends(_owner)]):
     async with async_session_maker() as session:
         result = await session.execute(update(stories).where(
             stories.c.id == story_id, stories.c.owner_id == owner
         ).values(title=draft.title, hero=draft.hero, data=draft.model_dump_json(),
-                 updated_at=datetime.now(timezone.utc)))
+                 updated_at=datetime.now(UTC)))
         await session.commit()
     if result.rowcount == 0:
         raise HTTPException(404, "Story not found")
@@ -104,7 +118,7 @@ async def save_story(story_id: int, draft: StoryDraft, owner: int = Depends(_own
 
 
 @router.delete("/api/stories/{story_id}")
-async def remove_story(story_id: int, owner: int = Depends(_owner)):
+async def remove_story(story_id: int, owner: Annotated[int, Depends(_owner)]):
     async with async_session_maker() as session:
         result = await session.execute(delete(stories).where(
             stories.c.id == story_id, stories.c.owner_id == owner
