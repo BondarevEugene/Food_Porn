@@ -8,6 +8,9 @@ from __future__ import annotations
 from typing import Protocol
 
 from app.little_legend.illustrated_pdf import render_illustrated_proof
+from app.little_legend.image_ai_consent import (
+    ImageAIConsent, ImageAIDisclosure, consent_allows_image_ai,
+)
 from app.little_legend.story_graph import SceneNode, StoryGraph
 from app.little_legend.story_writer import StoryManuscript
 
@@ -23,12 +26,17 @@ async def produce_illustrated_book(
     *, illustrator: SceneIllustrator, title: str, dedication: str,
     graph: StoryGraph, manuscript: StoryManuscript, style: str,
     approved_scene_ids: set[str], continuity: str = "",
+    image_ai_consent: ImageAIConsent | None = None,
+    image_ai_disclosure: ImageAIDisclosure | None = None,
 ) -> bytes:
     """Generate every explicitly approved scene and render an A5 editorial PDF.
 
     All approval and completeness checks happen *before* the first paid call.
     A failure produces no partial book; retry and persistence belong to caller.
     """
+    if (image_ai_consent is None or image_ai_disclosure is None
+            or not consent_allows_image_ai(image_ai_consent, image_ai_disclosure)):
+        raise PermissionError("Explicit image AI consent is required")
     nodes = sorted(graph.nodes, key=lambda node: node.order)
     expected = {node.id for node in nodes}
     if not expected or approved_scene_ids != expected:
