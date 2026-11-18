@@ -52,6 +52,14 @@ from app.little_legend.hero_contract import (
     scene_directives,
 )
 from app.little_legend.narrative_design import StoryDesign, design_guidance
+from app.little_legend.story_writer import StoryManuscript, manuscript_review
+from app.little_legend.manuscript_repository import (
+    ChapterApproval,
+    ChapterEdit,
+    approve_chapter,
+    edit_chapter,
+    mutate_owned_manuscript,
+)
 from app.little_legend.portrait_studio import PortraitPlan, portrait_preflight
 from app.little_legend.print_renderer import render_print_proof
 from app.little_legend.privacy_lifecycle import (
@@ -102,6 +110,7 @@ class StoryDraft(BaseModel):
     identity_bible: IdentityBible | None = None
     consent: ConsentRecord = Field(default_factory=ConsentRecord)
     portrait_plan: PortraitPlan = Field(default_factory=PortraitPlan)
+    manuscript: StoryManuscript | None = None
 
 
 async def initialize_schema() -> None:
@@ -173,6 +182,10 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
             draft.design = previous.design
         if "identity_bible" not in draft.model_fields_set:
             draft.identity_bible = previous.identity_bible
+        if "manuscript" not in draft.model_fields_set:
+            draft.manuscript = previous.manuscript
+        elif previous.manuscript is not None and draft.manuscript != previous.manuscript:
+            raise HTTPException(409, "Use chapter editor to modify the manuscript")
         # Consent is never overwritten by a generic story editor payload.
         draft.consent = previous.consent
         if "portrait_plan" not in draft.model_fields_set:
@@ -245,6 +258,54 @@ async def read_hero_contract(
         "audit": audit_hero_presence(contract, {}, graph),
         "ai_generated": False,
     }
+
+
+
+@router.get("/api/stories/{story_id}/manuscript")
+async def read_manuscript(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    draft = await _owned_draft(story_id, owner)
+    manuscript = draft.manuscript or StoryManuscript(hero_name=draft.hero)
+    graph = draft.graph or build_graph(draft.scenes)
+    return {
+        "manuscript": manuscript.model_dump(mode="json"),
+        "review": manuscript_review(manuscript, graph),
+    }
+
+
+@router.put("/api/stories/{story_id}/manuscript/{scene_id}")
+async def edit_manuscript_chapter(
+    story_id: int, scene_id: str, edit: ChapterEdit,
+    owner: Annotated[int, Depends(_owner)],
+):
+    def transform(manuscript, draft):
+        graph = draft.graph or build_graph(draft.scenes)
+        if scene_id not in {node.id for node in graph.nodes}:
+            raise ValueError("Unknown story scene")
+        return edit_chapter(manuscript, scene_id, edit)
+
+    manuscript = await mutate_owned_manuscript(
+        story_id=story_id, owner_id=owner, transform=transform,
+    )
+    return {"saved": True, "manuscript": manuscript.model_dump(mode="json")}
+
+
+@router.post("/api/stories/{story_id}/manuscript/{scene_id}/approval")
+async def set_manuscript_chapter_approval(
+    story_id: int, scene_id: str, decision: ChapterApproval,
+    owner: Annotated[int, Depends(_owner)],
+):
+    def transform(manuscript, draft):
+        graph = draft.graph or build_graph(draft.scenes)
+        if scene_id not in {node.id for node in graph.nodes}:
+            raise ValueError("Unknown story scene")
+        return approve_chapter(manuscript, scene_id, decision.approved)
+
+    manuscript = await mutate_owned_manuscript(
+        story_id=story_id, owner_id=owner, transform=transform,
+    )
+    return {"saved": True, "manuscript": manuscript.model_dump(mode="json")}
 
 @router.get("/api/stories/{story_id}/consent")
 async def read_consent(story_id: int, owner: Annotated[int, Depends(_owner)]):
