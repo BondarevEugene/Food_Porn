@@ -47,7 +47,7 @@ async def test_provider_generates_text_only_image():
         scene=build_graph(["A hidden garden"]).nodes[0],
         hero="Marta", style="watercolor", continuity="Red scarf",
     )
-    assert result.startswith(b"\\x89PNG")
+    assert result.startswith(bytes((137, 80, 78, 71)))
     assert images.calls[0]["n"] == 1
     assert "image" not in images.calls[0]
     assert "Marta" in images.calls[0]["prompt"]
