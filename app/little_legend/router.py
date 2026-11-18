@@ -467,7 +467,7 @@ nav button{font-size:13px;padding:12px 8px}
 <p class="hero-lead">Придумайте приключение за пару минут или станьте режиссёром каждой сцены. Личные детали необязательны.</p>
 <div id="authError" class="error hidden">Откройте студию кнопкой из Telegram-бота.</div>
 <div id="workspace" class="hidden">
-<nav><button class="secondary" onclick="tab('idea')">01 · Идея</button><button class="secondary" onclick="tab('hero')">02 · Герой</button><button class="secondary" onclick="openDesign()">03 · Драматургия</button><button class="secondary" onclick="tab('scenes')">04 · Сцены</button><button class="secondary" onclick="openPortrait()">Портрет</button><button class="secondary" onclick="openConsent()">05 · Согласие</button><button class="secondary" onclick="openIdentity()">06 · Внешность</button><button class="secondary" onclick="openDirector()">07 · Стиль</button><button class="secondary" onclick="tab('edition')">08 · Издание</button></nav>
+<nav><button class="secondary" onclick="tab('idea')">01 · Идея</button><button class="secondary" onclick="tab('hero')">02 · Герой</button><button class="secondary" onclick="openDesign()">03 · Драматургия</button><button class="secondary" onclick="tab('scenes')">04 · Сцены</button><button class="secondary" onclick="openPrivacy()">Безопасность</button><button class="secondary" onclick="openPortrait()">Портрет</button><button class="secondary" onclick="openConsent()">05 · Согласие</button><button class="secondary" onclick="openIdentity()">06 · Внешность</button><button class="secondary" onclick="openDirector()">07 · Стиль</button><button class="secondary" onclick="tab('edition')">08 · Издание</button></nav>
 <section id="idea" class="card">
 <h2>Ваша история</h2>
 <label>Название</label><input id="title" maxlength="180">
@@ -482,6 +482,12 @@ nav button{font-size:13px;padding:12px 8px}
 <label>Любимые выражения (необязательно)</label><textarea id="phrases" maxlength="2000"></textarea>
 <p class="note">Загрузка детских фотографий будет включена после добавления согласия родителей и защищённого хранилища.</p></section>
 <section id="scenes" class="card hidden"><h2>Режиссёрская раскадровка</h2><p class="note">Изменяйте поворот в любой сцене. Автоматическая генерация графа появится на следующем этапе.</p><div id="sceneList"></div></section>
+<section id="privacy" class="card hidden"><h2>Проверка безопасности · Little Legend</h2>
+<p class="note">Это контроль готовности, а не подтверждение запуска обработки фотографий.</p>
+<button onclick="openPrivacy()">Обновить проверку</button>
+<p id="privacyStatus" class="note" role="status"></p>
+<div id="privacyChecks" class="note"></div>
+</section>
 <section id="portrait" class="card hidden"><h2>Эталонный портрет · подготовка</h2>
 <p class="note">Настройте будущий портрет. Загрузка фото и генерация пока отключены — изображения ребёнка не передаются.</p>
 <label>Режим</label><select id="portraitMode" onchange="portraitModeChanged()"><option value="quick">Быстро</option><option value="director">Подробно</option></select>
@@ -567,7 +573,7 @@ const auth=tg?.initData;let storyId=null;let activeGraph=null;
 const fields=['title','genre','setup','mystery','ending','habits','phrases','dedication','city'];
 const defaults=['Знакомство с героем','Необычное событие','Первый союзник','Тайное послание','Первая загадка','Опасная находка','Неожиданный поворот','Испытание дружбы','Разгадка тайны','План спасения','Главное испытание','Развязка и новая тайна'];
 const $=id=>document.getElementById(id);
-function tab(id){['idea','hero','scenes','edition','graph','director','design','identity','consent','portrait'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
+function tab(id){['idea','hero','scenes','edition','graph','director','design','identity','consent','portrait','privacy'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
 function drawScenes(items){$('sceneList').replaceChildren();items.forEach((value,i)=>{let row=document.createElement('div');row.className='scene';let n=document.createElement('span');n.textContent=i+1;let t=document.createElement('textarea');t.maxLength=4000;t.value=value;t.dataset.scene=i;row.append(n,t);$('sceneList').append(row)})}
 function collect(){let obj={};fields.forEach(k=>obj[k]=$(k).value);obj.hero=$('heroName').value;obj.scenes=[...document.querySelectorAll('[data-scene]')].map(x=>x.value);return obj}
 function fill(data){fields.forEach(k=>$(k).value=data[k]||'');$('heroName').value=data.hero||'Оля';drawScenes(data.scenes||defaults)}
@@ -606,6 +612,7 @@ drawScenes(activeGraph.nodes.slice().sort((a,b)=>a.order-b.order).map(x=>x.summa
 $('graphStatus').textContent='Сохранено · редакторский индекс '+result.editorial.score+'/100';
 }catch(e){$('graphStatus').textContent='Ошибка: '+e.message}}
 async function proof(){try{if(!storyId){$('status').textContent='Сначала сохраните книгу';return}const r=await fetch('/little-legend/api/stories/'+storyId+'/proof.pdf',{headers:{Authorization:'tma '+auth}});if(!r.ok)throw Error('PDF HTTP '+r.status);const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='little-legend-proof.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000)}catch(e){$('status').textContent=e.message}}
+async function openPrivacy(){tab('privacy');if(!storyId){$('privacyStatus').textContent='Сначала сохраните книгу';return}try{const x=await api('/stories/'+storyId+'/privacy-readiness');$('privacyStatus').textContent=x.launch.photo_upload_enabled?'Фото доступны':'Фото недоступны: безопасность и юридические условия ещё не подтверждены';const c=$('privacyChecks');c.replaceChildren();Object.entries(x.launch.checks).forEach(([key,ok])=>{const line=document.createElement('p');line.textContent=(ok?'✓ ':'○ ')+key.replaceAll('_',' ');c.append(line)});x.portrait.blockers.forEach(reason=>{const line=document.createElement('p');line.textContent='• '+reason;c.append(line)})}catch(e){$('privacyStatus').textContent='Ошибка: '+e.message}}
 let portraitDraft=null;
 function portraitModeChanged(){$('portraitAdvanced').classList.toggle('hidden',$('portraitMode').value!=='director')}
 async function openPortrait(){tab('portrait');if(!storyId){$('portraitStatus').textContent='Сначала сохраните книгу';return}try{const x=await api('/stories/'+storyId+'/portrait');portraitDraft=x.plan;const p=x.plan;$('portraitMode').value=p.mode;$('portraitStyle').value=p.style;$('portraitOutfit').value=p.preferred_outfit;$('portraitExpression').value=p.expression;$('portraitBackground').value=p.background;$('portraitFraming').value=p.framing;$('portraitLighting').value=p.lighting;$('portraitAvoid').value=p.avoid.join(String.fromCharCode(10));$('portraitApproved').checked=p.parent_description_approved;portraitModeChanged();$('portraitStatus').textContent=x.preflight.blockers.join(' · ')}catch(e){$('portraitStatus').textContent='Ошибка: '+e.message}}
