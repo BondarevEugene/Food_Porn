@@ -9,9 +9,9 @@ from typing import Protocol
 
 from app.little_legend.illustrated_pdf import render_illustrated_proof
 from app.little_legend.image_ai_consent import (
-    consent_allows_image_ai,
     ImageAIConsent,
     ImageAIDisclosure,
+    consent_allows_image_ai,
 )
 from app.little_legend.story_graph import SceneNode, StoryGraph
 from app.little_legend.story_writer import StoryManuscript
