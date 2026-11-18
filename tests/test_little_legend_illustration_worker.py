@@ -103,3 +103,28 @@ async def test_worker_rejects_revoked_consent_before_dispatch():
             mark_completed=complete,
         )
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_private_store_worker_writes_before_completion():
+    job, context = _setup()
+    calls = []
+
+    class Store:
+        def put(self, *, key, data, content_type):
+            assert key.startswith("little-legend/generated/")
+            assert data.startswith(bytes((255, 216, 255)))
+            assert content_type == "image/jpeg"
+            calls.append("store")
+
+    async def fence(_job):
+        calls.append("fence")
+
+    async def complete(_job):
+        calls.append("complete")
+
+    await run_illustration_job_with_private_store(
+        job=job, context=context, illustrator=FakeIllustrator(calls),
+        store=Store(), fence_dispatch=fence, mark_completed=complete,
+    )
+    assert calls == ["fence", "provider", "store", "complete"]
