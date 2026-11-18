@@ -112,6 +112,9 @@ class BookletRenderer:
         self.direction = direction
         self.layout_variant = (int(direction.code[-2:]) - 1) % 5
         self.BG, self.PANEL, self.GOLD, self.CREAM, self.MUTED = self.PALETTES[self.style]
+        # Preserve the established dark fallback for old orders and fixtures.
+        if style not in self.PALETTES:
+            return
         # Each direction gets a deterministic color family, rather than merely
         # reusing one of three theme-wide palettes.
         index = int(direction.code[-2:]) - 1
@@ -284,7 +287,7 @@ class BookletRenderer:
         self._center_text(draw, "FOOD PORN", cx, y1 + self._px(58), self._font(10, serif=True, bold=True), gold)
         draw.line((cx-self._px(19), y1+self._px(109), cx+self._px(19), y1+self._px(109)),
                   fill=self.GOLD, width=max(2, self._px(.25)))
-        self._fit_text(draw, romantic_copy(menu.customer.language, getattr(menu, "design_seed", None) or getattr(menu, "id", 0))[1],
+        self._fit_text(draw, t("love_letter", menu.customer.language),
                        (x1+self._px(25), y1+self._px(125),
                         x2-self._px(25), y1+self._px(212)),
                        self._font(15.5, serif=True, italic=True), self.CREAM, max_lines=12)
