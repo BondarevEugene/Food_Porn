@@ -9,7 +9,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.little_legend.blueprint import BookBlueprint, CharacterProfile
+from app.little_legend.blueprint import BookBlueprint
 from app.little_legend.story_graph import StoryGraph
 
 
