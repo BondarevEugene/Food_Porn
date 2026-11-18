@@ -10,13 +10,26 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 from sqlalchemy import (
-    BigInteger, Column, DateTime, Integer, MetaData, String, Table,
-    Text, insert, select, update,
+    BigInteger,
+    Column,
+    DateTime,
+    insert,
+    Integer,
+    MetaData,
+    select,
+    String,
+    Table,
+    Text,
+    update,
 )
 
 from app.database.session import async_session_maker
 from app.little_legend.writer_queue import (
-    JobPolicy, JobStatus, WriterJob, claim_job, finish_job,
+    claim_job,
+    finish_job,
+    JobPolicy,
+    JobStatus,
+    WriterJob,
 )
 
 illustration_metadata = MetaData()
@@ -49,7 +62,8 @@ async def enqueue_illustration_jobs(
 ) -> list[str]:
     """Atomically enqueue one job per approved scene; never call AI here."""
     from app.little_legend.image_ai_consent import (
-        configured_image_ai_disclosure, consent_allows_image_ai,
+        configured_image_ai_disclosure,
+        consent_allows_image_ai,
     )
     from app.little_legend.router import StoryDraft, stories
 
@@ -163,7 +177,8 @@ async def fence_illustration_dispatch(
         # A revoked consent or edited chapter must block dispatch even when
         # the worker loaded an older snapshot.
         from app.little_legend.image_ai_consent import (
-            configured_image_ai_disclosure, consent_allows_image_ai,
+            configured_image_ai_disclosure,
+            consent_allows_image_ai,
         )
         from app.little_legend.router import StoryDraft, stories
 
