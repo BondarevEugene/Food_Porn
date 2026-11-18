@@ -43,6 +43,10 @@ async def test_provider_timeout_requires_manual_review(monkeypatch):
     async def transition(**kwargs):
         transitions.append(kwargs)
 
+    async def dispatch(**_kwargs):
+        return job
+
+    monkeypatch.setattr(sketch_worker, "mark_writer_provider_dispatched", dispatch)
     monkeypatch.setattr(sketch_worker, "claim_next_writer_job", claim)
     monkeypatch.setattr(sketch_worker, "async_session_maker", FakeSession)
     monkeypatch.setattr(sketch_worker, "prepare_claimed_chapter", lambda *_: {})
