@@ -27,7 +27,7 @@ from aiogram.types import BotCommand, MenuButtonCommands
 from app.admin_app import app
 from app.admin_app import engine as admin_engine
 from app.api.wayforpay import router as wayforpay_api_router
-from app.bot.handlers import menu, payment, registration, stars, start
+from app.bot.handlers import little_legend, menu, payment, registration, stars, start
 from app.bot.handlers.admin import router as admin_router
 from app.bot.handlers.portmone_sandbox import router as portmone_sandbox_router
 from app.bot.handlers.wallpaper import router as wallpaper_router
@@ -35,7 +35,7 @@ from app.bot.handlers.wayforpay import router as wayforpay_bot_router
 from app.channels.router import router as channels_router
 from app.config import Settings, get_settings
 from app.database.session import Database
-from app.miniapp.api import router as miniapp_router
+from app.miniapp.api import router as miniapp_router\nfrom app.little_legend.router import router as little_legend_web_router
 from app.services.factory_alerts import FactoryAlertNotifier
 from app.services.factory_monitor import FactoryStorageMonitor
 from app.services.openai_costs import OpenAICostSynchronizer
@@ -53,7 +53,7 @@ SHUTDOWN_TIMEOUT = 15.0
 # Сохраняем объект приложения, его авторизацию и startup-обработчики.
 app.include_router(portmone_router)
 app.include_router(wayforpay_api_router)
-app.include_router(miniapp_router)
+app.include_router(miniapp_router)\napp.include_router(little_legend_web_router)
 app.include_router(channels_router)
 
 
