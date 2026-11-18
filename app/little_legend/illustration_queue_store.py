@@ -5,8 +5,8 @@ reclaimed automatically after a crash, preventing ambiguous double billing.
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime
 import secrets
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 from sqlalchemy import (
@@ -30,6 +30,20 @@ from app.little_legend.writer_queue import (
     WriterJob,
     claim_job,
     finish_job,
+)
+
+
+illustration_metadata = MetaData()
+illustration_jobs = Table(
+    "little_legend_illustration_jobs", illustration_metadata,
+    Column("job_id", String(120), primary_key=True),
+    Column("story_id", Integer, nullable=False, index=True),
+    Column("owner_id", BigInteger, nullable=False, index=True),
+    Column("scene_id", String(100), nullable=False),
+    Column("status", String(20), nullable=False, index=True),
+    Column("payload", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
 
