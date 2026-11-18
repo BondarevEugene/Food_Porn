@@ -2,13 +2,13 @@
 
 ## This increment
 
-PostgreSQL metadata registry, private owner/story counts, expiry-to-deletion-pending batch. The table is currently created by the application's existing schema initializer, not an Alembic migration. **This is a transitional approach; add a formal Alembic revision before enabling production media.**
+PostgreSQL metadata registry, private owner/story counts, expiry-to-deletion-pending batch. The vault table is created by Alembic revision `20261118_0016` in the existing Neon PostgreSQL database. The revision preserves existing story records and does not create a separate database. Run `alembic upgrade head` before deploying the new API.
 
 No upload endpoint, object storage connection, byte-level validation, file deletion worker, backup purge, or legal consent activation exists. An expiry queue changes **database state only**; it is not deletion of a photo. All media processing stays disabled.
 
 ## Infrastructure roadmap
 
-1. Add an Alembic migration with strict foreign keys, index strategy and verified rollback, replacing runtime table creation.
+1. Validate the Alembic migration against a Neon staging branch, including existing story rows, rollback behavior and schema indexes.
 2. Choose S3-compatible private storage with versioning/retention policy explicitly configured and no public ACLs; Railway ephemeral disk must not hold originals.
 3. Introduce short-lived signed uploads only after active parental consent and ownership verification. Validate actual bytes, image decode limits, EXIF stripping and content type server-side.
 4. Separate originals, approved reference portraits and book derivatives into distinct retention classes. Delete all classes on withdrawal and expiry, including external AI providers when supported.
