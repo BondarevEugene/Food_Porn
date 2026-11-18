@@ -70,6 +70,7 @@ from app.little_legend.privacy_lifecycle import (
     reset_photo_approvals,
 )
 from app.little_legend.secure_vault import upload_capability
+from app.little_legend.sketch_enqueue import enqueue_sketch_chapters
 from app.little_legend.sketch_writer_briefs import (
     SketchWritingSettings,
     compose_sketch_chapter_briefs,
@@ -133,6 +134,7 @@ class StoryDraft(BaseModel):
     portrait_plan: PortraitPlan = Field(default_factory=PortraitPlan)
     manuscript: StoryManuscript | None = None
     parent_sketch: ParentSketch | None = None
+    outline_approved: bool = False
     text_ai_consent: TextAIConsent = Field(default_factory=TextAIConsent)
     writer_job_ids: dict[str, str] = Field(default_factory=dict)
     editorial_decision: EditorialDecision = Field(default_factory=EditorialDecision)
@@ -213,6 +215,7 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
         if previous.manuscript is not None and draft.hero != previous.hero:
             raise HTTPException(409, "Cannot change the hero of an existing manuscript")
         draft.text_ai_consent = previous.text_ai_consent
+        draft.outline_approved = previous.outline_approved
         if "parent_sketch" not in draft.model_fields_set:
             draft.parent_sketch = previous.parent_sketch
         elif draft.parent_sketch != previous.parent_sketch:
@@ -314,6 +317,7 @@ async def save_parent_sketch(
         if draft.writer_job_ids:
             raise HTTPException(409, "Story has writer checkpoints")
         draft.parent_sketch = sketch
+        draft.outline_approved = False
         draft.graph = outline.graph
         draft.scenes = [node.summary or node.goal for node in outline.graph.nodes]
         draft.design = outline.design
@@ -328,6 +332,38 @@ async def save_parent_sketch(
     return {"saved": True, "outline": outline.model_dump(mode="json")}
 
 
+
+
+
+@router.post("/api/stories/{story_id}/sketch/approve")
+async def approve_sketch_outline(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Parent explicitly approves the current outline before queuing."""
+    async with async_session_maker() as session:
+        raw = (await session.execute(select(stories.c.data).where(
+            stories.c.id == story_id, stories.c.owner_id == owner,
+        ).with_for_update())).scalar_one_or_none()
+        if raw is None:
+            raise HTTPException(404, "Story not found")
+        draft = StoryDraft.model_validate_json(raw)
+        if draft.parent_sketch is None or draft.graph is None:
+            raise HTTPException(409, "Create a parent-sourced outline first")
+        draft.outline_approved = True
+        await session.execute(update(stories).where(
+            stories.c.id == story_id, stories.c.owner_id == owner,
+        ).values(data=draft.model_dump_json(), updated_at=datetime.now(UTC)))
+        await session.commit()
+    return {"outline_approved": True}
+
+
+@router.post("/api/stories/{story_id}/sketch/queue")
+async def queue_sketch_story(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Queue approved chapters; no AI provider calls occur in this route."""
+    ids = await enqueue_sketch_chapters(story_id=story_id, owner_id=owner)
+    return {"job_ids": ids, "queued": len(ids), "generation_started": False}
 
 @router.get("/api/stories/{story_id}/sketch/writer-preview")
 async def preview_sketch_writer(
