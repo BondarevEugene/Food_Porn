@@ -47,6 +47,11 @@ from app.little_legend.consent import (
 from app.little_legend.editorial import audit_story
 from app.little_legend.narrative_design import StoryDesign, design_guidance
 from app.little_legend.portrait_studio import PortraitPlan, portrait_preflight
+from app.little_legend.privacy_lifecycle import (
+    PrivacyLaunchConfig,
+    photo_launch_preflight,
+    reset_photo_approvals,
+)
 from app.little_legend.print_renderer import render_print_proof
 from app.little_legend.story_graph import StoryGraph, build_graph, graph_report
 from app.miniapp.auth import current_user
@@ -250,11 +255,29 @@ async def withdraw_consent(
             raise HTTPException(404, "Story not found")
         current = StoryDraft.model_validate_json(row)
         current.consent = withdraw_photo_consent(current.consent)
+        current.identity_bible, current.portrait_plan, _events = reset_photo_approvals(
+            current.identity_bible, current.portrait_plan
+        )
         await session.execute(update(stories).where(
             stories.c.id == story_id, stories.c.owner_id == owner
         ).values(data=current.model_dump_json(), updated_at=datetime.now(UTC)))
         await session.commit()
     return {"status": consent_status(current.consent)}
+
+
+@router.get("/api/stories/{story_id}/privacy-readiness")
+async def read_privacy_readiness(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    draft = await _owned_draft(story_id, owner)
+    bible = draft.identity_bible or quick_identity_bible(
+        draft.blueprint or quick_blueprint(draft.hero), draft.hero
+    )
+    return {
+        "consent": consent_status(draft.consent),
+        "portrait": portrait_preflight(draft.portrait_plan, bible, draft.consent),
+        "launch": photo_launch_preflight(PrivacyLaunchConfig()),
+    }
 
 
 @router.get("/api/stories/{story_id}/portrait")
