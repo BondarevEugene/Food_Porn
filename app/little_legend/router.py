@@ -1064,7 +1064,15 @@ nav button{font-size:13px;padding:12px 8px}
 <section id="edition" class="card hidden"><h2>Персональное издание</h2>
 <label>Посвящение</label><textarea id="dedication" maxlength="1000"></textarea>
 <label>Город выпуска</label><input id="city" maxlength="100">
-<p class="note">Авторство, год и номер экземпляра будут оформлены в финальном PDF.</p></section>
+<p class="note">Авторство, год и номер экземпляра будут оформлены в финальном PDF.</p>
+<h3>Иллюстрированная книга · редакционный PDF</h3>
+<p class="note">После создания и проверки текста выберите по одному собственному изображению для каждой сцены, в порядке глав. Изображения не сохраняются на сервере. Это редакционный PDF, не типографский оригинал. Не загружайте фотографии ребёнка.</p>
+<label>Иллюстрации JPEG/PNG, по порядку сцен</label>
+<input id="bookImages" type="file" accept="image/png,image/jpeg" multiple>
+<label><input id="bookImagesApproved" type="checkbox" style="width:auto"> Я имею право использовать эти иллюстрации и проверил(а) их соответствие сценам</label>
+<button onclick="downloadIllustratedBook()">Скачать книгу с иллюстрациями</button>
+<p id="bookExportStatus" class="note" role="status"></p>
+</section>
 <div class="card"><button class="secondary" onclick="openDirector()">Настройки</button> <button class="secondary" onclick="showGraph()">Посмотреть граф</button> <button class="secondary" onclick="proof()">PDF-макет A5</button><p class="note">PDF содержит план сцен, а не готовую книгу для печати.</p><button onclick="save()">Сохранить черновик</button> <button class="secondary" onclick="fresh()">Новая книга</button><p id="status" class="note"></p></div>
 <div class="card"><h2>Мои книги</h2><div id="books"></div></div>
 </div>
@@ -1112,6 +1120,34 @@ const result=await api('/stories/'+storyId+'/graph','PUT',activeGraph);
 drawScenes(activeGraph.nodes.slice().sort((a,b)=>a.order-b.order).map(x=>x.summary));
 $('graphStatus').textContent='Сохранено · редакторский индекс '+result.editorial.score+'/100';
 }catch(e){$('graphStatus').textContent='Ошибка: '+e.message}}
+async function downloadIllustratedBook(){
+ const status=$('bookExportStatus');status.textContent='Проверка книги…';
+ try{
+  if(!storyId)throw Error('Сначала сохраните книгу');
+  if(!$('bookImagesApproved').checked)throw Error('Подтвердите права и проверку иллюстраций');
+  const story=await api('/stories/'+storyId);
+  const scenes=(story.graph?.nodes||story.scenes.map((_,i)=>({id:'scene_'+(i+1),order:i+1}))).slice().sort((a,b)=>a.order-b.order);
+  const files=[...$('bookImages').files];
+  if(files.length!==scenes.length)throw Error('Нужно '+scenes.length+' изображений, выбрано '+files.length);
+  const illustrations={};
+  for(let i=0;i<files.length;i++){
+   const file=files[i];
+   if(!['image/png','image/jpeg'].includes(file.type)||file.size>12*1024*1024||file.size===0)throw Error('Недопустимый формат или размер файла '+(i+1));
+   const bytes=new Uint8Array(await file.arrayBuffer());
+   let binary='';for(let offset=0;offset<bytes.length;offset+=8192){binary+=String.fromCharCode(...bytes.subarray(offset,offset+8192))}
+   illustrations[scenes[i].id]=btoa(binary);
+  }
+  const r=await fetch('/little-legend/api/stories/'+storyId+'/illustrated.pdf',{
+   method:'POST',headers:{Authorization:'tma '+auth,'Content-Type':'application/json'},
+   body:JSON.stringify({illustrations,approved_scene_ids:scenes.map(x=>x.id)})
+  });
+  if(!r.ok){let detail=await r.json().catch(()=>({}));throw Error(detail.detail||'PDF HTTP '+r.status)}
+  const blob=await r.blob();const url=URL.createObjectURL(blob);
+  const link=document.createElement('a');link.href=url;link.download='little-legend-illustrated.pdf';link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+  status.textContent='Редакционная книга скачана';
+ }catch(e){status.textContent='Ошибка: '+e.message}
+}
 async function proof(){try{if(!storyId){$('status').textContent='Сначала сохраните книгу';return}const r=await fetch('/little-legend/api/stories/'+storyId+'/proof.pdf',{headers:{Authorization:'tma '+auth}});if(!r.ok)throw Error('PDF HTTP '+r.status);const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='little-legend-proof.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000)}catch(e){$('status').textContent=e.message}}
 async function openPrivacy(){tab('privacy');if(!storyId){$('privacyStatus').textContent='Сначала сохраните книгу';return}try{const x=await api('/stories/'+storyId+'/privacy-readiness');$('privacyStatus').textContent=x.launch.photo_upload_enabled?'Фото доступны':'Фото недоступны: безопасность и юридические условия ещё не подтверждены';const c=$('privacyChecks');c.replaceChildren();Object.entries(x.launch.checks).forEach(([key,ok])=>{const line=document.createElement('p');line.textContent=(ok?'✓ ':'○ ')+key.replaceAll('_',' ');c.append(line)});x.portrait.blockers.forEach(reason=>{const line=document.createElement('p');line.textContent='• '+reason;c.append(line)})}catch(e){$('privacyStatus').textContent='Ошибка: '+e.message}}
 let portraitDraft=null;
