@@ -53,6 +53,7 @@ from app.little_legend.privacy_lifecycle import (
     photo_launch_preflight,
     reset_photo_approvals,
 )
+from app.little_legend.secure_vault import upload_capability
 from app.little_legend.story_graph import StoryGraph, build_graph, graph_report
 from app.miniapp.auth import current_user
 
@@ -260,6 +261,13 @@ async def withdraw_consent(
         ).values(data=current.model_dump_json(), updated_at=datetime.now(UTC)))
         await session.commit()
     return {"status": consent_status(current.consent)}
+
+
+@router.get("/api/stories/{story_id}/photo-vault")
+async def photo_vault_status(story_id: int, owner: Annotated[int, Depends(_owner)]):
+    # Always verify the story owner before revealing even feature status.
+    await _owned_draft(story_id, owner)
+    return upload_capability()
 
 
 @router.get("/api/stories/{story_id}/privacy-readiness")
