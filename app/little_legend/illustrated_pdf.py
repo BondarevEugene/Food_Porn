@@ -61,8 +61,14 @@ def render_illustrated_proof(
     nodes = sorted(graph.nodes, key=lambda item: item.order)
     expected = {node.id for node in nodes}
     chapters = {chapter.scene_id: chapter for chapter in manuscript.chapters}
-    if set(chapters) != expected:
-        raise ValueError("Complete manuscript is required")
+    if (not expected or len(expected) != len(nodes)
+            or len(chapters) != len(manuscript.chapters)
+            or set(chapters) != expected):
+        raise ValueError("Complete manuscript with unique scenes is required")
+    if not manuscript.parent_approved or any(
+        not chapter.approved for chapter in chapters.values()
+    ):
+        raise PermissionError("Approved manuscript is required")
     if set(illustrations) != expected or approved_scene_ids != expected:
         raise PermissionError("Every scene illustration requires explicit approval")
     # Validate all image bytes before producing any PDF pages.
