@@ -80,6 +80,11 @@ from app.little_legend.story_writer import (
     StoryManuscript,
     manuscript_review,
 )
+from app.little_legend.text_ai_consent import (
+    TextAIConsent,
+    text_ai_consent_status,
+    withdraw_text_ai_consent,
+)
 from app.little_legend.vault_registry import vault_summary
 from app.miniapp.auth import current_user
 
@@ -123,6 +128,7 @@ class StoryDraft(BaseModel):
     portrait_plan: PortraitPlan = Field(default_factory=PortraitPlan)
     manuscript: StoryManuscript | None = None
     parent_sketch: ParentSketch | None = None
+    text_ai_consent: TextAIConsent = Field(default_factory=TextAIConsent)
     writer_job_ids: dict[str, str] = Field(default_factory=dict)
     editorial_decision: EditorialDecision = Field(default_factory=EditorialDecision)
 
@@ -201,6 +207,7 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
             draft.identity_bible = previous.identity_bible
         if previous.manuscript is not None and draft.hero != previous.hero:
             raise HTTPException(409, "Cannot change the hero of an existing manuscript")
+        draft.text_ai_consent = previous.text_ai_consent
         if "parent_sketch" not in draft.model_fields_set:
             draft.parent_sketch = previous.parent_sketch
         elif draft.parent_sketch != previous.parent_sketch:
@@ -477,6 +484,35 @@ async def set_manuscript_chapter_approval(
         story_id=story_id, owner_id=owner, transform=transform,
     )
     return {"saved": True, "manuscript": manuscript.model_dump(mode="json")}
+
+
+
+@router.get("/api/stories/{story_id}/text-ai-consent")
+async def read_text_ai_consent(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    draft = await _owned_draft(story_id, owner)
+    return text_ai_consent_status(draft.text_ai_consent)
+
+
+@router.post("/api/stories/{story_id}/text-ai-consent/withdraw")
+async def revoke_text_ai_consent(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Revoke authorization; a future worker must recheck before every call."""
+    async with async_session_maker() as session:
+        raw = (await session.execute(select(stories.c.data).where(
+            stories.c.id == story_id, stories.c.owner_id == owner,
+        ).with_for_update())).scalar_one_or_none()
+        if raw is None:
+            raise HTTPException(404, "Story not found")
+        draft = StoryDraft.model_validate_json(raw)
+        draft.text_ai_consent = withdraw_text_ai_consent(draft.text_ai_consent)
+        await session.execute(update(stories).where(
+            stories.c.id == story_id, stories.c.owner_id == owner,
+        ).values(data=draft.model_dump_json(), updated_at=datetime.now(UTC)))
+        await session.commit()
+    return text_ai_consent_status(draft.text_ai_consent)
 
 @router.get("/api/stories/{story_id}/consent")
 async def read_consent(story_id: int, owner: Annotated[int, Depends(_owner)]):
