@@ -49,12 +49,14 @@ def quote_key(
     style: str,
     collage_amount: Decimal,
     video_amount: Decimal,
+    photo_digests: list[str] | None = None,
 ) -> str:
     snapshot = {
         "owner": user_id,
         "choice": choice,
         "goals": goals,
         "photos": photos,
+        "photo_digests": photo_digests,
         "style": style,
         "collage_uah": str(collage_amount),
         "video_uah": str(video_amount),
@@ -86,9 +88,19 @@ async def create_gift_quote(
         collage_price=settings.wayforpay_wallpaper_price_uah,
         video_price=settings.wayforpay_video_story_price_uah,
     )
+    # A photo may be replaced at the same path during a resumed Telegram order.
+    # Bind the quote to the actual bytes, not only its mutable file path.
+    photo_digests = []
+    for path in paths:
+        digest = hashlib.sha256()
+        with open(path, "rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        photo_digests.append(digest.hexdigest())
     request_key = quote_key(
         user_id, choice=choice, goals=goals, photos=paths,
         style=style, collage_amount=collage, video_amount=video,
+        photo_digests=photo_digests,
     )
     async with factory() as session:
         existing = await session.scalar(
