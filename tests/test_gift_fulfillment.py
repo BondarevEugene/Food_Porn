@@ -248,3 +248,29 @@ async def test_missing_ready_mp4_is_regenerated_without_rebuilding_collage(
     assert calls["render"] == 1
     assert calls["video"] == 2
     assert Path(output).is_file()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("choice", ["collage", "both"])
+async def test_missing_paid_collage_is_not_reported_ready(
+    fulfillment_factory, choice
+):
+    factory, settings, photo, calls = fulfillment_factory
+    purchase = await _purchase(factory, settings, photo, choice)
+    checkpoint = await gift_fulfillment.process_paid_gift_purchase(
+        factory, settings, purchase.id
+    )
+    async with factory() as session:
+        wallpaper = await session.get(WallpaperOrder, checkpoint.wallpaper_order_id)
+        from pathlib import Path
+
+        Path(wallpaper.mobile_path).unlink()
+    with pytest.raises(FileNotFoundError, match="Paid collage assets missing"):
+        await gift_fulfillment.process_paid_gift_purchase(
+            factory, settings, purchase.id
+        )
+    async with factory() as session:
+        saved = await session.get(GiftFulfillment, purchase.id)
+        assert saved.status == "failed"
+        assert "collage" in saved.last_error
+    assert calls["render"] == 1
