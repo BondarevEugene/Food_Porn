@@ -5,7 +5,7 @@ import secrets
 from datetime import UTC, datetime
 
 from fastapi import HTTPException
-from sqlalchemy import insert, select, update
+from sqlalchemy import insert, select
 
 from app.database.session import async_session_maker
 from app.little_legend.hero_contract import contract_from_blueprint
