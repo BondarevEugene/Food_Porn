@@ -12,23 +12,25 @@ from sqlalchemy import (
     BigInteger,
     Column,
     DateTime,
+    delete,
+    insert,
     Integer,
     MetaData,
+    select,
     String,
     Table,
     Text,
-    delete,
-    insert,
-    select,
     update,
 )
 
 from app.database.session import async_session_maker, engine
 from app.little_legend.book_export import IllustratedBookRequest
-from app.little_legend.image_ai_consent import (
-    ImageAIConsent, accept_image_ai_consent, configured_image_ai_disclosure,
-)
 from app.little_legend.illustrated_pdf import render_illustrated_proof
+from app.little_legend.image_ai_consent import (
+    ImageAIConsent,
+    accept_image_ai_consent,
+    configured_image_ai_disclosure,
+)
 from app.little_legend.blueprint import (
     BookBlueprint,
     print_preflight,
@@ -36,18 +38,18 @@ from app.little_legend.blueprint import (
     visual_consistency_check,
 )
 from app.little_legend.character_identity import (
-    IdentityBible,
     identity_review,
+    IdentityBible,
     quick_identity_bible,
 )
 from app.little_legend.client_sketch import ParentSketch, outline_from_sketch
 from app.little_legend.consent import (
-    PHOTO_NOTICE,
-    TERMS,
+    consent_status,
     ConsentDecision,
     ConsentRecord,
-    consent_status,
+    PHOTO_NOTICE,
     record_decision,
+    TERMS,
     withdraw_photo_consent,
 )
 from app.little_legend.editorial import audit_story
@@ -60,9 +62,9 @@ from app.little_legend.hero_contract import (
 )
 from app.little_legend.manuscript_pdf import render_manuscript_proof
 from app.little_legend.manuscript_repository import (
+    approve_chapter,
     ChapterApproval,
     ChapterEdit,
-    approve_chapter,
     edit_chapter,
     mutate_owned_manuscript,
     upsert_generated_chapter,
@@ -72,27 +74,27 @@ from app.little_legend.portfolio_cost_summary import get_portfolio_cost_summary
 from app.little_legend.portrait_studio import PortraitPlan, portrait_preflight
 from app.little_legend.print_renderer import render_print_proof
 from app.little_legend.privacy_lifecycle import (
-    PrivacyLaunchConfig,
     photo_launch_preflight,
+    PrivacyLaunchConfig,
     reset_photo_approvals,
 )
 from app.little_legend.secure_vault import upload_capability
 from app.little_legend.sketch_enqueue import enqueue_sketch_chapters
 from app.little_legend.sketch_writer_briefs import (
-    SketchWritingSettings,
     compose_sketch_chapter_briefs,
+    SketchWritingSettings,
 )
 from app.little_legend.story_cost_summary import get_story_cost_summary
 from app.little_legend.story_graph import StoryGraph, build_graph, graph_report
 from app.little_legend.story_writer import (
     ChapterDraft,
-    StoryManuscript,
     manuscript_review,
+    StoryManuscript,
 )
 from app.little_legend.text_ai_consent import (
+    text_ai_consent_status,
     TextAIConsent,
     TextAIConsentDecision,
-    text_ai_consent_status,
     withdraw_text_ai_consent,
 )
 from app.little_legend.text_ai_disclosure import (
