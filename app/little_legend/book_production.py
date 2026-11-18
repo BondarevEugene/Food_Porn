@@ -1,0 +1,54 @@
+"""In-memory illustration assembly for an approved Little Legend manuscript.
+
+The caller must independently verify owner, provider consent and budget before
+calling this function. No files, URLs or photos are stored or transferred here.
+"""
+from __future__ import annotations
+
+from typing import Protocol
+
+from app.little_legend.illustrated_pdf import render_illustrated_proof
+from app.little_legend.story_graph import SceneNode, StoryGraph
+from app.little_legend.story_writer import StoryManuscript
+
+
+class SceneIllustrator(Protocol):
+    async def generate_scene(
+        self, *, scene: SceneNode, hero: str, style: str,
+        continuity: str = "",
+    ) -> bytes: ...
+
+
+async def produce_illustrated_book(
+    *, illustrator: SceneIllustrator, title: str, dedication: str,
+    graph: StoryGraph, manuscript: StoryManuscript, style: str,
+    approved_scene_ids: set[str], continuity: str = "",
+) -> bytes:
+    """Generate every explicitly approved scene and render an A5 editorial PDF.
+
+    All approval and completeness checks happen *before* the first paid call.
+    A failure produces no partial book; retry and persistence belong to caller.
+    """
+    nodes = sorted(graph.nodes, key=lambda node: node.order)
+    expected = {node.id for node in nodes}
+    if not expected or approved_scene_ids != expected:
+        raise PermissionError("All scene illustrations require explicit approval")
+    if not manuscript.parent_approved or any(
+        not chapter.approved for chapter in manuscript.chapters
+    ):
+        raise PermissionError("Complete manuscript approval is required")
+    if {chapter.scene_id for chapter in manuscript.chapters} != expected:
+        raise ValueError("Manuscript does not match story scenes")
+    if not title.strip() or not style.strip():
+        raise ValueError("Book title and style are required")
+    images = {}
+    for node in nodes:
+        images[node.id] = await illustrator.generate_scene(
+            scene=node, hero=manuscript.hero_name, style=style,
+            continuity=continuity,
+        )
+    return render_illustrated_proof(
+        title=title, dedication=dedication, graph=graph,
+        manuscript=manuscript, illustrations=images,
+        approved_scene_ids=approved_scene_ids,
+    )
