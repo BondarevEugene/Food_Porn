@@ -128,6 +128,7 @@ def create_dispatcher(settings: Settings, database: Database, pipeline: MenuPipe
     dispatcher.include_routers(
         admin_router,
         start.router,
+        little_legend.router,
         registration.router,
         menu.router,
         wallpaper_router,
