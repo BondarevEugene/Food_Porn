@@ -27,6 +27,7 @@ class StoryCostSummary(BaseModel):
     confirmed_usd: Decimal = Field(default=Decimal("0"), ge=0)
     jobs: int = Field(default=0, ge=0)
     dispatched_jobs: int = Field(default=0, ge=0)
+    unreconciled_dispatched_jobs: int = Field(default=0, ge=0)
     chapters: list[ChapterCostSummary]
 
 
