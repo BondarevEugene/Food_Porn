@@ -17,7 +17,7 @@ class IllustratedBookRequest(BaseModel):
     approved_scene_ids: set[str] = Field(min_length=1, max_length=40)
 
     @model_validator(mode="after")
-    def matching_approvals(self) -> "IllustratedBookRequest":
+    def matching_approvals(self) -> IllustratedBookRequest:
         if set(self.illustrations) != self.approved_scene_ids:
             raise ValueError("Every supplied scene must be explicitly approved")
         return self
