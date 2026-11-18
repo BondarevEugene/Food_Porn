@@ -63,7 +63,7 @@ async def execute_one_job() -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    state = validate_operator_configuration(execute=args.execute)
+    validate_operator_configuration(execute=args.execute)
     if not args.execute:
         print("Little Legend writer: dry-run only; no provider calls")
         return 0
