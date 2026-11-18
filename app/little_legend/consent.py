@@ -66,6 +66,8 @@ def record_decision(
 ) -> ConsentRecord:
     if not decision.accept_terms or not decision.declare_parental_authority:
         raise ValueError("Terms and parental authority must be confirmed")
+    if decision.consent_to_child_photos:
+        raise ValueError("Photo consent is unavailable until the final privacy notice is published")
     now = datetime.now(UTC)
     return ConsentRecord(
         version=POLICY_VERSION,
