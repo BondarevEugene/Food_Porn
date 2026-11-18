@@ -24,6 +24,12 @@ from sqlalchemy import (
 )
 
 from app.database.session import async_session_maker, engine
+from app.little_legend.blueprint import (
+    BookBlueprint,
+    print_preflight,
+    quick_blueprint,
+    visual_consistency_check,
+)
 from app.little_legend.print_renderer import render_print_proof
 from app.little_legend.story_graph import StoryGraph, build_graph, graph_report
 from app.miniapp.auth import current_user
@@ -61,6 +67,7 @@ class StoryDraft(BaseModel):
     city: str = Field(default="", max_length=100)
     scenes: list[str] = Field(default_factory=lambda: list(DEFAULT_SCENES), min_length=1, max_length=40)
     graph: StoryGraph | None = None
+    blueprint: BookBlueprint | None = None
 
 
 async def initialize_schema() -> None:
@@ -144,6 +151,32 @@ async def _owned_draft(story_id: int, owner: int) -> StoryDraft:
     if raw is None:
         raise HTTPException(404, "Story not found")
     return StoryDraft.model_validate_json(raw)
+
+
+@router.get("/api/stories/{story_id}/blueprint")
+async def read_blueprint(story_id: int, owner: Annotated[int, Depends(_owner)]):
+    draft = await _owned_draft(story_id, owner)
+    blueprint = draft.blueprint or quick_blueprint(draft.hero)
+    return {
+        "blueprint": blueprint.model_dump(),
+        "visual_check": visual_consistency_check(blueprint),
+        "preflight": print_preflight(blueprint.publishing),
+    }
+
+
+@router.put("/api/stories/{story_id}/blueprint")
+async def save_blueprint(
+    story_id: int, blueprint: BookBlueprint,
+    owner: Annotated[int, Depends(_owner)],
+):
+    draft = await _owned_draft(story_id, owner)
+    draft.blueprint = blueprint
+    await save_story(story_id, draft, owner)
+    return {
+        "saved": True,
+        "visual_check": visual_consistency_check(blueprint),
+        "preflight": print_preflight(blueprint.publishing),
+    }
 
 
 @router.get("/api/stories/{story_id}/graph")
