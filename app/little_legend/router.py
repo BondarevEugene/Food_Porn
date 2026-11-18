@@ -30,12 +30,12 @@ from app.little_legend.blueprint import (
     quick_blueprint,
     visual_consistency_check,
 )
-from app.little_legend.client_sketch import ParentSketch, outline_from_sketch
 from app.little_legend.character_identity import (
     IdentityBible,
     identity_review,
     quick_identity_bible,
 )
+from app.little_legend.client_sketch import ParentSketch, outline_from_sketch
 from app.little_legend.consent import (
     PHOTO_NOTICE,
     TERMS,
