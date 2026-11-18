@@ -131,3 +131,59 @@ async def test_private_store_worker_writes_before_completion():
         store=Store(), fence_dispatch=fence, mark_completed=complete,
     )
     assert calls == ["fence", "provider", "store", "complete"]
+
+
+@pytest.mark.asyncio
+async def test_worker_passes_fictional_continuity_to_provider():
+    job, context = _setup()
+    context = IllustrationContext(
+        **{**vars(context), "continuity": "Blue scarf in every scene"},
+    )
+    calls = []
+
+    class ContinuityIllustrator(FakeIllustrator):
+        async def generate_scene(self, **kwargs):
+            assert kwargs["continuity"] == "Blue scarf in every scene"
+            return await super().generate_scene(**kwargs)
+
+    async def fence(_job):
+        calls.append("fence")
+
+    async def persist(_job, _data):
+        calls.append("persist")
+
+    async def complete(_job):
+        calls.append("complete")
+
+    await run_illustration_job(
+        job=job, context=context, illustrator=ContinuityIllustrator(calls),
+        fence_dispatch=fence, persist_image=persist,
+        mark_completed=complete,
+    )
+    assert calls == ["fence", "provider", "persist", "complete"]
+
+
+@pytest.mark.asyncio
+async def test_worker_rejects_oversized_continuity_before_paid_dispatch():
+    job, context = _setup()
+    context = IllustrationContext(
+        **{**vars(context), "continuity": "x" * 1201},
+    )
+    calls = []
+
+    async def fence(_job):
+        calls.append("fence")
+
+    async def persist(_job, _data):
+        calls.append("persist")
+
+    async def complete(_job):
+        calls.append("complete")
+
+    with pytest.raises(ValueError, match="Continuity"):
+        await run_illustration_job(
+            job=job, context=context, illustrator=FakeIllustrator(calls),
+            fence_dispatch=fence, persist_image=persist,
+            mark_completed=complete,
+        )
+    assert calls == []
