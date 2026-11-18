@@ -30,6 +30,7 @@ from app.little_legend.blueprint import (
     quick_blueprint,
     visual_consistency_check,
 )
+from app.little_legend.book_export import IllustratedBookRequest
 from app.little_legend.character_identity import (
     IdentityBible,
     identity_review,
@@ -52,6 +53,12 @@ from app.little_legend.hero_contract import (
     contract_from_blueprint,
     hero_writing_brief,
     scene_directives,
+)
+from app.little_legend.illustrated_pdf import render_illustrated_proof
+from app.little_legend.image_ai_consent import (
+    ImageAIConsent,
+    accept_image_ai_consent,
+    configured_image_ai_disclosure,
 )
 from app.little_legend.manuscript_pdf import render_manuscript_proof
 from app.little_legend.manuscript_repository import (
@@ -139,6 +146,7 @@ class StoryDraft(BaseModel):
     parent_sketch: ParentSketch | None = None
     outline_approved: bool = False
     text_ai_consent: TextAIConsent = Field(default_factory=TextAIConsent)
+    image_ai_consent: ImageAIConsent = Field(default_factory=ImageAIConsent)
     writer_job_ids: dict[str, str] = Field(default_factory=dict)
     editorial_decision: EditorialDecision = Field(default_factory=EditorialDecision)
 
@@ -149,6 +157,9 @@ async def initialize_schema() -> None:
         from app.little_legend.writer_queue_store import queue_metadata
 
         await conn.run_sync(lambda sync: queue_metadata.create_all(sync, checkfirst=True))
+        from app.little_legend.illustration_queue_store import illustration_metadata
+
+        await conn.run_sync(lambda sync: illustration_metadata.create_all(sync, checkfirst=True))
         from app.little_legend.ai_cost_ledger import ledger_metadata
 
         await conn.run_sync(lambda sync: ledger_metadata.create_all(sync, checkfirst=True))
@@ -243,6 +254,7 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
         if previous.manuscript is not None and draft.hero != previous.hero:
             raise HTTPException(409, "Cannot change the hero of an existing manuscript")
         draft.text_ai_consent = previous.text_ai_consent
+        draft.image_ai_consent = previous.image_ai_consent
         draft.outline_approved = previous.outline_approved
         if "parent_sketch" not in draft.model_fields_set:
             draft.parent_sketch = previous.parent_sketch
@@ -840,6 +852,114 @@ async def save_story_graph(
             "editorial": audit_story(graph).model_dump()}
 
 
+class ImageAIConsentDecision(BaseModel):
+    provider: str
+    notice: str
+    accept: bool = False
+
+
+@router.get("/api/stories/{story_id}/image-ai-consent")
+async def image_ai_consent_status(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    draft = await _owned_draft(story_id, owner)
+    disclosure = configured_image_ai_disclosure()
+    return {
+        "enabled": disclosure.ready,
+        "provider": disclosure.provider if disclosure.ready else "",
+        "notice": disclosure.notice() if disclosure.ready else "",
+        "active": draft.image_ai_consent.active,
+    }
+
+
+@router.post("/api/stories/{story_id}/image-ai-consent")
+async def set_image_ai_consent(
+    story_id: int, decision: ImageAIConsentDecision,
+    owner: Annotated[int, Depends(_owner)],
+):
+    disclosure = configured_image_ai_disclosure()
+    async with async_session_maker() as session:
+        raw = (await session.execute(select(stories.c.data).where(
+            stories.c.id == story_id, stories.c.owner_id == owner,
+        ).with_for_update())).scalar_one_or_none()
+        if raw is None:
+            raise HTTPException(404, "Story not found")
+        draft = StoryDraft.model_validate_json(raw)
+        if not decision.accept:
+            draft.image_ai_consent = ImageAIConsent()
+        else:
+            try:
+                draft.image_ai_consent = accept_image_ai_consent(
+                    provider=decision.provider, notice=decision.notice,
+                    terms_accepted=draft.consent.terms_accepted,
+                    disclosure=disclosure,
+                )
+            except (ValueError, PermissionError) as exc:
+                raise HTTPException(403, str(exc)) from exc
+        await session.execute(update(stories).where(
+            stories.c.id == story_id, stories.c.owner_id == owner,
+        ).values(data=draft.model_dump_json(), updated_at=datetime.now(UTC)))
+        await session.commit()
+    return {"active": draft.image_ai_consent.active}
+
+
+class IllustrationBatchRequest(BaseModel):
+    estimated_cost_usd_per_scene: float = Field(default=0.05, gt=0, le=1)
+
+
+@router.post("/api/stories/{story_id}/illustrations/queue")
+async def queue_story_illustrations(
+    story_id: int, request: IllustrationBatchRequest,
+    owner: Annotated[int, Depends(_owner)],
+):
+    """Queue an approved book without making a billable AI call."""
+    from app.little_legend.illustration_queue_store import enqueue_illustration_jobs
+
+    draft = await _owned_draft(story_id, owner)
+    if draft.graph is None:
+        raise HTTPException(409, "Story graph is required")
+    try:
+        ids = await enqueue_illustration_jobs(
+            story_id=story_id, owner_id=owner,
+            scene_ids=[node.id for node in draft.graph.nodes],
+            estimated_cost_usd=request.estimated_cost_usd_per_scene,
+        )
+    except PermissionError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"status": "queued", "job_count": len(ids)}
+
+
+@router.get("/api/stories/{story_id}/illustrations/status")
+async def story_illustration_status(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    from app.little_legend.illustration_queue_store import list_owner_illustration_jobs
+
+    try:
+        jobs = await list_owner_illustration_jobs(
+            story_id=story_id, owner_id=owner,
+        )
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {
+        "total": len(jobs),
+        "jobs": [
+            {
+                "scene_id": job.scene_id,
+                "status": job.status.value,
+                "attempt": job.attempt,
+                "requires_reconciliation": (
+                    job.provider_dispatched_at is not None
+                    and job.status.value not in {"completed", "failed", "cancelled"}
+                ),
+            }
+            for job in jobs
+        ],
+    }
+
+
 @router.get("/api/stories/{story_id}/manuscript.pdf")
 async def download_manuscript_pdf(
     story_id: int, owner: Annotated[int, Depends(_owner)],
@@ -860,6 +980,39 @@ async def download_manuscript_pdf(
         content=data, media_type="application/pdf",
         headers={
             "Content-Disposition": 'attachment; filename="little-legend-manuscript.pdf"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.post("/api/stories/{story_id}/illustrated.pdf")
+async def download_illustrated_book(
+    story_id: int,
+    payload: IllustratedBookRequest,
+    owner: Annotated[int, Depends(_owner)],
+):
+    """Render an owner-scoped illustrated A5 PDF without persisting image bytes."""
+    draft = await _owned_draft(story_id, owner)
+    if draft.manuscript is None:
+        raise HTTPException(409, "Manuscript is not created")
+    graph = draft.graph or build_graph(draft.scenes)
+    try:
+        data = render_illustrated_proof(
+            title=draft.title,
+            dedication=draft.dedication,
+            graph=graph,
+            manuscript=draft.manuscript,
+            illustrations=payload.decoded_images(),
+            approved_scene_ids=payload.approved_scene_ids,
+        )
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="little-legend-illustrated.pdf"',
             "Cache-Control": "private, no-store",
             "X-Content-Type-Options": "nosniff",
         },
@@ -1029,7 +1182,15 @@ nav button{font-size:13px;padding:12px 8px}
 <section id="edition" class="card hidden"><h2>Персональное издание</h2>
 <label>Посвящение</label><textarea id="dedication" maxlength="1000"></textarea>
 <label>Город выпуска</label><input id="city" maxlength="100">
-<p class="note">Авторство, год и номер экземпляра будут оформлены в финальном PDF.</p></section>
+<p class="note">Авторство, год и номер экземпляра будут оформлены в финальном PDF.</p>
+<h3>Иллюстрированная книга · редакционный PDF</h3>
+<p class="note">После создания и проверки текста выберите по одному собственному изображению для каждой сцены, в порядке глав. Изображения не сохраняются на сервере. Это редакционный PDF, не типографский оригинал. Не загружайте фотографии ребёнка.</p>
+<label>Иллюстрации JPEG/PNG, по порядку сцен</label>
+<input id="bookImages" type="file" accept="image/png,image/jpeg" multiple>
+<label><input id="bookImagesApproved" type="checkbox" style="width:auto"> Я имею право использовать эти иллюстрации и проверил(а) их соответствие сценам</label>
+<button onclick="downloadIllustratedBook()">Скачать книгу с иллюстрациями</button>
+<p id="bookExportStatus" class="note" role="status"></p>
+</section>
 <div class="card"><button class="secondary" onclick="openDirector()">Настройки</button> <button class="secondary" onclick="showGraph()">Посмотреть граф</button> <button class="secondary" onclick="proof()">PDF-макет A5</button><p class="note">PDF содержит план сцен, а не готовую книгу для печати.</p><button onclick="save()">Сохранить черновик</button> <button class="secondary" onclick="fresh()">Новая книга</button><p id="status" class="note"></p></div>
 <div class="card"><h2>Мои книги</h2><div id="books"></div></div>
 </div>
@@ -1077,6 +1238,34 @@ const result=await api('/stories/'+storyId+'/graph','PUT',activeGraph);
 drawScenes(activeGraph.nodes.slice().sort((a,b)=>a.order-b.order).map(x=>x.summary));
 $('graphStatus').textContent='Сохранено · редакторский индекс '+result.editorial.score+'/100';
 }catch(e){$('graphStatus').textContent='Ошибка: '+e.message}}
+async function downloadIllustratedBook(){
+ const status=$('bookExportStatus');status.textContent='Проверка книги…';
+ try{
+  if(!storyId)throw Error('Сначала сохраните книгу');
+  if(!$('bookImagesApproved').checked)throw Error('Подтвердите права и проверку иллюстраций');
+  const story=await api('/stories/'+storyId);
+  const scenes=(story.graph?.nodes||story.scenes.map((_,i)=>({id:'scene_'+(i+1),order:i+1}))).slice().sort((a,b)=>a.order-b.order);
+  const files=[...$('bookImages').files];
+  if(files.length!==scenes.length)throw Error('Нужно '+scenes.length+' изображений, выбрано '+files.length);
+  const illustrations={};
+  for(let i=0;i<files.length;i++){
+   const file=files[i];
+   if(!['image/png','image/jpeg'].includes(file.type)||file.size>12*1024*1024||file.size===0)throw Error('Недопустимый формат или размер файла '+(i+1));
+   const bytes=new Uint8Array(await file.arrayBuffer());
+   let binary='';for(let offset=0;offset<bytes.length;offset+=8192){binary+=String.fromCharCode(...bytes.subarray(offset,offset+8192))}
+   illustrations[scenes[i].id]=btoa(binary);
+  }
+  const r=await fetch('/little-legend/api/stories/'+storyId+'/illustrated.pdf',{
+   method:'POST',headers:{Authorization:'tma '+auth,'Content-Type':'application/json'},
+   body:JSON.stringify({illustrations,approved_scene_ids:scenes.map(x=>x.id)})
+  });
+  if(!r.ok){let detail=await r.json().catch(()=>({}));throw Error(detail.detail||'PDF HTTP '+r.status)}
+  const blob=await r.blob();const url=URL.createObjectURL(blob);
+  const link=document.createElement('a');link.href=url;link.download='little-legend-illustrated.pdf';link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+  status.textContent='Редакционная книга скачана';
+ }catch(e){status.textContent='Ошибка: '+e.message}
+}
 async function proof(){try{if(!storyId){$('status').textContent='Сначала сохраните книгу';return}const r=await fetch('/little-legend/api/stories/'+storyId+'/proof.pdf',{headers:{Authorization:'tma '+auth}});if(!r.ok)throw Error('PDF HTTP '+r.status);const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='little-legend-proof.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000)}catch(e){$('status').textContent=e.message}}
 async function openPrivacy(){tab('privacy');if(!storyId){$('privacyStatus').textContent='Сначала сохраните книгу';return}try{const x=await api('/stories/'+storyId+'/privacy-readiness');$('privacyStatus').textContent=x.launch.photo_upload_enabled?'Фото доступны':'Фото недоступны: безопасность и юридические условия ещё не подтверждены';const c=$('privacyChecks');c.replaceChildren();Object.entries(x.launch.checks).forEach(([key,ok])=>{const line=document.createElement('p');line.textContent=(ok?'✓ ':'○ ')+key.replaceAll('_',' ');c.append(line)});x.portrait.blockers.forEach(reason=>{const line=document.createElement('p');line.textContent='• '+reason;c.append(line)})}catch(e){$('privacyStatus').textContent='Ошибка: '+e.message}}
 let portraitDraft=null;
