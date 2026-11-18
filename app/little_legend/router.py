@@ -124,6 +124,9 @@ class StoryDraft(BaseModel):
 async def initialize_schema() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(lambda sync: metadata.create_all(sync, checkfirst=True))
+        from app.little_legend.writer_queue_store import queue_metadata
+
+        await conn.run_sync(lambda sync: queue_metadata.create_all(sync, checkfirst=True))
 
 
 def _owner(user: Annotated[dict, Depends(current_user)]) -> int:
