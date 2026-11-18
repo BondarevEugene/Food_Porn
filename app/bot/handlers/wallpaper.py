@@ -115,6 +115,16 @@ def gift_progress_keyboard(lang: str, purchase_id: str) -> InlineKeyboardMarkup:
     ])
 
 
+def gift_delivery_complete(purchase: GiftPurchase, job: GiftFulfillment | None) -> bool:
+    """Only call the gift complete when every purchased asset was sent."""
+    return bool(
+        job is not None
+        and job.status == "delivered"
+        and (not purchase.includes_collage or job.collage_sent)
+        and (not purchase.includes_video or job.video_sent)
+    )
+
+
 def gift_progress_text(lang: str, purchase: GiftPurchase, job: GiftFulfillment | None) -> str:
     """Report only persisted checkpoints; never invent progress percentages."""
     if purchase.status != "paid":
@@ -145,7 +155,7 @@ def gift_progress_text(lang: str, purchase: GiftPurchase, job: GiftFulfillment |
             "🎬 Відео: доставлено" if sent else "🎬 Відео: очікується",
             "🎬 Видео: доставлено" if sent else "🎬 Видео: ожидается",
             "🎬 Video: delivered" if sent else "🎬 Video: pending"))
-    if status == "delivered":
+    if gift_delivery_complete(purchase, job):
         lines.append(text_for(
             lang,
             "🎉 Готово! Ваші файли вже надіслані в цей чат. Дякуємо за замовлення 💛",
@@ -1266,7 +1276,7 @@ async def show_paid_gift_status(
                         callback_data="back_to_products",
                     ),
                 ]])
-                if job is not None and job.status == "delivered"
+                if gift_delivery_complete(purchase, job)
                 else gift_progress_keyboard(lang, purchase_id)
             ),
         )
