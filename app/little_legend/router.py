@@ -45,6 +45,7 @@ from app.little_legend.consent import (
     withdraw_photo_consent,
 )
 from app.little_legend.editorial import audit_story
+from app.little_legend.editorial_review import EditorialDecision, editorial_preflight
 from app.little_legend.hero_contract import (
     audit_hero_presence,
     contract_from_blueprint,
@@ -116,6 +117,7 @@ class StoryDraft(BaseModel):
     consent: ConsentRecord = Field(default_factory=ConsentRecord)
     portrait_plan: PortraitPlan = Field(default_factory=PortraitPlan)
     manuscript: StoryManuscript | None = None
+    editorial_decision: EditorialDecision = Field(default_factory=EditorialDecision)
 
 
 async def initialize_schema() -> None:
@@ -187,6 +189,12 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
             draft.design = previous.design
         if "identity_bible" not in draft.model_fields_set:
             draft.identity_bible = previous.identity_bible
+        if previous.manuscript is not None and draft.hero != previous.hero:
+            raise HTTPException(409, "Cannot change the hero of an existing manuscript")
+        if "editorial_decision" not in draft.model_fields_set:
+            draft.editorial_decision = previous.editorial_decision
+        elif draft.editorial_decision != previous.editorial_decision:
+            raise HTTPException(409, "Use the editorial review endpoint")
         if "manuscript" not in draft.model_fields_set:
             draft.manuscript = previous.manuscript
         elif draft.manuscript != previous.manuscript:
@@ -265,6 +273,42 @@ async def read_hero_contract(
     }
 
 
+
+
+
+@router.get("/api/stories/{story_id}/editorial-review")
+async def read_editorial_review(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    draft = await _owned_draft(story_id, owner)
+    if draft.manuscript is None:
+        raise HTTPException(409, "Manuscript is not created")
+    blueprint = draft.blueprint or quick_blueprint(draft.hero)
+    try:
+        contract = contract_from_blueprint(blueprint, draft.hero)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    graph = draft.graph or build_graph(draft.scenes)
+    return editorial_preflight(
+        draft.manuscript, graph, contract, draft.editorial_decision,
+    )
+
+
+@router.put("/api/stories/{story_id}/editorial-review")
+async def save_editorial_review(
+    story_id: int, decision: EditorialDecision,
+    owner: Annotated[int, Depends(_owner)],
+):
+    def transform(manuscript, draft):
+        if not manuscript.chapters:
+            raise ValueError("Write the manuscript before editorial review")
+        draft.editorial_decision = decision
+        return manuscript
+
+    await mutate_owned_manuscript(
+        story_id=story_id, owner_id=owner, transform=transform,
+    )
+    return await read_editorial_review(story_id, owner)
 
 @router.get("/api/stories/{story_id}/manuscript")
 async def read_manuscript(
