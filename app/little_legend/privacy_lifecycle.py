@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from app.little_legend.character_identity import IdentityBible
 from app.little_legend.portrait_studio import PortraitPlan
