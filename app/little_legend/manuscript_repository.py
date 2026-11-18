@@ -102,6 +102,10 @@ async def mutate_owned_manuscript(
             raise HTTPException(422, str(exc)) from exc
         if updated.hero_name != draft.hero:
             raise HTTPException(409, "Manuscript hero cannot change")
+        if updated != manuscript:
+            from app.little_legend.editorial_review import EditorialDecision
+
+            draft.editorial_decision = EditorialDecision()
         draft.manuscript = updated
         await session.execute(
             update(stories).where(
