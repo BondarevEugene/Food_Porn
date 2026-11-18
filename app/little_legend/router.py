@@ -51,7 +51,6 @@ from app.little_legend.hero_contract import (
     hero_writing_brief,
     scene_directives,
 )
-from app.little_legend.narrative_design import StoryDesign, design_guidance
 from app.little_legend.manuscript_repository import (
     ChapterApproval,
     ChapterEdit,
@@ -60,6 +59,7 @@ from app.little_legend.manuscript_repository import (
     mutate_owned_manuscript,
     upsert_generated_chapter,
 )
+from app.little_legend.narrative_design import StoryDesign, design_guidance
 from app.little_legend.portrait_studio import PortraitPlan, portrait_preflight
 from app.little_legend.print_renderer import render_print_proof
 from app.little_legend.privacy_lifecycle import (
