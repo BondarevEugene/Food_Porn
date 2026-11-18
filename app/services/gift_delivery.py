@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 async def deliver_paid_gift(
-    factory: async_sessionmaker[AsyncSession], bot: Bot, purchase_id: str
+    factory: async_sessionmaker[AsyncSession], bot: Bot, purchase_id: str, *, partial: bool = False
 ) -> bool:
     """True if newly delivered; False if delivery was already completed.
 
@@ -43,8 +43,10 @@ async def deliver_paid_gift(
                     updated = updated.replace(tzinfo=UTC)
                 if datetime.now(UTC) - updated < timedelta(minutes=20):
                     return False
-        elif job.status != "ready":
+        elif job.status != "ready" and not (partial and job.status == "processing"):
             raise ValueError("Gift files are not yet ready")
+        if partial and (not purchase.includes_collage or not job.wallpaper_order_id):
+            raise ValueError("No purchased collage is ready for early delivery")
         job.status = "delivering"
         job.updated_at = datetime.now(UTC)
         collage_sent, video_sent = job.collage_sent, job.video_sent
@@ -79,7 +81,7 @@ async def deliver_paid_gift(
                 job.updated_at = datetime.now(UTC)
                 await session.commit()
 
-        if purchase.includes_video and not video_sent:
+        if purchase.includes_video and not video_sent and not partial:
             async with factory() as session:
                 video = await session.get(VideoStoryOrder, video_id)
                 if (
@@ -104,7 +106,7 @@ async def deliver_paid_gift(
 
         async with factory() as session:
             job = await session.get(GiftFulfillment, purchase_id, with_for_update=True)
-            job.status = "delivered"
+            job.status = "processing" if partial else "delivered"
             job.updated_at = datetime.now(UTC)
             job.last_error = None
             await session.commit()
@@ -114,7 +116,7 @@ async def deliver_paid_gift(
         async with factory() as session:
             job = await session.get(GiftFulfillment, purchase_id, with_for_update=True)
             if job and job.status == "delivering":
-                job.status = "ready"
+                job.status = "processing" if partial else "ready"
                 job.last_error = f"{type(exc).__name__}: {str(exc)[:400]}"
                 job.updated_at = datetime.now(UTC)
                 await session.commit()

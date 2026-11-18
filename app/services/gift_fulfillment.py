@@ -10,6 +10,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from aiogram import Bot
 from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -17,6 +18,7 @@ from app.config import Settings
 from app.crm.models import GiftFulfillment, GiftPaymentReceipt, GiftPurchase
 from app.database.models import VideoStoryOrder
 from app.database.repositories import WallpaperOrderRepository
+from app.services.gift_delivery import deliver_paid_gift
 from app.services.goal_story import GoalScenePlanner
 from app.services.replicate_vision_board import ReplicateVisionBoardRenderer
 from app.services.video_story_render import render_verified_video_story
@@ -34,6 +36,7 @@ async def process_paid_gift_purchase(
     factory: async_sessionmaker[AsyncSession],
     settings: Settings,
     purchase_id: str,
+    *, bot: Bot | None = None,
 ) -> GiftFulfillment:
     """Render only verified deliverables and persist all recovery checkpoints.
 
@@ -125,6 +128,13 @@ async def process_paid_gift_purchase(
                 checkpoint.wallpaper_order_id = wallpaper_order_id
                 checkpoint.updated_at = datetime.now(UTC)
                 await session.commit()
+
+        if purchase.includes_collage and purchase.includes_video and bot is not None:
+            try:
+                await deliver_paid_gift(factory, bot, purchase_id, partial=True)
+            except Exception:
+                # Rendering must continue even if Telegram delivery is temporarily down.
+                logger.exception("Early collage delivery failed for %s", purchase_id)
 
         if purchase.includes_video:
             if video_order_id is not None:
