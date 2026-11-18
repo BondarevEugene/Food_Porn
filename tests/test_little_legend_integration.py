@@ -2,8 +2,8 @@
 import pytest
 from pydantic import ValidationError
 
-from app.little_legend.router import DEFAULT_SCENES, StoryDraft
 from app.bot.handlers.start import get_products_menu_keyboard
+from app.little_legend.router import DEFAULT_SCENES, StoryDraft
 
 
 def test_little_legend_is_third_product_before_service_actions():
