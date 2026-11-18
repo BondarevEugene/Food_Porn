@@ -93,10 +93,35 @@ async def run_one_writer_job(
             policy=policy, retryable=False, error_code="preflight_rejected",
         )
         return {"status": "rejected", "job_id": job.job_id}
+    # Once an external request is dispatched, a timeout or transport failure
+    # cannot prove the provider did not bill for it. Never auto-retry it.
     try:
         text = await provider.write_chapter(brief)
-        if not isinstance(text, str) or not text.strip() or len(text) > 20000:
-            raise ValueError("Invalid chapter result")
+    except Exception:
+        try:
+            await transition_writer_job(
+                job_id=job.job_id, owner_id=job.owner_id,
+                token=job.lease_token, success=False,
+                policy=policy, retryable=False,
+                error_code="provider_outcome_unknown",
+            )
+        except (ValueError, PermissionError):
+            return {"status": "lease_lost", "job_id": job.job_id}
+        return {"status": "manual_review", "job_id": job.job_id}
+
+    if not isinstance(text, str) or not text.strip() or len(text) > 20000:
+        try:
+            await transition_writer_job(
+                job_id=job.job_id, owner_id=job.owner_id,
+                token=job.lease_token, success=False,
+                policy=policy, retryable=False,
+                error_code="invalid_provider_output",
+            )
+        except (ValueError, PermissionError):
+            return {"status": "lease_lost", "job_id": job.job_id}
+        return {"status": "manual_review", "job_id": job.job_id}
+
+    try:
         receipt = await commit_writer_result(
             story_id=job.story_id, owner_id=job.owner_id,
             token=job.lease_token,
@@ -108,14 +133,15 @@ async def run_one_writer_job(
         )
         return {"status": "completed", **receipt}
     except Exception:
-        # Commit errors (including expired leases) are not silently treated as
-        # success. A stale lease cannot overwrite a newer worker's chapter.
+        # Provider already returned a potentially billable result. A commit
+        # error must not trigger another AI request automatically.
         try:
             await transition_writer_job(
                 job_id=job.job_id, owner_id=job.owner_id,
                 token=job.lease_token, success=False,
-                policy=policy, retryable=True, error_code="write_failed",
+                policy=policy, retryable=False,
+                error_code="commit_needs_reconciliation",
             )
         except (ValueError, PermissionError):
             return {"status": "lease_lost", "job_id": job.job_id}
-        return {"status": "retry_scheduled", "job_id": job.job_id}
+        return {"status": "manual_review", "job_id": job.job_id}
