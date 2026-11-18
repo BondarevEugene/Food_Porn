@@ -6,7 +6,8 @@ import pytest
 from PIL import Image
 
 from app.little_legend.generated_art_store import (
-    illustration_key, save_generated_illustration,
+    illustration_key,
+    save_generated_illustration,
 )
 from app.little_legend.illustration_queue_store import IllustrationJob
 from app.little_legend.private_book_assembly import assemble_private_book
