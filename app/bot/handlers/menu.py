@@ -158,7 +158,7 @@ def format_premium_dashboard(menu: Menu) -> str:
             next_step = "Меню создано. Готовые файлы доступны в заказе."
         elif menu.status == MenuStatus.PARTIAL_SUCCESS:
             next_step = "Часть файлов готова. Проверьте результат заказа."
-        elif menu.status in (MenuStatus.QUEUED, MenuStatus.PROCESSING):
+        elif menu.status in (MenuStatus.QUEUED, MenuStatus.IMAGES_READY):
             next_step = "Меню формируется. Повторно запускать создание не нужно."
         else:
             next_step = "Всё готово. Проверьте заказ и запустите создание."
