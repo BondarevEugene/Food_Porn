@@ -15,7 +15,7 @@ from sqladmin.authentication import AuthenticationBackend
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import get_settings
-from app.crm.models import initialize_schema
+from app.crm.models import initialize_schema\nfrom app.little_legend.router import initialize_schema as initialize_little_legend_schema
 from app.crm.router import router as crm_router
 from app.crm.service import load_runtime_settings
 from app.database.models import AppSetting, Customer, Menu, WallpaperOrder
@@ -182,7 +182,7 @@ class ServiceInstanceAdmin(ModelView, model=ServiceInstance):
 
 @asynccontextmanager
 async def application_lifespan(_app):
-    await initialize_schema(engine)
+    await initialize_schema(engine)\n    await initialize_little_legend_schema()
     # The orchestrator has separate metadata; provision only its registry table.
     # Existing tables and data are left untouched.
     async with engine.begin() as connection:
