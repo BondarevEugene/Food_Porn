@@ -285,7 +285,7 @@ nav button{flex:1} .graph-node{border-left:4px solid #545ac7;padding:12px;margin
 <label>Любимые выражения (необязательно)</label><textarea id="phrases" maxlength="2000"></textarea>
 <p class="note">Загрузка детских фотографий будет включена после добавления согласия родителей и защищённого хранилища.</p></section>
 <section id="scenes" class="card hidden"><h2>Режиссёрская раскадровка</h2><p class="note">Изменяйте поворот в любой сцене. Автоматическая генерация графа появится на следующем этапе.</p><div id="sceneList"></div></section>
-<section id="graph" class="card hidden"><h2>Story Graph · причинно-следственная карта</h2><p class="note">Это линейный каркас сюжета. Для изменения содержания редактируйте сцены, затем сохраняйте черновик.</p><div id="graphList"></div><p id="graphReport" class="note"></p></section>
+<section id="graph" class="card hidden"><h2>Story Graph · причинно-следственная карта</h2><p class="note">Это линейный каркас сюжета. Для изменения содержания редактируйте сцены, затем сохраняйте черновик.</p><div id="graphList"></div><p id="graphReport" class="note"></p><button onclick="saveGraph()">Сохранить режиссуру</button> <button class="secondary" onclick="showGraph()">Обновить карту</button><p id="graphStatus" class="note"></p></section>
 <section id="director" class="card hidden"><h2>Настройки истории</h2>
 <p class="note">Быстрый режим — минимум действий. Подробный — управление творческими параметрами.</p>
 <label>Режим</label><select id="creativeMode" onchange="directorMode()"><option value="quick">Быстро</option><option value="director">Подробно</option></select>
@@ -310,7 +310,7 @@ nav button{flex:1} .graph-node{border-left:4px solid #545ac7;padding:12px;margin
 </div>
 <script>
 const tg=window.Telegram?.WebApp;tg?.ready();tg?.expand();
-const auth=tg?.initData;let storyId=null;
+const auth=tg?.initData;let storyId=null;let activeGraph=null;
 const fields=['title','genre','setup','mystery','ending','habits','phrases','dedication','city'];
 const defaults=['Знакомство с героем','Необычное событие','Первый союзник','Тайное послание','Первая загадка','Опасная находка','Неожиданный поворот','Испытание дружбы','Разгадка тайны','План спасения','Главное испытание','Развязка и новая тайна'];
 const $=id=>document.getElementById(id);
@@ -321,7 +321,37 @@ function fill(data){fields.forEach(k=>$(k).value=data[k]||'');$('heroName').valu
 async function api(path,method='GET',data){let r=await fetch('/little-legend/api'+path,{method,headers:{Authorization:'tma '+auth,'Content-Type':'application/json'},body:data?JSON.stringify(data):undefined});if(!r.ok)throw Error('HTTP '+r.status);return r.json()}
 async function load(){let books=await api('/stories');$('books').replaceChildren();books.forEach(b=>{let button=document.createElement('button');button.className='secondary';button.style.margin='4px';button.textContent=b.title+' · '+b.hero;button.onclick=async()=>{try{fill(await api('/stories/'+b.id));storyId=b.id;$('status').textContent='Черновик открыт'}catch(e){$('status').textContent=e.message}};$('books').append(button)})}
 async function save(){try{let data=collect();if(!data.title.trim()||!data.hero.trim()){throw Error('Укажите название и имя героя')}let result=await api(storyId?'/stories/'+storyId:'/stories',storyId?'PUT':'POST',data);storyId=storyId||result.id;$('status').textContent='Сохранено';await load()}catch(e){$('status').textContent='Ошибка: '+e.message}}
-async function showGraph(){try{if(!storyId){$('status').textContent='Сначала сохраните книгу';return}const result=await api('/stories/'+storyId+'/graph');const nodes=result.graph.nodes;$('graphList').replaceChildren();nodes.forEach((n,i)=>{let el=document.createElement('div');el.className='graph-node';let h=document.createElement('strong');h.textContent='Акт '+n.act+' · '+n.title;let p=document.createElement('p');p.textContent=n.summary||'Сцена не заполнена';let goal=document.createElement('small');goal.textContent='Задача: '+n.goal;el.append(h,p,goal);$('graphList').append(el);if(i<nodes.length-1){let arrow=document.createElement('div');arrow.className='graph-arrow';arrow.textContent='↓ вызывает следующее событие';$('graphList').append(arrow)}});$('graphReport').textContent='Пустых сцен: '+result.report.empty_scenes.length+' · Без описания конфликта: '+result.report.missing_conflicts.length;tab('graph')}catch(e){$('status').textContent=e.message}}
+async function showGraph(){try{
+if(!storyId){$('status').textContent='Сначала сохраните книгу';return}
+const result=await api('/stories/'+storyId+'/graph');activeGraph=result.graph;
+$('graphList').replaceChildren();
+activeGraph.nodes.forEach((node,i)=>{
+const card=document.createElement('div');card.className='graph-node';
+const title=document.createElement('strong');title.textContent='Акт '+node.act+' · Сцена '+node.order;
+card.append(title);
+const fields=[['title','Название'],['summary','Что происходит'],['goal','Цель'],['conflict','Препятствие'],['consequence','Последствие'],['illustration_prompt','Идея иллюстрации']];
+fields.forEach(([key,label])=>{
+const caption=document.createElement('label');caption.textContent=label;
+const input=document.createElement(key==='title'?'input':'textarea');
+input.value=node[key]||'';input.maxLength=key==='summary'?4000:key==='illustration_prompt'?2000:key==='title'?160:1000;
+input.addEventListener('input',()=>{node[key]=input.value});
+card.append(caption,input);
+});
+const lockLabel=document.createElement('label');lockLabel.textContent='Защитить эту сцену от автоматических изменений ';
+const lock=document.createElement('input');lock.type='checkbox';lock.checked=node.locked;lock.style.width='auto';lock.addEventListener('change',()=>{node.locked=lock.checked});lockLabel.append(lock);card.append(lockLabel);
+$('graphList').append(card);
+if(i<activeGraph.nodes.length-1){const arrow=document.createElement('div');arrow.className='graph-arrow';arrow.textContent='↓';$('graphList').append(arrow)}
+});
+const audit=result.editorial;
+$('graphReport').textContent='Редакторский индекс: '+audit.score+'/100 · Замечаний: '+audit.issues.length+' · '+audit.issues.slice(0,3).map(x=>x.message).join('; ');
+tab('graph')
+}catch(e){$('status').textContent=e.message}}
+async function saveGraph(){try{
+if(!storyId||!activeGraph)throw Error('Сначала откройте граф');
+const result=await api('/stories/'+storyId+'/graph','PUT',activeGraph);
+drawScenes(activeGraph.nodes.slice().sort((a,b)=>a.order-b.order).map(x=>x.summary));
+$('graphStatus').textContent='Сохранено · редакторский индекс '+result.editorial.score+'/100';
+}catch(e){$('graphStatus').textContent='Ошибка: '+e.message}}
 async function proof(){try{if(!storyId){$('status').textContent='Сначала сохраните книгу';return}const r=await fetch('/little-legend/api/stories/'+storyId+'/proof.pdf',{headers:{Authorization:'tma '+auth}});if(!r.ok)throw Error('PDF HTTP '+r.status);const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='little-legend-proof.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000)}catch(e){$('status').textContent=e.message}}
 function directorMode(){$('advancedControls').classList.toggle('hidden',$('creativeMode').value!=='director')}
 async function openDirector(){tab('director');if(!storyId)return;try{let b=(await api('/stories/'+storyId+'/blueprint')).blueprint;$('creativeMode').value=b.controls.mode;$('childAge').value=b.controls.age??'';$('tone').value=b.controls.tone;$('freedom').value=b.controls.creative_freedom;$('length').value=b.controls.story_length;$('artStyle').value=b.controls.illustration_style;$('appearance').value=b.characters[0]?.appearance||'';$('visualNotes').value=b.characters[0]?.visual_identity_notes||'';directorMode()}catch(e){$('directorStatus').textContent=e.message}}
