@@ -220,3 +220,31 @@ async def test_failed_video_send_can_resume_without_resending_collage(
     assert await gift_delivery.deliver_paid_gift(factory, bot, purchase.id)
     bot.send_media_group.assert_awaited_once()
     bot.send_video.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_missing_ready_mp4_is_regenerated_without_rebuilding_collage(
+    fulfillment_factory, tmp_path
+):
+    factory, settings, photo, calls = fulfillment_factory
+    purchase = await _purchase(factory, settings, photo, "both")
+    checkpoint = await gift_fulfillment.process_paid_gift_purchase(
+        factory, settings, purchase.id
+    )
+    assert calls["render"] == 1
+    assert calls["video"] == 1
+    async with factory() as session:
+        video = await session.get(VideoStoryOrder, checkpoint.video_order_id)
+        output = video.output_path
+    from pathlib import Path
+
+    Path(output).unlink()
+    repaired = await gift_fulfillment.process_paid_gift_purchase(
+        factory, settings, purchase.id
+    )
+    assert repaired.status == "ready"
+    assert repaired.wallpaper_order_id == checkpoint.wallpaper_order_id
+    assert repaired.video_order_id == checkpoint.video_order_id
+    assert calls["render"] == 1
+    assert calls["video"] == 2
+    assert Path(output).is_file()
