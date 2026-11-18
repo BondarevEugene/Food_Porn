@@ -11,6 +11,7 @@ import asyncio
 from sqlalchemy import select
 
 from app.database.session import async_session_maker
+from app.little_legend.blueprint import BookBlueprint
 from app.little_legend.generated_art_store import GeneratedArtStore, save_generated_illustration
 from app.little_legend.illustration_queue_store import (
     claim_next_illustration_job,
@@ -25,6 +26,17 @@ from app.little_legend.illustration_worker import (
 from app.little_legend.image_ai_consent import configured_image_ai_disclosure
 from app.little_legend.router import StoryDraft, stories
 from app.little_legend.writer_queue import JobPolicy
+
+
+def fictional_character_continuity(blueprint: BookBlueprint | None) -> str:
+    """Use only textual fictional character notes; never transmit photo references."""
+    if blueprint is None:
+        return ""
+    hero = next((c for c in blueprint.characters if c.role == "hero"), None)
+    if hero is None:
+        return ""
+    notes = [hero.appearance.strip(), hero.visual_identity_notes.strip()]
+    return " ".join(note for note in notes if note)[:1200]
 
 
 async def process_next_illustration(
@@ -65,6 +77,7 @@ async def process_next_illustration(
         disclosure=configured_image_ai_disclosure(),
         current_revision=chapter.revision,
         owner_verified=True,
+        continuity=fictional_character_continuity(draft.blueprint),
         manuscript_approved=(
             draft.manuscript.parent_approved and chapter.approved
         ),
