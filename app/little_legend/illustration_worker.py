@@ -70,3 +70,27 @@ async def run_illustration_job(
     sanitized = sanitize_image(raw)
     await persist_image(job, sanitized.data)
     await mark_completed(job)
+
+
+async def run_illustration_job_with_private_store(
+    *, job: IllustrationJob, context: IllustrationContext,
+    illustrator: Illustrator, store: GeneratedArtStore,
+    fence_dispatch: Callable[[IllustrationJob], Awaitable[None]],
+    mark_completed: Callable[[IllustrationJob], Awaitable[None]],
+) -> None:
+    """Use the private, deterministic S3 key for idempotent asset persistence.
+
+    The caller must only mark a job complete after the storage write succeeds.
+    A failed storage write after provider dispatch is NOT automatically retried.
+    """
+    async def persist_image(current: IllustrationJob, image: bytes) -> None:
+        save_generated_illustration(
+            store=store, owner_id=current.owner_id,
+            story_id=current.story_id, job_id=current.job_id, data=image,
+        )
+
+    await run_illustration_job(
+        job=job, context=context, illustrator=illustrator,
+        fence_dispatch=fence_dispatch, persist_image=persist_image,
+        mark_completed=mark_completed,
+    )
