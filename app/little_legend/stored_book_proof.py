@@ -36,7 +36,7 @@ def assemble_stored_book_proof(
         if (job.owner_id != owner_id or job.story_id != story_id
                 or job.status != JobStatus.COMPLETED
                 or job.expected_revision != chapters[job.scene_id].revision):
-            raise PermissionError("Illustration ownership, status or revision mismatch")
+            raise PermissionError("Illustration ownership, completed status or revision mismatch")
     images: dict[str, bytes] = {}
     for job in jobs:
         key = illustration_key(
