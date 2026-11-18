@@ -53,6 +53,7 @@ from app.little_legend.hero_contract import (
     hero_writing_brief,
     scene_directives,
 )
+from app.little_legend.manuscript_pdf import render_manuscript_proof
 from app.little_legend.manuscript_repository import (
     ChapterApproval,
     ChapterEdit,
@@ -837,6 +838,32 @@ async def save_story_graph(
     await save_story(story_id, draft, owner)
     return {"saved": True, "report": graph_report(graph),
             "editorial": audit_story(graph).model_dump()}
+
+
+@router.get("/api/stories/{story_id}/manuscript.pdf")
+async def download_manuscript_pdf(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Private editorial PDF of actual saved prose, not the scene outline."""
+    draft = await _owned_draft(story_id, owner)
+    if draft.manuscript is None:
+        raise HTTPException(409, "Manuscript is not created")
+    graph = draft.graph or build_graph(draft.scenes)
+    try:
+        data = render_manuscript_proof(
+            title=draft.title, dedication=draft.dedication,
+            graph=graph, manuscript=draft.manuscript,
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return Response(
+        content=data, media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="little-legend-manuscript.pdf"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get("/api/stories/{story_id}/proof.pdf")
