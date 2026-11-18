@@ -23,7 +23,7 @@ def illustration_key(*, owner_id: int, story_id: int, job_id: str) -> str:
     if owner_id <= 0 or story_id <= 0 or not job_id.startswith("lli_"):
         raise ValueError("Invalid illustration asset identity")
     digest = hashlib.sha256(
-        f"{owner_id}:{story_id}:{job_id}".encode("utf-8")
+        f"{owner_id}:{story_id}:{job_id}".encode()
     ).hexdigest()
     return f"little-legend/generated/{digest}.jpg"
 
