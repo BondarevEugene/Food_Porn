@@ -328,6 +328,22 @@ nav button{font-size:13px;padding:12px 8px}
 <label>Любимые выражения (необязательно)</label><textarea id="phrases" maxlength="2000"></textarea>
 <p class="note">Загрузка детских фотографий будет включена после добавления согласия родителей и защищённого хранилища.</p></section>
 <section id="scenes" class="card hidden"><h2>Режиссёрская раскадровка</h2><p class="note">Изменяйте поворот в любой сцене. Автоматическая генерация графа появится на следующем этапе.</p><div id="sceneList"></div></section>
+<section id="design" class="card hidden"><h2>Душа вашей истории</h2>
+<p class="note">Быстро: можно пропустить. Подробно: задайте эмоциональную арку героя.</p>
+<label>Режим драматургии</label><select id="designMode" onchange="designMode()"><option value="quick">Быстро</option><option value="director">Подробно</option></select>
+<div id="designAdvanced" class="hidden">
+<label>Желание героя</label><textarea id="desire" maxlength="1000"></textarea>
+<label>Чему он научится</label><textarea id="need" maxlength="1000"></textarea>
+<label>Что поставлено на карту</label><textarea id="stakes" maxlength="1000"></textarea>
+<label>Решающий выбор героя</label><textarea id="decisive_choice" maxlength="1000"></textarea>
+<label>Как он изменится</label><textarea id="transformation" maxlength="1000"></textarea>
+<label>Главная тема</label><input id="theme" maxlength="300">
+<label>Повторяющийся символ</label><input id="recurring_symbol" maxlength="300">
+<label>Чего не должно быть в истории</label><textarea id="emotional_safety_note" maxlength="600"></textarea>
+</div>
+<button class="secondary" onclick="saveDesign()">Сохранить драматургию</button><p id="designStatus" class="note"></p>
+<p id="designTips" class="note"></p>
+</section>
 <section id="graph" class="card hidden"><h2>Story Graph · причинно-следственная карта</h2><p class="note">Это линейный каркас сюжета. Для изменения содержания редактируйте сцены, затем сохраняйте черновик.</p><div id="graphList"></div><p id="graphReport" class="note"></p><button onclick="saveGraph()">Сохранить режиссуру</button> <button class="secondary" onclick="showGraph()">Обновить карту</button><p id="graphStatus" class="note"></p></section>
 <section id="director" class="card hidden"><h2>Настройки истории</h2>
 <p class="note">Быстрый режим — минимум действий. Подробный — управление творческими параметрами.</p>
@@ -357,7 +373,7 @@ const auth=tg?.initData;let storyId=null;let activeGraph=null;
 const fields=['title','genre','setup','mystery','ending','habits','phrases','dedication','city'];
 const defaults=['Знакомство с героем','Необычное событие','Первый союзник','Тайное послание','Первая загадка','Опасная находка','Неожиданный поворот','Испытание дружбы','Разгадка тайны','План спасения','Главное испытание','Развязка и новая тайна'];
 const $=id=>document.getElementById(id);
-function tab(id){['idea','hero','scenes','edition','graph','director'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
+function tab(id){['idea','hero','scenes','edition','graph','director','design'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
 function drawScenes(items){$('sceneList').replaceChildren();items.forEach((value,i)=>{let row=document.createElement('div');row.className='scene';let n=document.createElement('span');n.textContent=i+1;let t=document.createElement('textarea');t.maxLength=4000;t.value=value;t.dataset.scene=i;row.append(n,t);$('sceneList').append(row)})}
 function collect(){let obj={};fields.forEach(k=>obj[k]=$(k).value);obj.hero=$('heroName').value;obj.scenes=[...document.querySelectorAll('[data-scene]')].map(x=>x.value);return obj}
 function fill(data){fields.forEach(k=>$(k).value=data[k]||'');$('heroName').value=data.hero||'Оля';drawScenes(data.scenes||defaults)}
@@ -396,6 +412,10 @@ drawScenes(activeGraph.nodes.slice().sort((a,b)=>a.order-b.order).map(x=>x.summa
 $('graphStatus').textContent='Сохранено · редакторский индекс '+result.editorial.score+'/100';
 }catch(e){$('graphStatus').textContent='Ошибка: '+e.message}}
 async function proof(){try{if(!storyId){$('status').textContent='Сначала сохраните книгу';return}const r=await fetch('/little-legend/api/stories/'+storyId+'/proof.pdf',{headers:{Authorization:'tma '+auth}});if(!r.ok)throw Error('PDF HTTP '+r.status);const blob=await r.blob();const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='little-legend-proof.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000)}catch(e){$('status').textContent=e.message}}
+const designKeys=['desire','need','stakes','decisive_choice','transformation','theme','recurring_symbol','emotional_safety_note'];
+function designMode(){$('designAdvanced').classList.toggle('hidden',$('designMode').value!=='director')}
+async function openDesign(){tab('design');if(!storyId){$('designStatus').textContent='Сначала сохраните черновик';return}try{const result=await api('/stories/'+storyId+'/design');designKeys.forEach(k=>$(k).value=result.design[k]||'');$('designMode').value=designKeys.some(k=>result.design[k])?'director':'quick';designMode();$('designTips').textContent=result.guidance.audience_guidance+' · '+result.guidance.missing_arc_elements.length+' элементов арки ещё не заполнены'}catch(e){$('designStatus').textContent=e.message}}
+async function saveDesign(){try{if(!storyId)throw Error('Сначала сохраните черновик');const data={};designKeys.forEach(k=>data[k]=$(k).value);await api('/stories/'+storyId+'/design','PUT',data);$('designStatus').textContent='Драматургия сохранена'}catch(e){$('designStatus').textContent=e.message}}
 function directorMode(){$('advancedControls').classList.toggle('hidden',$('creativeMode').value!=='director')}
 async function openDirector(){tab('director');if(!storyId)return;try{let b=(await api('/stories/'+storyId+'/blueprint')).blueprint;$('creativeMode').value=b.controls.mode;$('childAge').value=b.controls.age??'';$('tone').value=b.controls.tone;$('freedom').value=b.controls.creative_freedom;$('length').value=b.controls.story_length;$('artStyle').value=b.controls.illustration_style;$('appearance').value=b.characters[0]?.appearance||'';$('visualNotes').value=b.characters[0]?.visual_identity_notes||'';directorMode()}catch(e){$('directorStatus').textContent=e.message}}
 async function saveDirector(){try{if(!storyId)throw Error('Сначала сохраните книгу');let b=(await api('/stories/'+storyId+'/blueprint')).blueprint;b.controls.mode=$('creativeMode').value;b.controls.age=$('childAge').value===''?null:Number($('childAge').value);b.controls.tone=$('tone').value;b.controls.creative_freedom=$('freedom').value;b.controls.story_length=$('length').value;b.controls.illustration_style=$('artStyle').value;if(!b.characters.length)b.characters=[{name:$('heroName').value,role:'hero'}];b.characters[0].appearance=$('appearance').value;b.characters[0].visual_identity_notes=$('visualNotes').value;await api('/stories/'+storyId+'/blueprint','PUT',b);$('directorStatus').textContent='Настройки сохранены'}catch(e){$('directorStatus').textContent=e.message}}
