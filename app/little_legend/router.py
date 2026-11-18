@@ -132,7 +132,7 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
             if draft.graph is not None:
                 ordered = sorted(draft.graph.nodes, key=lambda node: node.order)
                 if draft.scenes != previous.scenes:
-                    for node, summary in zip(ordered, draft.scenes):
+                    for node, summary in zip(ordered, draft.scenes, strict=False):
                         node.summary = summary
         if "blueprint" not in draft.model_fields_set:
             draft.blueprint = previous.blueprint
