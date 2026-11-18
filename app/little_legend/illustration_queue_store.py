@@ -196,3 +196,22 @@ async def complete_illustration_job(
         ))
         await session.commit()
     return IllustrationJob.model_validate(changed)
+
+
+async def list_owner_illustration_jobs(
+    *, story_id: int, owner_id: int,
+) -> list[IllustrationJob]:
+    """Return only metadata for this owner's story; never expose lease tokens."""
+    from app.little_legend.router import stories
+
+    async with async_session_maker() as session:
+        owned = (await session.execute(select(stories.c.id).where(
+            stories.c.id == story_id, stories.c.owner_id == owner_id,
+        ))).scalar_one_or_none()
+        if owned is None:
+            raise ValueError("Story not found")
+        rows = (await session.execute(select(illustration_jobs.c.payload).where(
+            illustration_jobs.c.story_id == story_id,
+            illustration_jobs.c.owner_id == owner_id,
+        ).order_by(illustration_jobs.c.created_at))).scalars().all()
+    return [IllustrationJob.model_validate_json(raw) for raw in rows]
