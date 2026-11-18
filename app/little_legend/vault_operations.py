@@ -37,11 +37,7 @@ async def requeue_failed_deletions(
     retry_after: timedelta = timedelta(minutes=30),
     batch_size: int = 100,
 ) -> int:
-    """Retry previously failed deletions only after a bounded cooldown.
-
-    The current schema has no last-attempt timestamp, so a safe cooldown
-    cannot be computed yet. Fail closed rather than retrying in a hot loop.
-    """
+    """Requeue failed deletions when their durable retry timestamp is due."""
     if not 1 <= batch_size <= 500:
         raise ValueError("batch_size must be 1..500")
     if retry_after < timedelta(minutes=1):
@@ -49,7 +45,28 @@ async def requeue_failed_deletions(
     instant = now or datetime.now(UTC)
     if instant.tzinfo is None:
         raise ValueError("Timezone-aware timestamp required")
-    return 0
+    result = await session.execute(
+        update(vault_assets)
+        .where(
+            vault_assets.c.asset_id.in_(
+                select(vault_assets.c.asset_id)
+                .where(
+                    vault_assets.c.state == AssetState.DELETE_FAILED.value,
+                    vault_assets.c.next_deletion_attempt_at.is_not(None),
+                    vault_assets.c.next_deletion_attempt_at <= instant,
+                    vault_assets.c.last_deletion_attempt_at <= instant - retry_after,
+                )
+                .order_by(vault_assets.c.next_deletion_attempt_at)
+                .limit(batch_size)
+                .with_for_update(skip_locked=True)
+            )
+        )
+        .values(
+            state=AssetState.DELETION_PENDING.value,
+            next_deletion_attempt_at=None,
+        )
+    )
+    return result.rowcount
 
 
 async def retention_health(
@@ -95,6 +112,9 @@ async def run_retention_cycle(
         raise ValueError("Timezone-aware timestamp required")
 
     async with session_factory() as session, session.begin():
+        retried = await requeue_failed_deletions(
+            session, now=instant, batch_size=batch_size
+        )
         queued = await request_expired_deletions(
             session, now=instant, batch_size=batch_size
         )
@@ -109,7 +129,7 @@ async def run_retention_cycle(
 
     return RetentionReport(
         queued=len(queued),
-        retried=0,
+        retried=retried,
         deleted=outcome["deleted"],
         failed=outcome["failed"],
         pending=int(health["pending"]),
