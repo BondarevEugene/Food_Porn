@@ -105,6 +105,7 @@ async def _render(row: dict) -> str:
         manuscript=draft.manuscript,
         jobs=jobs,
         edition="digital",
+        palette=draft.palette,
     )
     key = pdf_key(quote_id=row["quote_id"], owner_id=row["owner_id"])
     await asyncio.to_thread(PaidBookStore().put, key=key, data=pdf)
