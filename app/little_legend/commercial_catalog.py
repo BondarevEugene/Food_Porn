@@ -89,7 +89,14 @@ async def crm_book_catalog() -> BookCatalog:
             )
         )).all()
     stored = dict(rows)
-    catalog = book_catalog()
+    catalog = BookCatalog(offers=[
+        EditionOffer(edition=BookEdition.DIGITAL, available=False,
+                     reason='price_not_configured',
+                     includes=('illustrated_pdf', 'private_telegram_delivery')),
+        EditionOffer(edition=BookEdition.PRINT, available=False,
+                     reason='print_production_not_certified',
+                     includes=('illustrated_pdf', 'physical_print', 'shipping')),
+    ])
     for offer in catalog.offers:
         raw = stored.get(keys[offer.edition])
         if raw is None:
