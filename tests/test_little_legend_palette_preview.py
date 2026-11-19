@@ -11,7 +11,7 @@ from app.little_legend.palette_preview import HEIGHT, WIDTH, render_palette_prev
 @pytest.mark.parametrize("palette", sorted(EDITION_PALETTES))
 def test_palette_preview_png_for_all_fifteen_colors(palette: str) -> None:
     data = render_palette_preview(palette=palette, title="Марта и звёздный сад")
-    assert data.startswith(b"\\x89PNG\\r\\n\\x1a\\n")
+    assert data[:8] == bytes((137, 80, 78, 71, 13, 10, 26, 10))
     assert len(data) < 2_000_000
     with Image.open(BytesIO(data)) as image:
         assert image.size == (WIDTH, HEIGHT)
