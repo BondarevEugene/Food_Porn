@@ -14,6 +14,7 @@ from app.little_legend.generated_art_store import (
     GeneratedArtStore,
     save_generated_illustration,
 )
+from app.little_legend.illustration_provider_receipts import IllustrationProviderResult
 from app.little_legend.illustration_queue_store import IllustrationJob
 from app.little_legend.image_ai_consent import (
     ImageAIConsent,
@@ -21,7 +22,6 @@ from app.little_legend.image_ai_consent import (
     consent_allows_image_ai,
 )
 from app.little_legend.image_safety import sanitize_image
-from app.little_legend.illustration_provider_receipts import IllustrationProviderResult
 from app.little_legend.story_graph import SceneNode
 from app.little_legend.writer_queue import JobStatus
 
