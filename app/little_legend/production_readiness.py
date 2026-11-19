@@ -51,6 +51,12 @@ def assess_production(
 
     scene_ids = [node.id for node in graph.nodes]
     expected = set(scene_ids)
+    if not scene_ids:
+        add("scenes_missing", ProductionStage.MANUSCRIPT)
+    if len(expected) != len(scene_ids):
+        add("duplicate_scene_ids", ProductionStage.MANUSCRIPT)
+    if len({chapter.scene_id for chapter in manuscript.chapters}) != len(manuscript.chapters):
+        add("duplicate_chapters", ProductionStage.MANUSCRIPT)
     chapters = {chapter.scene_id: chapter for chapter in manuscript.chapters}
     counts = Counter(job.scene_id for job in jobs)
     if not manuscript.parent_approved:

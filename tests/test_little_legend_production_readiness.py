@@ -85,3 +85,38 @@ def test_missing_parent_approval_blocks_publication():
     )
     assert not report.ready_for_export
     assert "parent_approval_missing" in {issue.code for issue in report.issues}
+
+
+def test_empty_book_is_not_ready_even_when_all_approvals_are_true():
+    graph, manuscript, _jobs = _production()
+    graph.nodes.clear()
+    manuscript.chapters.clear()
+    report = assess_production(
+        graph=graph, manuscript=manuscript, jobs=[],
+        editorial_approved=True, pdf_verified=True,
+    )
+    assert not report.ready_for_export
+    assert not report.ready_for_delivery
+    assert "scenes_missing" in {issue.code for issue in report.issues}
+
+
+def test_duplicate_graph_scene_ids_are_rejected():
+    graph, manuscript, jobs = _production()
+    graph.nodes.append(graph.nodes[0].model_copy(deep=True))
+    report = assess_production(
+        graph=graph, manuscript=manuscript, jobs=jobs,
+        editorial_approved=True, pdf_verified=True,
+    )
+    assert not report.ready_for_export
+    assert "duplicate_scene_ids" in {issue.code for issue in report.issues}
+
+
+def test_duplicate_manuscript_chapters_are_rejected():
+    graph, manuscript, jobs = _production()
+    manuscript.chapters.append(manuscript.chapters[0].model_copy(deep=True))
+    report = assess_production(
+        graph=graph, manuscript=manuscript, jobs=jobs,
+        editorial_approved=True, pdf_verified=True,
+    )
+    assert not report.ready_for_export
+    assert "duplicate_chapters" in {issue.code for issue in report.issues}
