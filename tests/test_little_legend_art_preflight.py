@@ -62,7 +62,7 @@ def test_preflight_rejects_missing_chapters_and_parent_approval():
     draft.manuscript.chapters.pop()
     report = inspect_book_art(draft)
     assert not report.ready
-    assert "Parent has not approved" in report.blockers
+    assert "Parent has not approved the manuscript" in report.blockers
     assert "Manuscript chapters do not match" in report.blockers
 
 
