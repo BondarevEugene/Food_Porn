@@ -72,6 +72,7 @@ async def has_verified_entitlement(
                 receipts.c.provider,
                 receipts.c.provider_reference,
                 receipts.c.amount_minor,
+                receipts.c.currency.label("receipt_currency"),
             )
             .join(receipts, receipts.c.quote_id == order_quotes.c.id)
             .where(
@@ -90,7 +91,7 @@ async def has_verified_entitlement(
             provider=row["provider"],
             provider_reference=row["provider_reference"],
             amount_minor=row["amount_minor"],
-            currency=row["currency"],
+            currency=row["receipt_currency"],
         ),
         dict(row),
     )
