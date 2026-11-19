@@ -126,6 +126,11 @@ class S3PrivateObjectDeleter:
     def __init__(self, *, client: object, bucket: str) -> None:
         if not bucket.strip():
             raise ValueError("Private bucket is required")
+        versioning = client.get_bucket_versioning(Bucket=bucket)
+        if versioning.get("Status") in {"Enabled", "Suspended"}:
+            raise PermissionError(
+                "Versioned buckets require a version-aware deletion implementation"
+            )
         self.client = client
         self.bucket = bucket
 
