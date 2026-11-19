@@ -42,6 +42,8 @@ def inspect_book_art(draft: StoryDraft) -> BookArtPreflight:
         blockers.append("Story manuscript is missing")
     elif not draft.manuscript.parent_approved:
         blockers.append("Parent has not approved the manuscript")
+    if draft.manuscript is not None and draft.manuscript.hero_name != draft.hero:
+        blockers.append("Manuscript hero does not match the story hero")
     if not draft.hero.strip() or len(draft.hero) > 100:
         blockers.append("Invalid hero name")
     style = draft.blueprint.controls.illustration_style if draft.blueprint else "storybook"
