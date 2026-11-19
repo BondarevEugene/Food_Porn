@@ -7,11 +7,16 @@ from __future__ import annotations
 
 import base64
 import binascii
+import os
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from app.little_legend.illustrated_pdf import MAX_IMAGE_BYTES
+from app.little_legend.illustration_provider_receipts import (
+    IllustrationProviderResult,
+    image_provider_receipt,
+)
 from app.little_legend.story_graph import SceneNode
 
 
@@ -37,10 +42,10 @@ class OpenAIIllustrationProvider:
         self._client = client
         self._settings = settings
 
-    async def generate_scene(
+    async def generate_scene_with_receipt(
         self, *, scene: SceneNode, hero: str, style: str,
         continuity: str = "",
-    ) -> bytes:
+    ) -> IllustrationProviderResult:
         if not hero.strip() or not style.strip() or not scene.summary.strip():
             raise ValueError("Scene, hero and style are required")
         if len(continuity) > 1200:
@@ -77,4 +82,22 @@ class OpenAIIllustrationProvider:
             raise ValueError("Illustration provider returned invalid base64") from exc
         if not raw or len(raw) > MAX_IMAGE_BYTES:
             raise ValueError("Illustration exceeds size limit")
-        return raw
+        configured = os.getenv("LL_ILLUSTRATION_PRICE_MICRO_USD")
+        try:
+            price = int(configured) if configured is not None else None
+        except ValueError as exc:
+            raise ValueError("Invalid configured illustration price") from exc
+        return image_provider_receipt(
+            image=raw, response_id=getattr(response, "id", None),
+            configured_micro_usd=price,
+        )
+
+    async def generate_scene(
+        self, *, scene: SceneNode, hero: str, style: str,
+        continuity: str = "",
+    ) -> bytes:
+        """Legacy byte-returning adapter, preserving existing callers."""
+        result = await self.generate_scene_with_receipt(
+            scene=scene, hero=hero, style=style, continuity=continuity,
+        )
+        return result.image
