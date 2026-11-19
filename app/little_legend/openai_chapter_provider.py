@@ -8,15 +8,14 @@ from __future__ import annotations
 import json
 import os
 from decimal import Decimal, InvalidOperation
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 from app.little_legend.chapter_provider_receipts import (
     ChapterProviderResult,
     verified_chapter_receipt,
 )
-from typing import Any
-
-from pydantic import BaseModel, Field
-
 from app.little_legend.story_writer import MAX_CHAPTER_CHARACTERS
 
 
