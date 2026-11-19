@@ -10,7 +10,7 @@ from xml.sax.saxutils import escape
 
 from PIL import Image as PILImage
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A5
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import (
@@ -85,6 +85,16 @@ def render_illustrated_proof(
 
     def page(canvas, document):
         canvas.saveState()
+        if document.page == 1:
+            canvas.setFillColor(colors.HexColor("#F3F0FA"))
+            canvas.rect(0, 0, width, height, fill=1, stroke=0)
+            canvas.setFillColor(colors.HexColor("#D9D1F1"))
+            canvas.circle(width - 40, height - 75, 95, fill=1, stroke=0)
+            canvas.setFillColor(colors.HexColor("#E1EBF8"))
+            canvas.circle(38, 65, 105, fill=1, stroke=0)
+            canvas.setStrokeColor(colors.HexColor("#B8A9D9"))
+            canvas.setLineWidth(1.4)
+            canvas.line(52, height - 155, width - 52, height - 155)
         canvas.setFont(font, 8)
         canvas.setFillColor(colors.HexColor("#657089"))
         canvas.drawString(48, height - 30, "LITTLE LEGEND / EDITORIAL PROOF")
@@ -93,15 +103,18 @@ def render_illustrated_proof(
 
     doc.addPageTemplates(PageTemplate(id="book", frames=[frame], onPage=page))
     title_style = ParagraphStyle(
-        "Title", fontName=font, fontSize=18, leading=27,
+        "Title", fontName=font, fontSize=22, leading=32,
+        textColor=colors.HexColor("#293653"),
         alignment=TA_CENTER, spaceAfter=18,
     )
     heading = ParagraphStyle(
-        "Chapter", fontName=font, fontSize=13, leading=20,
-        spaceAfter=15, keepWithNext=True,
+        "Chapter", fontName=font, fontSize=14, leading=22,
+        textColor=colors.HexColor("#39496B"),
+        alignment=TA_LEFT, spaceAfter=15, keepWithNext=True,
     )
     body = ParagraphStyle(
         "Body", fontName=font, fontSize=10, leading=17,
+        textColor=colors.HexColor("#30394C"),
         spaceAfter=12, allowWidows=0, allowOrphans=0,
     )
     note = ParagraphStyle(
@@ -109,7 +122,7 @@ def render_illustrated_proof(
         textColor=colors.HexColor("#657089"),
     )
     flow = [
-        Spacer(1, 100),
+        Spacer(1, 165),
         Paragraph(escape(title), title_style),
         Paragraph(escape(manuscript.hero_name), title_style),
         Paragraph("РЕДАКЦИОННЫЙ МАКЕТ · НЕ ДЛЯ ТИПОГРАФИИ", note),

@@ -1,4 +1,5 @@
 """Entry point for Little Legend as Food_Porn's third product."""
+import logging
 from urllib.parse import urlsplit, urlunsplit
 
 from aiogram import F, Router
@@ -14,6 +15,8 @@ from app.little_legend.pdf_storage_config import configured_private_pdf_store
 from app.little_legend.release_manifest_store import get_release_manifest
 from app.little_legend.release_orchestrator import send_owned_release
 from app.little_legend.router import stories
+
+logger = logging.getLogger(__name__)
 
 router = Router(name="little_legend")
 
@@ -132,6 +135,7 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
     status_labels = {
         None: ("⏳ У роботі", "⏳ В работе", "⏳ In production"),
         DeliveryStatus.READY: ("📦 Готова до видачі", "📦 Готова к выдаче", "📦 Ready for delivery"),
+        DeliveryStatus.SENDING: ("⏳ Відправлення", "⏳ Отправка", "⏳ Sending"),
         DeliveryStatus.SENT: ("✅ Надіслано", "✅ Отправлено", "✅ Delivered"),
         DeliveryStatus.UNCERTAIN: ("⚠️ Потрібна перевірка", "⚠️ Нужна проверка", "⚠️ Needs review"),
     }
@@ -198,6 +202,12 @@ async def send_little_legend_book(callback: CallbackQuery) -> None:
     except PermissionError:
         await callback.message.answer(
             "Delivery is already reserved or needs review. No duplicate was sent.",
+        )
+        return
+    except Exception:
+        logger.exception("Little Legend delivery requires reconciliation")
+        await callback.message.answer(
+            "⚠️ Delivery could not be confirmed. Contact support; do not retry."
         )
         return
     if outcome.status == DeliveryStatus.SENT:

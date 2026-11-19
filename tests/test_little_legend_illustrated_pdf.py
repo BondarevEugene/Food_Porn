@@ -3,6 +3,7 @@ from io import BytesIO
 
 import pytest
 from PIL import Image as PILImage
+from pypdf import PdfReader
 
 from app.little_legend.illustrated_pdf import render_illustrated_proof
 from app.little_legend.story_graph import build_graph
@@ -51,3 +52,18 @@ def test_invalid_image_is_rejected():
             illustrations={"scene_1": b"not-an-image"},
             approved_scene_ids={"scene_1"},
         )
+
+
+def test_book_has_cover_dedication_scene_and_editorial_endnote():
+    graph, manuscript, image = sample()
+    pdf = render_illustrated_proof(
+        title="Сказка Марты", dedication="С любовью",
+        graph=graph, manuscript=manuscript,
+        illustrations={"scene_1": image}, approved_scene_ids={"scene_1"},
+    )
+    reader = PdfReader(BytesIO(pdf))
+    assert len(reader.pages) >= 4
+    cover = reader.pages[0].extract_text()
+    assert "Сказка Марты" in cover
+    assert "EDITORIAL PROOF" in cover
+    assert any("Марта вошла в сад" in (page.extract_text() or "") for page in reader.pages)
