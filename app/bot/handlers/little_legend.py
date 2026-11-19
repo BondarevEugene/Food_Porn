@@ -144,13 +144,16 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
     }
     status_text = text_for(lang, *status_labels[status])
     readiness_text = ""
+    ready_for_assembly = False
     if status is None:
         try:
             production = await load_owned_production(
                 owner_id=owner_id, story_id=story_id,
             )
+            readiness = production.readiness()
+            ready_for_assembly = readiness.ready_for_export
             readiness_text = readiness_message(
-                production.readiness(), language=lang,
+                readiness, language=lang,
             )
         except PermissionError:
             readiness_text = text_for(
@@ -166,7 +169,7 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
                 "⚠️ Status is temporarily unavailable.",
             )
     buttons = []
-    if status is None and callback.message.chat.type == "private":
+    if ready_for_assembly and callback.message.chat.type == "private":
         buttons.append([InlineKeyboardButton(
             text=text_for(
                 lang, "📘 Підготувати книгу", "📘 Подготовить книгу",
