@@ -37,5 +37,5 @@ def test_configured_digital_quote_uses_exact_integer_kopecks(monkeypatch):
 @pytest.mark.parametrize("value", ["0", "-100", "10.50", "1e5", "NaN", "１２３", "100000001"])
 def test_invalid_price_fails_closed(monkeypatch, value):
     monkeypatch.setenv("LITTLE_LEGEND_DIGITAL_PRICE_KOP", value)
-    with pytest.raises(ValueError, match="price"):
+    with pytest.raises(ValueError, match="(?i)price"):
         book_catalog()
