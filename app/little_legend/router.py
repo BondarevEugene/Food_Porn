@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, Response
@@ -144,6 +144,11 @@ class StoryDraft(BaseModel):
     habits: str = Field(default="", max_length=2000)
     phrases: str = Field(default="", max_length=2000)
     dedication: str = Field(default="", max_length=1000)
+    palette: Literal[
+        "lavender", "blush", "sage", "champagne", "sky",
+        "sunrise", "ocean", "coral", "sunflower", "emerald",
+        "midnight", "royal", "forest", "burgundy", "obsidian",
+    ] = "lavender"
     city: str = Field(default="", max_length=100)
     scenes: list[str] = Field(default_factory=lambda: list(DEFAULT_SCENES), min_length=1, max_length=40)
     graph: StoryGraph | None = None
