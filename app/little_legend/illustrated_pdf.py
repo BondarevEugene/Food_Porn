@@ -45,7 +45,7 @@ def _validated_image(raw: bytes) -> Image:
     except (OSError, SyntaxError) as exc:
         raise ValueError("Invalid illustration image") from exc
     available_width = A5[0] - 94
-    available_height = 260
+    available_height = 285
     scale = min(available_width / width, available_height / height)
     return Image(BytesIO(raw), width=width * scale, height=height * scale)
 
@@ -95,25 +95,30 @@ def render_illustrated_proof(
             canvas.setStrokeColor(colors.HexColor("#B8A9D9"))
             canvas.setLineWidth(1.4)
             canvas.line(52, height - 155, width - 52, height - 155)
-        canvas.setFont(font, 8)
-        canvas.setFillColor(colors.HexColor("#657089"))
-        canvas.drawString(48, height - 30, "LITTLE LEGEND / EDITORIAL PROOF")
-        canvas.drawCentredString(width / 2, 27, str(document.page))
+        canvas.setStrokeColor(colors.HexColor("#D6C6A3"))
+        canvas.setLineWidth(0.55)
+        canvas.line(48, height - 39, width - 46, height - 39)
+        canvas.line(48, 40, width - 46, 40)
+        canvas.setFont(font, 7)
+        canvas.setFillColor(colors.HexColor("#847A70"))
+        canvas.drawString(48, height - 29, "L I T T L E   L E G E N D")
+        canvas.drawRightString(width - 46, height - 29, "EDITORIAL PROOF")
+        canvas.drawCentredString(width / 2, 27, f"— {document.page} —")
         canvas.restoreState()
 
     doc.addPageTemplates(PageTemplate(id="book", frames=[frame], onPage=page))
     title_style = ParagraphStyle(
-        "Title", fontName=font, fontSize=22, leading=32,
-        textColor=colors.HexColor("#293653"),
+        "Title", fontName=font, fontSize=25, leading=36,
+        textColor=colors.HexColor("#27394B"),
         alignment=TA_CENTER, spaceAfter=18,
     )
     heading = ParagraphStyle(
-        "Chapter", fontName=font, fontSize=14, leading=22,
-        textColor=colors.HexColor("#39496B"),
+        "Chapter", fontName=font, fontSize=16, leading=24,
+        textColor=colors.HexColor("#415269"),
         alignment=TA_LEFT, spaceAfter=15, keepWithNext=True,
     )
     body = ParagraphStyle(
-        "Body", fontName=font, fontSize=10, leading=17,
+        "Body", fontName=font, fontSize=10.5, leading=18,
         textColor=colors.HexColor("#30394C"),
         spaceAfter=12, allowWidows=0, allowOrphans=0,
     )
@@ -125,6 +130,8 @@ def render_illustrated_proof(
         Spacer(1, 165),
         Paragraph(escape(title), title_style),
         Paragraph(escape(manuscript.hero_name), title_style),
+        Spacer(1, 22),
+        Paragraph("A PERSONALIZED ILLUSTRATED STORY", note),
         Paragraph("РЕДАКЦИОННЫЙ МАКЕТ · НЕ ДЛЯ ТИПОГРАФИИ", note),
         PageBreak(),
         Paragraph("Посвящение", title_style),
@@ -136,7 +143,7 @@ def render_illustrated_proof(
             f"Глава {node.order}. {escape(node.title)}", heading,
         ))
         flow.append(images[node.id])
-        flow.append(Spacer(1, 14))
+        flow.append(Spacer(1, 20))
         for paragraph in chapters[node.id].text.splitlines():
             if paragraph.strip():
                 flow.append(Paragraph(escape(paragraph.strip()), body))
