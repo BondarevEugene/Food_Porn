@@ -128,7 +128,8 @@ async def process_next_illustration(
 
     art_fingerprint = art_dispatch_fingerprint(draft, job.scene_id)
     from app.little_legend.book_art_director import (
-        directed_scene_from_plan, plan_book_shots,
+        directed_scene_from_plan,
+        plan_book_shots,
     )
 
     shot = next(
