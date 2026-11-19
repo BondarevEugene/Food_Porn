@@ -877,11 +877,20 @@ async def withdraw_consent(
         current.identity_bible, current.portrait_plan, _events = reset_photo_approvals(
             current.identity_bible, current.portrait_plan
         )
+        from app.little_legend.vault_registry import request_story_asset_erasure
+
+        queued_for_erasure = await request_story_asset_erasure(
+            session, owner_id=owner, story_id=story_id,
+        )
         await session.execute(update(stories).where(
             stories.c.id == story_id, stories.c.owner_id == owner
         ).values(data=current.model_dump_json(), updated_at=datetime.now(UTC)))
         await session.commit()
-    return {"status": consent_status(current.consent)}
+    return {
+        "status": consent_status(current.consent),
+        "private_assets_queued_for_erasure": queued_for_erasure,
+        "physical_erasure_confirmed": False,
+    }
 
 
 @router.get("/api/stories/{story_id}/vault-summary")
@@ -1523,7 +1532,7 @@ async function openPortrait(){tab('portrait');if(!storyId){$('portraitStatus').t
 async function savePortrait(){try{if(!storyId)throw Error('Сначала сохраните книгу');const p={mode:$('portraitMode').value,style:$('portraitStyle').value,preferred_outfit:$('portraitOutfit').value,expression:$('portraitExpression').value,background:$('portraitBackground').value,framing:$('portraitFraming').value,lighting:$('portraitLighting').value,avoid:$('portraitAvoid').value.split(String.fromCharCode(10)).map(x=>x.trim()).filter(Boolean).slice(0,12),parent_description_approved:$('portraitApproved').checked,reference_photo_reviewed:false};const x=await api('/stories/'+storyId+'/portrait','PUT',p);$('portraitStatus').textContent='Настройки сохранены. '+x.preflight.blockers.join(' · ')}catch(e){$('portraitStatus').textContent='Ошибка: '+e.message}}
 async function openConsent(){tab('consent');if(!storyId){$('consentStatus').textContent='Сначала сохраните книгу';return}try{const x=await api('/stories/'+storyId+'/consent');$('consentTerms').textContent=x.terms;$('consentPhotoNotice').textContent=x.photo_notice;$('consentTermsCheck').checked=x.status.terms_accepted;$('consentParentCheck').checked=x.status.terms_accepted;$('consentPhotoCheck').checked=x.status.photo_consent_active;$('consentStatus').textContent=x.status.photo_consent_active?'Согласие на фотографии записано; загрузка пока недоступна':'Согласие на фотографии не предоставлено'}catch(e){$('consentStatus').textContent=e.message}}
 async function acceptConsent(){try{if(!storyId)throw Error('Сначала сохраните книгу');const decision={accept_terms:$('consentTermsCheck').checked,declare_parental_authority:$('consentParentCheck').checked,consent_to_child_photos:false};const x=await api('/stories/'+storyId+'/consent','POST',decision);$('consentStatus').textContent=x.status.photo_consent_active?'Согласие записано. Загрузка фотографий пока отключена.':'Условия приняты без согласия на фотографии.'}catch(e){$('consentStatus').textContent='Ошибка: '+e.message}}
-async function withdrawConsent(){try{if(!storyId)throw Error('Сначала сохраните книгу');await api('/stories/'+storyId+'/consent/withdraw','POST',{});$('consentPhotoCheck').checked=false;$('consentStatus').textContent='Согласие на фотографии отозвано. Фотографии здесь не хранятся.'}catch(e){$('consentStatus').textContent='Ошибка: '+e.message}}
+async function withdrawConsent(){try{if(!storyId)throw Error('Сначала сохраните книгу');const result=await api('/stories/'+storyId+'/consent/withdraw','POST',{});$('consentPhotoCheck').checked=false;$('consentStatus').textContent='Согласие отозвано. Приватных файлов поставлено на удаление: '+result.private_assets_queued_for_erasure+'. Физическое удаление ещё не подтверждено.'}catch(e){$('consentStatus').textContent='Ошибка: '+e.message}}
 let activeIdentity=null;
 function identityMode(){$('identityAdvanced').classList.toggle('hidden',$('identityMode').value!=='director')}
 function identityLines(id){return $(id).value.split(String.fromCharCode(10)).map(x=>x.trim()).filter(Boolean).slice(0,12)}
