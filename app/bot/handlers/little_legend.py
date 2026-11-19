@@ -12,7 +12,9 @@ from app.database.session import async_session_maker
 from app.little_legend.aiogram_pdf_sender import AiogramPDFSender
 from app.little_legend.art_storage_config import configured_generated_art_store
 from app.little_legend.book_delivery import DeliveryStatus
+from app.little_legend.owned_production import load_owned_production
 from app.little_legend.pdf_storage_config import configured_private_pdf_store
+from app.little_legend.readiness_messages import readiness_message
 from app.little_legend.release_manifest_store import get_release_manifest
 from app.little_legend.release_orchestrator import prepare_owned_release, send_owned_release
 from app.little_legend.router import stories
@@ -141,8 +143,33 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
         DeliveryStatus.UNCERTAIN: ("⚠️ Потрібна перевірка", "⚠️ Нужна проверка", "⚠️ Needs review"),
     }
     status_text = text_for(lang, *status_labels[status])
+    readiness_text = ""
+    ready_for_assembly = False
+    if status is None:
+        try:
+            production = await load_owned_production(
+                owner_id=owner_id, story_id=story_id,
+            )
+            readiness = production.readiness()
+            ready_for_assembly = readiness.ready_for_export
+            readiness_text = readiness_message(
+                readiness, language=lang,
+            )
+        except PermissionError:
+            readiness_text = text_for(
+                lang, "📖 Завершіть створення історії в студії.",
+                "📖 Завершите создание истории в студии.",
+                "📖 Complete the story in the studio.",
+            )
+        except Exception:
+            logger.exception("Little Legend readiness lookup failed")
+            readiness_text = text_for(
+                lang, "⚠️ Статус тимчасово недоступний.",
+                "⚠️ Статус временно недоступен.",
+                "⚠️ Status is temporarily unavailable.",
+            )
     buttons = []
-    if status is None and callback.message.chat.type == "private":
+    if ready_for_assembly and callback.message.chat.type == "private":
         buttons.append([InlineKeyboardButton(
             text=text_for(
                 lang, "📘 Підготувати книгу", "📘 Подготовить книгу",
@@ -162,7 +189,7 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
             ),
         ])
     await callback.message.answer(
-        f"📖 #{story_id} — {status_text}",
+        f"📖 #{story_id} — {status_text}" + (f"\n\n{readiness_text}" if readiness_text else ""),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
     await callback.answer()
