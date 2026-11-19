@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field
 
 from app.little_legend.illustration_runner import (
     directed_scene_for_provider,
-    production_character_continuity,
 )
 from app.little_legend.router import StoryDraft
 
@@ -49,9 +48,14 @@ def inspect_book_art(draft: StoryDraft) -> BookArtPreflight:
     style = draft.blueprint.controls.illustration_style if draft.blueprint else "storybook"
     if not style.strip() or len(style) > 120:
         blockers.append("Invalid illustration style")
+    from app.little_legend.reviewed_identity_prompt import reviewed_identity_continuity
+
     try:
-        production_character_continuity(draft.blueprint)
-    except ValueError as exc:
+        reviewed_identity_continuity(
+            blueprint=draft.blueprint, bible=draft.identity_bible,
+            hero_name=draft.hero,
+        )
+    except (ValueError, PermissionError) as exc:
         blockers.append(str(exc))
     if draft.graph is not None:
         chapters = (
