@@ -9,9 +9,8 @@ from datetime import UTC, datetime
 
 from sqlalchemy import (
     BigInteger, Column, DateTime, ForeignKey, Integer, MetaData,
-    String, Table, insert, select, update,
+    String, Table, select, update,
 )
-from sqlalchemy.exc import IntegrityError
 
 from app.database.session import async_session_maker
 from app.little_legend.production_checkpoint import (
