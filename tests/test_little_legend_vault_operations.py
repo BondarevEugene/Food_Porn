@@ -65,15 +65,11 @@ async def test_cycle_commits_between_queue_and_delete():
 
     with (
         patch(
-            "app.little_legend.vault_operations.requeue_failed_deletions",
-            new_callable=AsyncMock, return_value=2,
-        ),
-        patch(
             "app.little_legend.vault_operations.request_expired_deletions",
             new_callable=AsyncMock, return_value=["a"],
         ) as queue,
         patch(
-            "app.little_legend.vault_operations.delete_pending_assets",
+            "app.little_legend.vault_erasure_worker.erase_due_private_assets",
             new_callable=AsyncMock,
             return_value={"deleted": 1, "failed": 0},
         ) as delete,
@@ -85,7 +81,7 @@ async def test_cycle_commits_between_queue_and_delete():
     ):
         report = await run_retention_cycle(Session, MagicMock())
         assert report.queued == 1
-        assert report.retried == 2
+        assert report.retried == 0
         assert report.deleted == 1
         queue.assert_awaited_once()
         delete.assert_awaited_once()
