@@ -1,12 +1,12 @@
 """Precheckout never claims a charge, paid order or production authorization."""
 import pytest
 
+from app.little_legend import precheckout
 from app.little_legend.commercial_catalog import (
     BookCatalog,
     BookEdition,
     EditionOffer,
 )
-from app.little_legend import precheckout
 
 
 @pytest.mark.asyncio
