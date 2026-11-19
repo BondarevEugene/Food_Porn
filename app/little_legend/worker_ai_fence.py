@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import UTC, datetime
-from decimal import Decimal, ROUND_CEILING
+from decimal import ROUND_CEILING, Decimal
 
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -48,7 +48,7 @@ async def fence_worker_ai_effect(
         )
     )
     effect_key = "llai:" + hashlib.sha256(
-        f"{kind.value}:{job.job_id}".encode("utf-8")
+        f"{kind.value}:{job.job_id}".encode()
     ).hexdigest()
     fingerprint = request_fingerprint({
         "kind": kind.value, "job_id": job.job_id,
