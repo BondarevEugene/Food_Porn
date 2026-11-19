@@ -46,7 +46,7 @@ def test_failed_paid_dispatch_requires_reconciliation(retryable: bool) -> None:
     assert finished.retry_after is None
     assert finished.error_code == "provider_reconciliation_required"
     assert finished.provider_dispatched_at == NOW
-    with pytest.raises(ValueError):
+    with pytest.raises(PermissionError, match="manual reconciliation"):
         claim_job(
             finished, token="another-unique-worker-token",
             policy=JobPolicy(), now=NOW + timedelta(seconds=2),
