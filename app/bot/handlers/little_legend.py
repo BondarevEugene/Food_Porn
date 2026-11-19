@@ -357,9 +357,9 @@ async def show_little_legend_catalog(callback: CallbackQuery) -> None:
         ),
     ]])
     await callback.message.answer(
-        f"{heading}\\n\\n📱 {digital_label}: {digital_price}"
-        f"\\n📚 {print_label}: {physical_price} (⏳)"
-        f"\\n\\n{note}",
+        f"{heading}\n\n📱 {digital_label}: {digital_price}"
+        f"\n📚 {print_label}: {physical_price} (⏳)"
+        f"\n\n{note}",
         reply_markup=keyboard,
     )
     await callback.answer()
