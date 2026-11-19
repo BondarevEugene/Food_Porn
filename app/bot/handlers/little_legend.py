@@ -10,10 +10,11 @@ from app.bot.handlers.wallpaper import language_for, text_for
 from app.config import get_settings
 from app.database.session import async_session_maker
 from app.little_legend.aiogram_pdf_sender import AiogramPDFSender
+from app.little_legend.art_storage_config import configured_generated_art_store
 from app.little_legend.book_delivery import DeliveryStatus
 from app.little_legend.pdf_storage_config import configured_private_pdf_store
 from app.little_legend.release_manifest_store import get_release_manifest
-from app.little_legend.release_orchestrator import send_owned_release
+from app.little_legend.release_orchestrator import prepare_owned_release, send_owned_release
 from app.little_legend.router import stories
 
 logger = logging.getLogger(__name__)
@@ -141,6 +142,14 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
     }
     status_text = text_for(lang, *status_labels[status])
     buttons = []
+    if status is None and callback.message.chat.type == "private":
+        buttons.append([InlineKeyboardButton(
+            text=text_for(
+                lang, "📘 Підготувати книгу", "📘 Подготовить книгу",
+                "📘 Prepare book",
+            ),
+            callback_data=f"ll_prepare:{story_id}",
+        )])
     if status == DeliveryStatus.READY and callback.message.chat.type == "private":
         buttons.append([InlineKeyboardButton(
             text=text_for(lang, "📥 Отримати PDF", "📥 Получить PDF", "📥 Get PDF"),
@@ -215,4 +224,64 @@ async def send_little_legend_book(callback: CallbackQuery) -> None:
     else:
         await callback.message.answer(
             "⚠️ Delivery result is uncertain. Contact support; do not retry.",
+        )
+
+
+@router.callback_query(F.data.startswith("ll_prepare:"))
+async def prepare_little_legend_book(callback: CallbackQuery) -> None:
+    """Owner-initiated approved-art assembly; never starts paid generation."""
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("Open this in a private chat", show_alert=True)
+        return
+    try:
+        story_id = int((callback.data or "").split(":", 1)[1])
+    except (IndexError, ValueError):
+        await callback.answer("Invalid book", show_alert=True)
+        return
+    owner_id = callback.from_user.id
+    if story_id <= 0 or callback.message.chat.id != owner_id:
+        await callback.answer("Book not found", show_alert=True)
+        return
+    async with async_session_maker() as session:
+        owned = (await session.execute(select(stories.c.id).where(
+            stories.c.id == story_id, stories.c.owner_id == owner_id,
+        ))).scalar_one_or_none()
+    if owned is None:
+        await callback.answer("Book not found", show_alert=True)
+        return
+    try:
+        art_store = configured_generated_art_store()
+        pdf_store = configured_private_pdf_store()
+    except ValueError:
+        await callback.answer("Private storage is not configured", show_alert=True)
+        return
+    await callback.answer()
+    try:
+        manifest = await prepare_owned_release(
+            owner_id=owner_id, story_id=story_id,
+            art_store=art_store, pdf_store=pdf_store,
+        )
+    except (PermissionError, ValueError):
+        await callback.message.answer(
+            "The book is not ready: approve all chapters and illustrations first."
+        )
+        return
+    except Exception:
+        logger.exception("Little Legend book preparation failed")
+        await callback.message.answer(
+            "⚠️ Book preparation failed. Contact support; no paid generation was started."
+        )
+        return
+    if manifest.status == DeliveryStatus.READY:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text="📥 Get PDF", callback_data=f"ll_send:{story_id}",
+            ),
+        ]])
+        await callback.message.answer(
+            "📘 Your book is ready for delivery.", reply_markup=keyboard,
+        )
+    else:
+        await callback.message.answer(
+            "📘 This book has already entered the delivery workflow."
         )
