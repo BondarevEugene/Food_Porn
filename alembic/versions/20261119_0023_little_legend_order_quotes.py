@@ -1,5 +1,6 @@
 """Immutable owner-scoped book price quotes; no payments are accepted here."""
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "20261119_0023"
