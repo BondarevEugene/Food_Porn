@@ -120,6 +120,8 @@ def finish_job(
 
 
 def cancel_job(job: WriterJob) -> WriterJob:
+    if job.provider_dispatched_at is not None:
+        raise PermissionError("Dispatched AI job requires reconciliation")
     if job.status in {JobStatus.COMPLETED, JobStatus.FAILED}:
         raise ValueError("Terminal job cannot be cancelled")
     return job.model_copy(update={
