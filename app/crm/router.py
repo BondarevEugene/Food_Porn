@@ -622,7 +622,9 @@ async def little_legend_delivery_queue(
 ):
     """Owner-only, metadata-only queue of unresolved PDF effects."""
     from app.little_legend.production_effect_ledger import (
-        EffectKind, EffectStatus, production_effects,
+        EffectKind,
+        EffectStatus,
+        production_effects,
     )
 
     require_owner(identity)
