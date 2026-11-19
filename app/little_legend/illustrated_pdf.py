@@ -35,6 +35,18 @@ EDITION_PALETTES = {
     "lavender": ("#F3F0FA", "#D9D1F1", "#E1EBF8", "#27394B", "#B8A9D9"),
     "ocean": ("#EFF7FA", "#C8E6EC", "#DCEEF6", "#234C60", "#8ABCCB"),
     "sunrise": ("#FFF5ED", "#F8DCC8", "#FBE9D7", "#593F48", "#D8A48B"),
+    "blush": ("#FFF2F5", "#F4C6D4", "#FBE1E8", "#573D50", "#DCA0B5"),
+    "sage": ("#F3F7F0", "#C9D9C1", "#E1EAD8", "#344D40", "#A3B99A"),
+    "forest": ("#EFF5F0", "#B9D3C2", "#D9E8DD", "#284637", "#8BAE98"),
+    "midnight": ("#F1F1FA", "#C9C9E8", "#DFE0F4", "#2D3156", "#9B9DCE"),
+    "royal": ("#F2F2FC", "#C9C7EF", "#E0E0FA", "#32366A", "#9A9BD6"),
+    "champagne": ("#FAF6EE", "#EAD9BB", "#F4E7D2", "#5B493B", "#C9B38D"),
+    "peach": ("#FFF4EC", "#F6CEB3", "#FCE3D0", "#60433C", "#E3AD91"),
+    "terracotta": ("#FCF3EC", "#E8B9A0", "#F4DDCC", "#654538", "#CA9276"),
+    "lemon": ("#FFFBEA", "#F4E6A0", "#FFF1C6", "#554B35", "#D6C778"),
+    "mint": ("#EFFBF7", "#BDE6D8", "#D8F3E8", "#285248", "#8ACDB7"),
+    "sky": ("#F1F8FF", "#BEDDF5", "#DBEEFC", "#2C4B69", "#91C2E6"),
+    "lilac": ("#F8F2FC", "#DEC7EE", "#EDE0F8", "#4C3D62", "#C4A7DC"),
 }
 
 
