@@ -52,6 +52,7 @@ async def requeue_failed_deletions(
                 select(vault_assets.c.asset_id)
                 .where(
                     vault_assets.c.state == AssetState.DELETE_FAILED.value,
+                    vault_assets.c.deletion_attempts < 8,
                     vault_assets.c.next_deletion_attempt_at.is_not(None),
                     vault_assets.c.next_deletion_attempt_at <= instant,
                     vault_assets.c.last_deletion_attempt_at <= instant - retry_after,
