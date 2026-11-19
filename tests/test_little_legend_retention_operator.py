@@ -1,5 +1,5 @@
 """One-shot retention operator command safety contracts."""
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
