@@ -47,7 +47,8 @@ def test_book_export_builds_real_pdf():
     graph = build_graph(["A garden appears"])
     manuscript = StoryManuscript(
         hero_name="Marta",
-        chapters=[ChapterDraft(scene_id="scene_1", text="Marta entered the garden.")],
+        parent_approved=True,
+        chapters=[ChapterDraft(scene_id="scene_1", text="Marta entered the garden.", approved=True)],
     )
     payload = IllustratedBookRequest(
         illustrations={"scene_1": base64.b64encode(raw).decode("ascii")},
