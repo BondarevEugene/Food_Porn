@@ -8,13 +8,23 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from sqlalchemy import (
-    BigInteger, Column, DateTime, ForeignKey, Integer, MetaData,
-    String, Table, select, update,
+    BigInteger,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    select,
+    update,
 )
 
 from app.database.session import async_session_maker
 from app.little_legend.production_checkpoint import (
-    ProductionCheckpoint, ProductionPhase, advance_checkpoint,
+    ProductionCheckpoint,
+    ProductionPhase,
+    advance_checkpoint,
 )
 
 metadata = MetaData()
