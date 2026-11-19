@@ -9,6 +9,7 @@ from typing import Protocol
 from sqlalchemy import select
 
 from app.database.session import async_session_maker
+from app.little_legend.chapter_provider_receipts import ChapterProviderResult
 from app.little_legend.hero_contract import contract_from_blueprint
 from app.little_legend.sketch_writer_briefs import (
     SketchWritingSettings,
@@ -29,7 +30,7 @@ from app.little_legend.writer_result_commit import commit_writer_result
 
 
 class ChapterProvider(Protocol):
-    async def write_chapter(self, brief: dict) -> str: ...
+    async def write_chapter(self, brief: dict) -> str | ChapterProviderResult: ...
 
 
 def prepare_claimed_chapter(job: WriterJob, draft: object) -> dict:
@@ -104,7 +105,13 @@ async def run_one_writer_job(
     except (ValueError, PermissionError):
         return {"status": "lease_lost", "job_id": job.job_id}
     try:
-        text = await provider.write_chapter(brief)
+        provider_output = await provider.write_chapter(brief)
+        provider_receipt = (
+            provider_output if isinstance(provider_output, ChapterProviderResult)
+            else ChapterProviderResult(text=provider_output)
+            if isinstance(provider_output, str) else None
+        )
+        text = provider_receipt.text if provider_receipt is not None else None
     except Exception:
         try:
             await transition_writer_job(
@@ -138,6 +145,12 @@ async def run_one_writer_job(
                 expected_revision=job.expected_revision, text=text.strip(),
             ),
             policy=policy,
+            actual_micro_usd=(
+                provider_receipt.actual_micro_usd if provider_receipt else None
+            ),
+            provider_reference=(
+                provider_receipt.provider_reference if provider_receipt else None
+            ),
         )
         return {"status": "completed", **receipt}
     except Exception:

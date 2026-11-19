@@ -58,6 +58,8 @@ def verify_checkpoint_lease(
 async def commit_writer_result(
     *, story_id: int, owner_id: int, token: str,
     checkpoint: WriterCheckpoint, policy: JobPolicy,
+    actual_micro_usd: int | None = None,
+    provider_reference: str | None = None,
 ) -> dict:
     """Atomically update manuscript, receipt, review status and queue status."""
     from app.little_legend.router import StoryDraft, stories
@@ -110,6 +112,21 @@ async def commit_writer_result(
         completed = finish_job(
             job, token=token, success=True, policy=policy, now=now,
         )
+        from app.little_legend.production_effect_ledger import EffectKind
+        from app.little_legend.worker_charge_receipts import (
+            settle_worker_receipt,
+            validate_provider_receipt,
+        )
+
+        if validate_provider_receipt(
+            actual_micro_usd=actual_micro_usd,
+            provider_reference=provider_reference,
+        ):
+            await settle_worker_receipt(
+                session, job=job, kind=EffectKind.WRITER_AI,
+                actual_micro_usd=actual_micro_usd,
+                provider_reference=provider_reference,
+            )
         draft.manuscript = receipt.manuscript
         draft.writer_job_ids[checkpoint.scene_id] = checkpoint.job_id
         draft.editorial_decision = EditorialDecision()
