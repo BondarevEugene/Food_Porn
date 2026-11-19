@@ -97,6 +97,14 @@ async def reserve_effect(
         created_at=now, updated_at=now,
     )
     async with async_session_maker() as session:
+        from app.little_legend.router import stories
+
+        owned_story = (await session.execute(select(stories.c.id).where(
+            stories.c.id == story_id,
+            stories.c.owner_id == owner_id,
+        ).with_for_update())).scalar_one_or_none()
+        if owned_story is None:
+            raise PermissionError("Story does not belong to effect owner")
         result = await session.execute(
             pg_insert(production_effects).values(
                 **candidate.model_dump(mode="python"),
