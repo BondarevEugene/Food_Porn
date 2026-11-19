@@ -125,11 +125,6 @@ async def _mark_ready(row: dict, key: str) -> None:
 
 
 async def _deliver(row: dict, key: str) -> None:
-    from aiogram import Bot
-    from aiogram.types import BufferedInputFile
-
-    from app.config import get_settings
-
     # Claim delivery BEFORE the external Telegram side effect. If Railway
     # crashes after dispatch, an operator must reconcile; never send twice.
     async with async_session_maker() as session:
@@ -148,9 +143,71 @@ async def _deliver(row: dict, key: str) -> None:
             await session.rollback()
             return
         await session.commit()
+    await _send_claimed_delivery(row, key)
+
+async def _resume_ready_delivery() -> bool:
+    """Resume saved PDF delivery after a crash before Telegram dispatch.
+
+    Never resend a job whose delivery_started_at was already persisted:
+    Telegram may have accepted that message even if the worker crashed.
+    """
+    async with async_session_maker() as session:
+        row = (await session.execute(
+            select(
+                fulfillment_jobs.c.quote_id,
+                fulfillment_jobs.c.owner_id,
+                fulfillment_jobs.c.asset_key,
+                order_quotes.c.story_id,
+            )
+            .join(order_quotes, order_quotes.c.id == fulfillment_jobs.c.quote_id)
+            .where(
+                fulfillment_jobs.c.status == "ready",
+                fulfillment_jobs.c.asset_key.is_not(None),
+                fulfillment_jobs.c.delivery_started_at.is_(None),
+            )
+            .order_by(fulfillment_jobs.c.updated_at)
+            .with_for_update(of=fulfillment_jobs, skip_locked=True)
+            .limit(1)
+        )).mappings().one_or_none()
+        if row is None:
+            return False
+        if not await has_verified_entitlement(
+            session, quote_id=row["quote_id"], owner_id=row["owner_id"]
+        ):
+            await session.execute(
+                update(fulfillment_jobs)
+                .where(fulfillment_jobs.c.quote_id == row["quote_id"])
+                .values(status="blocked", updated_at=datetime.now(UTC))
+            )
+            await session.commit()
+            return True
+        # Reserve the Telegram send before releasing the row lock.
+        await session.execute(
+            update(fulfillment_jobs)
+            .where(fulfillment_jobs.c.quote_id == row["quote_id"])
+            .values(delivery_started_at=datetime.now(UTC))
+        )
+        await session.commit()
+    try:
+        await _send_claimed_delivery(dict(row), row["asset_key"])
+    except Exception:
+        logger.exception(
+            "Little Legend delivery requires manual reconciliation: %s",
+            row["quote_id"],
+        )
+    return True
+
+
+async def _send_claimed_delivery(row: dict, key: str) -> None:
+    """Send a pre-claimed delivery; no automatic retry on ambiguity."""
+    from aiogram import Bot
+    from aiogram.types import BufferedInputFile
+
+    from app.config import get_settings
+
+    pdf = await asyncio.to_thread(PaidBookStore().get, key=key)
     bot = Bot(token=get_settings().bot_token)
     try:
-        pdf = await asyncio.to_thread(PaidBookStore().get, key=key)
         await bot.send_document(
             chat_id=row["owner_id"],
             document=BufferedInputFile(
@@ -167,6 +224,7 @@ async def _deliver(row: dict, key: str) -> None:
                 fulfillment_jobs.c.quote_id == row["quote_id"],
                 fulfillment_jobs.c.owner_id == row["owner_id"],
                 fulfillment_jobs.c.status == "ready",
+                fulfillment_jobs.c.delivered_at.is_(None),
             )
             .values(
                 delivered_at=datetime.now(UTC),
@@ -178,6 +236,8 @@ async def _deliver(row: dict, key: str) -> None:
 
 async def process_one() -> bool:
     """Process one paid book; failures are persisted and never silently retried."""
+    if await _resume_ready_delivery():
+        return True
     row = await _claim_one()
     if row is None:
         return False
