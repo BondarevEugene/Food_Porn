@@ -4,7 +4,17 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Integer, MetaData, String, Table, select
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    select,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.database.session import async_session_maker
