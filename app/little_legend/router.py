@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -71,7 +72,7 @@ from app.little_legend.manuscript_repository import (
     upsert_generated_chapter,
 )
 from app.little_legend.narrative_design import StoryDesign, design_guidance
-from app.little_legend.order_quotes import BookOrderQuote, create_order_quote
+from app.little_legend.order_quotes import BookOrderQuote, create_order_quote, order_quotes
 from app.little_legend.portfolio_cost_summary import get_portfolio_cost_summary
 from app.little_legend.portrait_studio import PortraitPlan, portrait_preflight
 from app.little_legend.precheckout import BookPrecheckout, preview_book_precheckout
@@ -228,6 +229,43 @@ async def create_book_order_quote(
         return await create_order_quote(owner_id=owner, story_id=story_id, edition=edition)
     except PermissionError as exc:
         raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/api/order-quotes/{quote_id}/checkout")
+async def start_book_checkout(
+    quote_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Issue hosted checkout only for an owned immutable digital quote."""
+    from app.config import get_settings
+    from app.services.wayforpay import WayForPayError, WayForPayService
+
+    if quote_id <= 0:
+        raise HTTPException(404, "Quote not found")
+    async with async_session_maker() as session:
+        quote = (await session.execute(
+            select(order_quotes).where(
+                order_quotes.c.id == quote_id,
+                order_quotes.c.owner_id == owner,
+            ).with_for_update()
+        )).mappings().one_or_none()
+        if quote is None:
+            raise HTTPException(404, "Quote not found")
+        if quote["edition"] != "digital" or quote["status"] != "quoted":
+            raise HTTPException(409, "Edition is not payable")
+        service = WayForPayService(get_settings())
+        try:
+            payment, url = await service.create_checkout(
+                session,
+                telegram_user_id=owner,
+                product="little_legend",
+                reference_id=quote_id,
+                description="Little Legend digital book",
+                amount_override=Decimal(quote["price_minor"]) / 100,
+            )
+        except WayForPayError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        await session.commit()
+    return {"payment_id": payment.id, "checkout_url": url, "status": payment.status}
 
 
 @router.get("/api/stories/{story_id}/precheckout/{edition}", response_model=BookPrecheckout)
