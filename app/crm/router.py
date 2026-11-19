@@ -653,6 +653,20 @@ async def little_legend_delivery_queue(
     }
 
 
+@router.get("/api/little-legend/paid-production")
+async def little_legend_paid_production(
+    identity: Identity, limit: int = Query(ge=1, le=100, default=50),
+):
+    """Owner-only paid-book production dashboard with actionable diagnostics.
+
+    Never exposes child manuscripts, Telegram tokens, asset keys or PDF bytes.
+    """
+    from app.little_legend.fulfillment_ops import report
+
+    require_owner(identity)
+    return await report(limit=limit)
+
+
 @router.get("/api/little-legend/delivery-queue/{owner_id}/{story_id}")
 async def little_legend_delivery_detail(
     owner_id: int, story_id: int, identity: Identity,
