@@ -25,6 +25,7 @@ from app.little_legend.illustration_worker import (
 )
 from app.little_legend.image_ai_consent import configured_image_ai_disclosure
 from app.little_legend.router import StoryDraft, stories
+from app.little_legend.story_graph import SceneNode
 from app.little_legend.writer_queue import JobPolicy
 
 
@@ -37,6 +38,24 @@ def fictional_character_continuity(blueprint: BookBlueprint | None) -> str:
         return ""
     notes = [hero.appearance.strip(), hero.visual_identity_notes.strip()]
     return " ".join(note for note in notes if note)[:1200]
+
+
+def directed_scene_for_provider(scene: SceneNode) -> SceneNode:
+    """Include approved scene composition in the production provider input.
+
+    The legacy provider reads scene.summary, not illustration_prompt. Return a
+    copy so the stored story graph is never mutated by generation.
+    """
+    action = scene.illustration_prompt.strip()
+    if not action:
+        return scene
+    summary = scene.summary.strip()
+    if not summary:
+        raise ValueError("Illustration scene has no narrative summary")
+    combined = f"Scene action and composition: {action}. Story context: {summary}"
+    if len(combined) > 4000:
+        raise ValueError("Scene-specific illustration description is oversized")
+    return scene.model_copy(update={"summary": combined})
 
 
 async def process_next_illustration(
@@ -70,7 +89,7 @@ async def process_next_illustration(
     if scene is None or chapter is None:
         raise PermissionError("Illustration scene is no longer available")
     context = IllustrationContext(
-        scene=scene, hero=draft.hero,
+        scene=directed_scene_for_provider(scene), hero=draft.hero,
         style=(draft.blueprint.controls.illustration_style
                if draft.blueprint else "storybook"),
         consent=draft.image_ai_consent,
