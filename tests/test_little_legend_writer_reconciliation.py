@@ -39,7 +39,7 @@ def test_failed_dispatched_job_needs_reconciliation():
         dispatched, token="unique-lease-token-12345",
         success=False, retryable=False, policy=JobPolicy(), now=NOW,
     )
-    assert classify_reconciliation(failed, now=NOW).reason == "provider_error"
+    assert classify_reconciliation(failed, now=NOW).reason == "provider_reconciliation_required"
 
 
 def test_unstarted_failed_job_not_reported():
