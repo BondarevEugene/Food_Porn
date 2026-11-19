@@ -123,6 +123,8 @@ async def process_next_illustration(
     ), None)
     if scene is None or chapter is None:
         raise PermissionError("Illustration scene is no longer available")
+    from app.little_legend.reviewed_identity_prompt import reviewed_identity_continuity
+
     context = IllustrationContext(
         scene=directed_scene_for_provider(scene), hero=draft.hero,
         style=(draft.blueprint.controls.illustration_style
@@ -131,7 +133,9 @@ async def process_next_illustration(
         disclosure=configured_image_ai_disclosure(),
         current_revision=chapter.revision,
         owner_verified=True,
-        continuity=production_character_continuity(draft.blueprint),
+        continuity=reviewed_identity_continuity(
+            blueprint=draft.blueprint, bible=draft.identity_bible, hero_name=draft.hero,
+        ),
         manuscript_approved=(
             draft.manuscript.parent_approved and chapter.approved
         ),
