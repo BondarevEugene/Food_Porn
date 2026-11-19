@@ -101,3 +101,31 @@ async def test_missing_image_consent_blocks_paid_provider():
             approved_scene_ids={"scene_1"},
         )
     assert provider.calls == []
+
+
+@pytest.mark.asyncio
+async def test_duplicate_graph_scenes_do_not_trigger_paid_calls():
+    graph, manuscript = _approved()
+    graph.nodes.append(graph.nodes[0].model_copy(deep=True))
+    provider = Illustrator()
+    with pytest.raises(PermissionError, match="scene"):
+        await produce_illustrated_book(
+            illustrator=provider, title="Marta", dedication="",
+            graph=graph, manuscript=manuscript, style="storybook",
+            approved_scene_ids={"scene_1"}, **_consent(),
+        )
+    assert provider.calls == []
+
+
+@pytest.mark.asyncio
+async def test_blank_hero_does_not_trigger_paid_calls():
+    graph, manuscript = _approved()
+    manuscript.hero_name = "  "
+    provider = Illustrator()
+    with pytest.raises(ValueError, match="title and style"):
+        await produce_illustrated_book(
+            illustrator=provider, title="Marta", dedication="",
+            graph=graph, manuscript=manuscript, style="storybook",
+            approved_scene_ids={"scene_1"}, **_consent(),
+        )
+    assert provider.calls == []
