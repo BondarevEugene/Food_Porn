@@ -38,7 +38,6 @@ from app.little_legend.character_identity import (
 )
 from app.little_legend.client_sketch import ParentSketch, outline_from_sketch
 from app.little_legend.commercial_catalog import BookCatalog, BookEdition, crm_book_catalog
-from app.little_legend.precheckout import BookPrecheckout, preview_book_precheckout
 from app.little_legend.consent import (
     PHOTO_NOTICE,
     TERMS,
@@ -74,6 +73,7 @@ from app.little_legend.manuscript_repository import (
 from app.little_legend.narrative_design import StoryDesign, design_guidance
 from app.little_legend.portfolio_cost_summary import get_portfolio_cost_summary
 from app.little_legend.portrait_studio import PortraitPlan, portrait_preflight
+from app.little_legend.precheckout import BookPrecheckout, preview_book_precheckout
 from app.little_legend.print_renderer import render_print_proof
 from app.little_legend.privacy_lifecycle import (
     PrivacyLaunchConfig,
