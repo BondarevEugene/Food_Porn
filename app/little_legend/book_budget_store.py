@@ -84,8 +84,19 @@ async def configure_book_budget(
 ) -> BookBudget:
     """Create once; existing budget cannot silently be reset."""
     _validate_amount(limit_micro_usd)
+    if owner_id <= 0 or story_id <= 0:
+        raise ValueError("Positive owner and story IDs required")
     now = datetime.now(UTC)
     async with async_session_maker() as session:
+        from app.little_legend.router import stories
+
+        # Serialize ownership validation with story deletion and updates.
+        owned_story = (await session.execute(select(stories.c.id).where(
+            stories.c.id == story_id,
+            stories.c.owner_id == owner_id,
+        ).with_for_update())).scalar_one_or_none()
+        if owned_story is None:
+            raise PermissionError("Story does not belong to budget owner")
         await session.execute(pg_insert(book_budgets).values(
             story_id=story_id, owner_id=owner_id,
             limit_micro_usd=limit_micro_usd,
