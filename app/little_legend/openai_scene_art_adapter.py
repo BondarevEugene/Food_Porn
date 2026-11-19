@@ -42,7 +42,7 @@ class OpenAISceneArtAdapter:
             order=prompt["scene_order"],
             beat="opening",
             act=1,
-            title=prompt["scene_title"],
+            title=prompt.get("scene_title") or f"Сцена {prompt['scene_order']}",
             summary=prompt["setting_and_context"],
             illustration_prompt=prompt["scene_action"],
         )
