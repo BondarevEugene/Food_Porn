@@ -98,3 +98,66 @@ def test_assembly_rejects_art_from_old_chapter_revision():
             manuscript=manuscript, jobs=[job],
             owner_id=3, story_id=2, store=MemoryStore(),
         )
+
+
+def test_private_book_two_approved_scenes_render_real_pdf():
+    graph = build_graph(["The forest opens", "Marta finds a path"])
+    manuscript = StoryManuscript(
+        hero_name="Marta", parent_approved=True,
+        chapters=[
+            ChapterDraft(scene_id="scene_1", text="The forest opens.", approved=True),
+            ChapterDraft(scene_id="scene_2", text="Marta finds a path.", approved=True),
+        ],
+    )
+    store = MemoryStore()
+    jobs = []
+    for index in (1, 2):
+        job = IllustrationJob(
+            job_id=f"lli_scene_{index}", story_id=2, owner_id=3,
+            scene_id=f"scene_{index}", expected_revision=1,
+            estimated_cost_usd=0.05, status=JobStatus.COMPLETED,
+            provider_dispatched_at=datetime.now(UTC),
+        )
+        save_generated_illustration(
+            store=store, owner_id=3, story_id=2,
+            job_id=job.job_id, data=_jpeg(),
+        )
+        jobs.append(job)
+    pdf = assemble_private_book(
+        title="Marta", dedication="For you", graph=graph,
+        manuscript=manuscript, jobs=jobs,
+        owner_id=3, story_id=2, store=store,
+    )
+    assert pdf.startswith(b"%PDF-")
+    assert len(pdf) > 2000
+
+
+def test_private_book_rejects_undispatched_job_without_storage_reads():
+    graph, manuscript, job = _book()
+    job = job.model_copy(update={"provider_dispatched_at": None})
+
+    class NoReadStore:
+        def get(self, *, key):
+            pytest.fail("Private storage must not be read before dispatch validation")
+
+    with pytest.raises(PermissionError, match="dispatched"):
+        assemble_private_book(
+            title="Marta", dedication="", graph=graph,
+            manuscript=manuscript, jobs=[job],
+            owner_id=3, story_id=2, store=NoReadStore(),
+        )
+
+
+def test_private_book_rejects_duplicate_jobs_before_storage_reads():
+    graph, manuscript, job = _book()
+
+    class NoReadStore:
+        def get(self, *, key):
+            pytest.fail("Private storage must not be read for duplicate jobs")
+
+    with pytest.raises(PermissionError, match="Exactly one"):
+        assemble_private_book(
+            title="Marta", dedication="", graph=graph,
+            manuscript=manuscript, jobs=[job, job.model_copy(deep=True)],
+            owner_id=3, story_id=2, store=NoReadStore(),
+        )
