@@ -532,6 +532,12 @@ async def apply_verified_payment(
         payment.error_message = (
             None if same_attempt else "duplicate_payment: manual refund required"
         )
+        if same_attempt:
+            from app.little_legend.fulfillment_queue import request_paid_fulfillment
+
+            await request_paid_fulfillment(
+                session, quote_id=quote_id, owner_id=payment.telegram_user_id
+            )
         await session.commit()
         return same_attempt
 
