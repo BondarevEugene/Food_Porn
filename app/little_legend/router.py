@@ -37,6 +37,7 @@ from app.little_legend.character_identity import (
     quick_identity_bible,
 )
 from app.little_legend.client_sketch import ParentSketch, outline_from_sketch
+from app.little_legend.commercial_catalog import BookCatalog, book_catalog
 from app.little_legend.consent import (
     PHOTO_NOTICE,
     TERMS,
@@ -115,6 +116,12 @@ stories = Table(
     Column("data", Text, nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
+
+@router.get("/api/catalog", response_model=BookCatalog)
+async def read_book_catalog() -> BookCatalog:
+    """Public price display; never claims payment or print availability."""
+    return book_catalog()
+
 
 DEFAULT_SCENES = [
     "Знакомство с героем", "Необычное событие", "Первый союзник",
