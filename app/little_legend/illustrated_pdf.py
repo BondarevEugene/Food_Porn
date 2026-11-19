@@ -55,8 +55,11 @@ def render_illustrated_proof(
     *, title: str, dedication: str, graph: StoryGraph,
     manuscript: StoryManuscript, illustrations: dict[str, bytes],
     approved_scene_ids: set[str],
+    edition: str = "editorial_proof",
 ) -> bytes:
     """Render all chapters and approved images; fail closed on mismatches."""
+    if edition not in {"editorial_proof", "digital"}:
+        raise ValueError("Unsupported book edition")
     if not title.strip() or not manuscript.hero_name.strip():
         raise ValueError("Title and hero are required")
     nodes = sorted(graph.nodes, key=lambda item: item.order)
@@ -81,7 +84,7 @@ def render_illustrated_proof(
     doc = BaseDocTemplate(
         output, pagesize=A5, leftMargin=48, rightMargin=46,
         topMargin=52, bottomMargin=52, title=title,
-        author="Little Legend · illustrated editorial proof",
+        author="Little Legend · personalized illustrated story",
     )
     frame = Frame(48, 52, width - 94, height - 104, showBoundary=0)
 
@@ -118,7 +121,8 @@ def render_illustrated_proof(
         canvas.setFont(font, 7)
         canvas.setFillColor(colors.HexColor("#847A70"))
         canvas.drawString(48, height - 29, "L I T T L E   L E G E N D")
-        canvas.drawRightString(width - 46, height - 29, "EDITORIAL PROOF")
+        if edition == "editorial_proof":
+            canvas.drawRightString(width - 46, height - 29, "EDITORIAL PROOF")
         canvas.drawCentredString(width / 2, 27, f"— {document.page} —")
         canvas.restoreState()
 
@@ -148,7 +152,8 @@ def render_illustrated_proof(
         Paragraph(escape(manuscript.hero_name), title_style),
         Spacer(1, 22),
         Paragraph("A PERSONALIZED ILLUSTRATED STORY", note),
-        Paragraph("РЕДАКЦИОННЫЙ МАКЕТ · НЕ ДЛЯ ТИПОГРАФИИ", note),
+        *([Paragraph("РЕДАКЦИОННЫЙ МАКЕТ · НЕ ДЛЯ ТИПОГРАФИИ", note)]
+          if edition == "editorial_proof" else []),
         PageBreak(),
         Paragraph("Посвящение", title_style),
         Paragraph(escape(dedication or "Эта история — для тебя."), body),
@@ -164,13 +169,16 @@ def render_illustrated_proof(
             if paragraph.strip():
                 flow.append(Paragraph(escape(paragraph.strip()), body))
         flow.append(PageBreak())
-    flow.extend([
+    if edition == "editorial_proof":
+        flow.extend([
         Paragraph("Редакторская информация", title_style),
         Paragraph(
             "Иллюстрации и текст размещены для проверки композиции. "
             "Цветовой профиль, вылеты, переплёт и печатная подготовка "
             "не подтверждены.", note,
         ),
-    ])
+        ])
+    elif flow and isinstance(flow[-1], PageBreak):
+        flow.pop()
     doc.build(flow)
     return output.getvalue()
