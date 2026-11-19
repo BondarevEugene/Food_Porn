@@ -41,15 +41,17 @@ async def produce_illustrated_book(
         raise PermissionError("Explicit image AI consent is required")
     nodes = sorted(graph.nodes, key=lambda node: node.order)
     expected = {node.id for node in nodes}
-    if not expected or approved_scene_ids != expected:
+    if (not expected or len(expected) != len(nodes)
+            or approved_scene_ids != expected):
         raise PermissionError("All scene illustrations require explicit approval")
     if not manuscript.parent_approved or any(
         not chapter.approved for chapter in manuscript.chapters
     ):
         raise PermissionError("Complete manuscript approval is required")
-    if {chapter.scene_id for chapter in manuscript.chapters} != expected:
+    if (len(manuscript.chapters) != len(expected)
+            or {chapter.scene_id for chapter in manuscript.chapters} != expected):
         raise ValueError("Manuscript does not match story scenes")
-    if not title.strip() or not style.strip():
+    if not title.strip() or not style.strip() or not manuscript.hero_name.strip():
         raise ValueError("Book title and style are required")
     images = {}
     for node in nodes:
