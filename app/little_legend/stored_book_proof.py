@@ -1,6 +1,7 @@
 """Assemble a proof from completed private illustrations, without paid calls."""
 from __future__ import annotations
 
+from app.little_legend.book_quality import inspect_illustrated_book
 from app.little_legend.generated_art_store import (
     GeneratedArtStore,
     illustration_key,
@@ -8,7 +9,6 @@ from app.little_legend.generated_art_store import (
 )
 from app.little_legend.illustrated_pdf import render_illustrated_proof
 from app.little_legend.illustration_queue_store import IllustrationJob
-from app.little_legend.book_quality import inspect_illustrated_book
 from app.little_legend.story_graph import StoryGraph
 from app.little_legend.story_writer import StoryManuscript
 from app.little_legend.writer_queue import JobStatus
