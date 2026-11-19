@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.database.session import async_session_maker
 from app.little_legend.secure_vault import AssetState
@@ -48,6 +49,7 @@ def error_category(exc: Exception) -> str:
 async def erase_due_private_assets(
     *, deleter: PrivateObjectDeleter, batch_size: int = 25,
     now: datetime | None = None,
+    session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> dict[str, int]:
     """Delete due objects; keep metadata pending until storage confirms erasure.
 
@@ -61,10 +63,11 @@ async def erase_due_private_assets(
     if instant.tzinfo is None:
         raise ValueError("Timezone-aware timestamp required")
     summary = {"deleted": 0, "failed": 0}
+    factory = session_factory or async_session_maker
     # Process one locked row per transaction. The lock remains held while
     # the storage deletion is in flight to prevent two workers racing.
     for _ in range(batch_size):
-        async with async_session_maker() as session:
+        async with factory() as session:
             row = (await session.execute(
                 select(vault_assets).where(
                     vault_assets.c.state.in_([
