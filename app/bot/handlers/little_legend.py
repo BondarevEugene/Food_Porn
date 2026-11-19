@@ -6,6 +6,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from sqlalchemy import select
 
+from app.bot.handlers.little_legend_palettes import router as palette_router
 from app.bot.handlers.wallpaper import language_for, text_for
 from app.config import get_settings
 from app.database.session import async_session_maker
@@ -23,6 +24,7 @@ from app.little_legend.router import stories
 logger = logging.getLogger(__name__)
 
 router = Router(name="little_legend")
+router.include_router(palette_router)
 
 
 def little_legend_studio_url(configured_url: str) -> str | None:
@@ -186,6 +188,12 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
         buttons.append([InlineKeyboardButton(
             text=text_for(lang, "📥 Отримати PDF", "📥 Получить PDF", "📥 Get PDF"),
             callback_data=f"ll_send:{story_id}",
+        )])
+    if status is None and callback.message.chat.type == "private":
+        buttons.append([InlineKeyboardButton(
+            text=text_for(lang, "🎨 Оформлення книги", "🎨 Оформление книги",
+                          "🎨 Book colors"),
+            callback_data=f"ll_palette:{story_id}",
         )])
     buttons.append([
             InlineKeyboardButton(
