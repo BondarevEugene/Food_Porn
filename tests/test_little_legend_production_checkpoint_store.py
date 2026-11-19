@@ -1,5 +1,5 @@
 """Durable checkpoint schema and recovery contract."""
-from sqlalchemy import BigInteger, Integer
+from sqlalchemy import BigInteger, Column, Integer, Table
 from sqlalchemy.dialects import postgresql
 
 from app.little_legend.production_checkpoint import (
@@ -34,6 +34,11 @@ def test_database_row_round_trip_restores_checkpoint():
 def test_checkpoint_schema_compiles_for_neon_postgresql():
     from sqlalchemy.schema import CreateTable
 
+    Table(
+        "little_legend_stories", production_checkpoints.metadata,
+        Column("id", Integer, primary_key=True),
+        extend_existing=True,
+    )
     sql = str(CreateTable(production_checkpoints).compile(
         dialect=postgresql.dialect(),
     ))
