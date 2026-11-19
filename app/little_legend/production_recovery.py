@@ -8,11 +8,18 @@ from collections import Counter
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
+from app.database.session import async_session_maker
+from app.little_legend.illustration_queue_store import (
+    IllustrationJob,
+    illustration_jobs,
+)
 from app.little_legend.production_checkpoint import (
     ProductionCheckpoint,
     ProductionPhase,
 )
+from app.little_legend.production_checkpoint_store import get_checkpoint
 from app.little_legend.writer_queue import JobStatus, WriterJob
 
 
@@ -105,11 +112,6 @@ async def plan_owned_recovery(
     *, owner_id: int, story_id: int,
 ) -> RecoveryPlan:
     """Read committed state; never mutate jobs or enqueue paid work."""
-    from app.little_legend.illustration_queue_store import illustration_jobs
-    from app.little_legend.production_checkpoint_store import get_checkpoint
-    from app.database.session import async_session_maker
-    from sqlalchemy import select
-
     checkpoint = await get_checkpoint(owner_id=owner_id, story_id=story_id)
     if checkpoint is None:
         raise PermissionError("Story checkpoint not found")
@@ -118,8 +120,6 @@ async def plan_owned_recovery(
             illustration_jobs.c.owner_id == owner_id,
             illustration_jobs.c.story_id == story_id,
         ))).scalars().all()
-    from app.little_legend.illustration_queue_store import IllustrationJob
-
     return plan_recovery(
         checkpoint=checkpoint,
         jobs=[IllustrationJob.model_validate_json(payload) for payload in rows],
