@@ -28,6 +28,9 @@ def test_only_private_randomized_keys_can_be_deleted():
 def test_s3_adapter_uses_only_validated_private_bucket_and_key():
     client = Mock()
     client.get_bucket_versioning.return_value = {}
+    client.delete_object.return_value = {
+        "ResponseMetadata": {"HTTPStatusCode": 204},
+    }
     deleter = S3PrivateObjectDeleter(client=client, bucket="private-test")
     key = "little-legend/private/" + "f" * 48
     deleter.delete_private_object(object_key=key)
@@ -72,3 +75,12 @@ def test_versioned_bucket_cannot_claim_physical_erasure():
     with pytest.raises(PermissionError, match="Versioned buckets"):
         S3PrivateObjectDeleter(client=client, bucket="versioned")
     client.delete_object.assert_not_called()
+
+
+def test_unconfirmed_storage_response_cannot_mark_erasure():
+    client = Mock()
+    client.get_bucket_versioning.return_value = {}
+    client.delete_object.return_value = {"ResponseMetadata": {"HTTPStatusCode": 500}}
+    deleter = S3PrivateObjectDeleter(client=client, bucket="private-test")
+    with pytest.raises(RuntimeError, match="not confirmed"):
+        deleter.delete_private_object(object_key="little-legend/private/" + "a" * 48)
