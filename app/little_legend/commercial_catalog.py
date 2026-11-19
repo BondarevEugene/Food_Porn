@@ -69,3 +69,43 @@ def quote_edition(edition: BookEdition) -> EditionOffer:
     if not offer.available:
         raise PermissionError(offer.reason or "edition_unavailable")
     return offer
+
+
+async def crm_book_catalog() -> BookCatalog:
+    """Read persisted Mini CRM prices, not stale per-worker environment values."""
+    from sqlalchemy import select
+
+    from app.database.models import AppSetting
+    from app.database.session import async_session_maker
+
+    keys = {
+        BookEdition.DIGITAL: "little_legend_digital_price_uah",
+        BookEdition.PRINT: "little_legend_print_price_uah",
+    }
+    async with async_session_maker() as session:
+        rows = (await session.execute(
+            select(AppSetting.key, AppSetting.value).where(
+                AppSetting.key.in_(tuple(keys.values())),
+            )
+        )).all()
+    stored = dict(rows)
+    catalog = BookCatalog(offers=[
+        EditionOffer(edition=BookEdition.DIGITAL, available=False,
+                     reason='price_not_configured',
+                     includes=('illustrated_pdf', 'private_telegram_delivery')),
+        EditionOffer(edition=BookEdition.PRINT, available=False,
+                     reason='print_production_not_certified',
+                     includes=('illustrated_pdf', 'physical_print', 'shipping')),
+    ])
+    for offer in catalog.offers:
+        raw = stored.get(keys[offer.edition])
+        if raw is None:
+            continue
+        if not raw.isascii() or not raw.isdecimal() or not 0 <= int(raw) <= 100000:
+            raise ValueError("Invalid CRM edition price")
+        amount = int(raw)
+        offer.price_minor = amount * 100 if amount else None
+        if offer.edition == BookEdition.DIGITAL:
+            offer.available = amount > 0
+            offer.reason = None if amount else "price_not_configured"
+    return catalog

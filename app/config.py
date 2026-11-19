@@ -91,6 +91,8 @@ class Settings(BaseSettings):
 
     price_electronic_uah: int = Field(default=500)
     price_print_uah: int = Field(default=1200)
+    little_legend_digital_price_uah: int = Field(default=0, ge=0, le=100000)
+    little_legend_print_price_uah: int = Field(default=0, ge=0, le=100000)
 
     price_electronic_usd: int = Field(default=15)
     price_print_usd: int = Field(default=35)
