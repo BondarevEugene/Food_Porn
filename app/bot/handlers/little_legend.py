@@ -12,7 +12,7 @@ from app.database.session import async_session_maker
 from app.little_legend.aiogram_pdf_sender import AiogramPDFSender
 from app.little_legend.art_storage_config import configured_generated_art_store
 from app.little_legend.book_delivery import DeliveryStatus
-from app.little_legend.commercial_catalog import book_catalog
+from app.little_legend.commercial_catalog import crm_book_catalog
 from app.little_legend.owned_production import load_owned_production
 from app.little_legend.pdf_storage_config import configured_private_pdf_store
 from app.little_legend.readiness_messages import readiness_message
@@ -324,7 +324,7 @@ async def show_little_legend_catalog(callback: CallbackQuery) -> None:
     """Customer catalog, never an unverified checkout link."""
     lang = language_for(callback.from_user)
     try:
-        catalog = book_catalog()
+        catalog = await crm_book_catalog()
     except ValueError:
         logger.exception("Little Legend catalog configuration invalid")
         await callback.answer("Pricing temporarily unavailable", show_alert=True)
