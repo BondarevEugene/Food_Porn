@@ -424,6 +424,8 @@ async def save_story(story_id: int, draft: StoryDraft, owner: Annotated[int, Dep
             draft.blueprint = previous.blueprint
         if "design" not in draft.model_fields_set:
             draft.design = previous.design
+        if "palette" not in draft.model_fields_set:
+            draft.palette = previous.palette
         if "identity_bible" not in draft.model_fields_set:
             draft.identity_bible = previous.identity_bible
         if previous.manuscript is not None and draft.hero != previous.hero:
