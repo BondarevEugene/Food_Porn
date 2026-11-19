@@ -462,6 +462,17 @@ async def apply_verified_payment(
         await session.commit()
         return True
 
+    if payment.product == "little_legend" and payment.test_mode:
+        # Sandbox approvals must never unlock billable book production.
+        payment.status = "approved"
+        payment.provider_payment_id = str(
+            payload.get("authCode") or payment.order_reference
+        )[:120]
+        payment.paid_at = payment.paid_at or datetime.now(UTC)
+        payment.error_message = "sandbox_only_no_entitlement"
+        await session.commit()
+        return False
+
     if payment.product == "little_legend":
         from sqlalchemy import insert
 
