@@ -38,3 +38,35 @@ and ensure the deletion worker subsequently processes the queue.
 Add `last_deletion_attempt_at` and `next_deletion_attempt_at` in Alembic,
 exponential backoff, bounded attempts, version-aware deletion, durable consent
 records, withdrawal-to-queue integration, and an operational scheduler.
+
+## 2026-11-19: операторская команда и мониторинг
+
+Новый однократный запуск:
+
+```powershell
+python -m app.little_legend.retention_operator --dry-run --fail-on-alert
+```
+
+Для физического удаления оператор отдельно задаёт переменные
+`LITTLE_LEGEND_RETENTION_EXECUTE=YES` и `LITTLE_LEGEND_PRIVATE_BUCKET`,
+настраивает стандартные boto3 IAM credentials и запускает:
+
+```powershell
+python -m app.little_legend.retention_operator --execute --batch-size 25 --fail-on-alert
+```
+
+Результат — JSON с агрегированными счётчиками, без детских фото, object keys,
+owner IDs и story IDs. При `--fail-on-alert`: 0 — OK, 2 — backlog,
+3 — физическое удаление не удалось или повторы исчерпаны.
+
+**Railway:** после ручной проверки тестового S3/Neon создать отдельный Cron
+Service с указанной командой и интервалом, например `*/30 * * * *`.
+Переменную разрешения устанавливать **только** в cron-сервисе.
+Подключить уведомления по ненулевому exit code через инфраструктурный
+мониторинг. Не запускать второй scheduler в FastAPI или Telegram polling.
+
+Этот пакет не включает автозапуск, Telegram-уведомления, upload фотографий,
+распознавание лиц или передачу изображений AI-провайдеру. Перед запуском
+проверить IAM, отсутствие versioning, сетевые таймауты, миграции и политику
+родительского согласия. Успешный S3 DeleteObject сам по себе не доказывает
+удаление всех реплик и резервных копий.
