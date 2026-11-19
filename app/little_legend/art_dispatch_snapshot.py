@@ -12,7 +12,7 @@ from app.little_legend.router import StoryDraft
 
 
 def art_dispatch_fingerprint(draft: StoryDraft, scene_id: str) -> str:
-    from app.little_legend.illustration_runner import directed_scene_for_provider
+    from app.little_legend.book_art_director import plan_book_shots
     from app.little_legend.reviewed_identity_prompt import reviewed_identity_continuity
 
     if draft.graph is None or draft.manuscript is None:
@@ -23,8 +23,12 @@ def art_dispatch_fingerprint(draft: StoryDraft, scene_id: str) -> str:
     )
     if scene is None or chapter is None:
         raise PermissionError("Art scene or chapter is unavailable")
+    directed = next(
+        item for item in plan_book_shots(draft.graph).shots
+        if item.scene_id == scene_id
+    )
     payload = {
-        "scene": directed_scene_for_provider(scene).summary,
+        "scene": directed.prompt,
         "hero": draft.hero,
         "style": (
             draft.blueprint.controls.illustration_style
