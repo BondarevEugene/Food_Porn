@@ -123,8 +123,10 @@ async def process_next_illustration(
     ), None)
     if scene is None or chapter is None:
         raise PermissionError("Illustration scene is no longer available")
+    from app.little_legend.art_dispatch_snapshot import art_dispatch_fingerprint
     from app.little_legend.reviewed_identity_prompt import reviewed_identity_continuity
 
+    art_fingerprint = art_dispatch_fingerprint(draft, job.scene_id)
     context = IllustrationContext(
         scene=directed_scene_for_provider(scene), hero=draft.hero,
         style=(draft.blueprint.controls.illustration_style
@@ -145,6 +147,7 @@ async def process_next_illustration(
         await fence_illustration_dispatch(
             job_id=current.job_id, owner_id=current.owner_id,
             token=current.lease_token,
+            expected_art_fingerprint=art_fingerprint,
         )
 
     async def complete(
