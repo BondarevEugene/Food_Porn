@@ -124,7 +124,10 @@ async def request_expired_deletions(
         await session.execute(
             update(vault_assets)
             .where(vault_assets.c.asset_id.in_(rows))
-            .values(state=AssetState.DELETION_PENDING.value)
+            .values(
+                state=AssetState.DELETION_PENDING.value,
+                next_deletion_attempt_at=None,
+            )
         )
     return list(rows)
 

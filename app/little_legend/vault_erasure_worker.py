@@ -136,4 +136,9 @@ class S3PrivateObjectDeleter:
 
     def delete_private_object(self, *, object_key: str) -> None:
         validate_private_key(object_key)
-        self.client.delete_object(Bucket=self.bucket, Key=object_key)
+        response = self.client.delete_object(Bucket=self.bucket, Key=object_key)
+        if not isinstance(response, dict):
+            raise RuntimeError("Object store returned no deletion confirmation")
+        status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if status not in {200, 204}:
+            raise RuntimeError("Object store deletion was not confirmed")
