@@ -299,6 +299,47 @@ async def read_book_payment_status(
     }
 
 
+@router.get("/api/order-quotes/{quote_id}/book.pdf")
+async def download_paid_book(
+    quote_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Private re-download of a paid, completed book from durable S3 storage."""
+    import asyncio
+
+    from app.little_legend.fulfillment_queue import fulfillment_jobs
+    from app.little_legend.paid_book_storage import PaidBookStore
+    from app.little_legend.payment_entitlement import has_verified_entitlement
+
+    async with async_session_maker() as session:
+        verified = await has_verified_entitlement(
+            session, quote_id=quote_id, owner_id=owner
+        )
+        if not verified:
+            raise HTTPException(404, "Paid book not found")
+        row = (await session.execute(
+            select(fulfillment_jobs.c.asset_key, fulfillment_jobs.c.status)
+            .where(
+                fulfillment_jobs.c.quote_id == quote_id,
+                fulfillment_jobs.c.owner_id == owner,
+            )
+        )).mappings().one_or_none()
+    if row is None or not row["asset_key"] or row["status"] != "ready":
+        raise HTTPException(409, "Book is not ready")
+    try:
+        data = await asyncio.to_thread(PaidBookStore().get, key=row["asset_key"])
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(503, "Private book storage unavailable") from exc
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="little-legend-book.pdf"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.get("/api/stories/{story_id}/precheckout/{edition}", response_model=BookPrecheckout)
 async def read_book_precheckout(
     story_id: int, edition: BookEdition,
