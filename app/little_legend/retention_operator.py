@@ -15,6 +15,7 @@ from dataclasses import asdict
 
 from app.database.session import async_session_maker
 from app.little_legend.privacy_lifecycle import PrivacyLaunchConfig
+from app.little_legend.retention_alert_policy import evaluate_retention
 from app.little_legend.vault_operator_audit import audit_private_vault
 
 
@@ -24,10 +25,16 @@ def _parser() -> argparse.ArgumentParser:
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--execute", action="store_true")
     parser.add_argument("--batch-size", type=int, default=25)
+    parser.add_argument("--fail-on-alert", action="store_true")
+    parser.add_argument("--max-expired", type=int, default=0)
+    parser.add_argument("--max-pending-24h", type=int, default=0)
     return parser
 
 
-async def run_operator(*, execute: bool, batch_size: int) -> dict[str, object]:
+async def run_operator(
+    *, execute: bool, batch_size: int, max_expired: int = 0,
+    max_pending_24h: int = 0,
+) -> dict[str, object]:
     if not 1 <= batch_size <= 100:
         raise ValueError("batch_size must be 1..100")
     if execute and os.environ.get("LITTLE_LEGEND_RETENTION_EXECUTE") != "YES":
@@ -57,6 +64,11 @@ async def run_operator(*, execute: bool, batch_size: int) -> dict[str, object]:
             session, config=PrivacyLaunchConfig(),
         )
     result["audit"] = asdict(audit)
+    decision = evaluate_retention(
+        result["audit"], retention=result.get("retention"),
+        max_expired=max_expired, max_pending_24h=max_pending_24h,
+    )
+    result["operations"] = asdict(decision)
     return result
 
 
@@ -64,11 +76,17 @@ def main() -> None:
     args = _parser().parse_args()
     try:
         result = asyncio.run(
-            run_operator(execute=args.execute, batch_size=args.batch_size)
+            run_operator(
+                execute=args.execute, batch_size=args.batch_size,
+                max_expired=args.max_expired,
+                max_pending_24h=args.max_pending_24h,
+            )
         )
     except (PermissionError, ValueError) as exc:
         raise SystemExit(str(exc)) from None
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    if args.fail_on_alert:
+        raise SystemExit(result["operations"]["exit_code"])
 
 
 if __name__ == "__main__":
