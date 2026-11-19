@@ -13,6 +13,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A5
 from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
     BaseDocTemplate,
     Frame,
@@ -73,6 +74,7 @@ def render_illustrated_proof(
         raise PermissionError("Every scene illustration requires explicit approval")
     # Validate all image bytes before producing any PDF pages.
     images = {scene_id: _validated_image(raw) for scene_id, raw in illustrations.items()}
+    cover_bytes = illustrations[nodes[0].id]
     font = _font()
     output = BytesIO()
     width, height = A5
@@ -95,6 +97,20 @@ def render_illustrated_proof(
             canvas.setStrokeColor(colors.HexColor("#B8A9D9"))
             canvas.setLineWidth(1.4)
             canvas.line(52, height - 155, width - 52, height - 155)
+            # The approved first-scene artwork anchors the actual cover;
+            # never substitute unapproved/generated media.
+            with PILImage.open(BytesIO(cover_bytes)) as cover:
+                iw, ih = cover.size
+            art_width, art_height = width - 94, 210
+            scale = min(art_width / iw, art_height / ih)
+            draw_width, draw_height = iw * scale, ih * scale
+            canvas.drawImage(
+                ImageReader(BytesIO(cover_bytes)),
+                (width - draw_width) / 2,
+                95 + (art_height - draw_height) / 2,
+                width=draw_width, height=draw_height,
+                preserveAspectRatio=True, mask="auto",
+            )
         canvas.setStrokeColor(colors.HexColor("#D6C6A3"))
         canvas.setLineWidth(0.55)
         canvas.line(48, height - 39, width - 46, height - 39)
@@ -127,7 +143,7 @@ def render_illustrated_proof(
         textColor=colors.HexColor("#657089"),
     )
     flow = [
-        Spacer(1, 165),
+        Spacer(1, 12),
         Paragraph(escape(title), title_style),
         Paragraph(escape(manuscript.hero_name), title_style),
         Spacer(1, 22),
