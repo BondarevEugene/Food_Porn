@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from app.little_legend.book_quality import inspect_illustrated_book
+from app.little_legend.digital_delivery_gate import validate_paid_digital_pdf
 from app.little_legend.generated_art_store import (
     GeneratedArtStore,
     illustration_key,
@@ -57,4 +58,6 @@ def assemble_stored_book_proof(
     )
     if not quality.structurally_valid:
         raise ValueError("Illustrated book PDF failed structural preflight")
+    if edition == "digital":
+        validate_paid_digital_pdf(pdf, expected_scenes=len(expected))
     return pdf
