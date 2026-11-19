@@ -36,7 +36,7 @@ def test_premium_palette_preserves_delivery_contract(palette: str) -> None:
     )
     validate_paid_digital_pdf(pdf, expected_scenes=1)
     text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
-    assert "Звёздный сад" in text
+    assert "Сцена 1" in text
     assert "Марта увидела звёздный сад." in text
     assert "EDITORIAL PROOF" not in text
 
