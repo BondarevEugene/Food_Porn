@@ -268,6 +268,37 @@ async def start_book_checkout(
     return {"payment_id": payment.id, "checkout_url": url, "status": payment.status}
 
 
+@router.get("/api/order-quotes/{quote_id}/status")
+async def read_book_payment_status(
+    quote_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Read server-verified payment state without trusting a return URL."""
+    from app.little_legend.payment_entitlement import has_verified_entitlement
+
+    if quote_id <= 0:
+        raise HTTPException(404, "Quote not found")
+    async with async_session_maker() as session:
+        quote = (await session.execute(
+            select(order_quotes).where(
+                order_quotes.c.id == quote_id,
+                order_quotes.c.owner_id == owner,
+            )
+        )).mappings().one_or_none()
+        if quote is None:
+            raise HTTPException(404, "Quote not found")
+        verified = await has_verified_entitlement(
+            session, quote_id=quote_id, owner_id=owner
+        )
+    return {
+        "quote_id": quote_id,
+        "story_id": quote["story_id"],
+        "edition": quote["edition"],
+        "payment_status": "paid" if verified else "awaiting_confirmation",
+        "payment_verified": verified,
+        "production_started": False,
+    }
+
+
 @router.get("/api/stories/{story_id}/precheckout/{edition}", response_model=BookPrecheckout)
 async def read_book_precheckout(
     story_id: int, edition: BookEdition,
