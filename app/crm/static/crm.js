@@ -83,7 +83,7 @@
       if(state.tab==='finance')data=await Promise.all([get('/dashboard?days='+state.days),get('/expenses?days='+state.days+'&page='+state.page),get('/ledger'),get('/finance/calendar?period='+state.financePeriod+'&year='+state.financeYear+'&index='+state.financeIndex)]);
       else if(state.tab==='ads')data=await get('/integrations');
       else if(state.tab==='storage')data=await get('/storage');
-      else if(state.tab==='legend')data=await get('/little-legend/delivery-queue');
+      else if(state.tab==='legend'){const [delivery,production]=await Promise.all([get('/little-legend/delivery-queue'),get('/little-legend/paid-production?limit=100')]);data={...delivery,production};}
       else if(state.tab==='products')data=await get('/settings');
       else if(state.tab==='dashboard'){const [overview,calendar]=await Promise.all([get('/dashboard?days='+state.days),get('/finance/calendar?period=month&year='+now.getFullYear()+'&index='+(now.getMonth()+1))]);data={...overview,calendar};}
       else data=await get('/'+(state.tab==='audit'?'audit':state.tab)+'?'+query);
@@ -92,8 +92,18 @@
   }
   function legend(data){
     const items=data.items||[];
+    const production=data.production||{counts:{},orders:[]};
+    const orders=production.orders||[];
+    const counts=production.counts||{};
+    const labels={pending:'В очереди',processing:'Собирается',blocked:'Заблокировано',ready:'PDF готов',failed:'Ошибка'};
+    const diagnosisLabels={waiting_for_worker:'Ожидает worker',render_in_progress:'Идёт сборка',possibly_stalled_render:'Возможное зависание',review_story_illustrations_or_storage:'Проверить иллюстрации и S3',ready_for_telegram:'Ожидает Telegram',telegram_delivery_requires_reconciliation:'Сверить Telegram вручную',delivered:'Доставлено',manual_failure_review:'Разобрать ошибку'};
+    const orderRows=orders.map(item=>`<tr><td>#${esc(item.quote_id)}</td><td>${esc(labels[item.status]||item.status)}</td><td>${item.has_pdf?'PDF сохранён':'Нет PDF'}</td><td>${esc(diagnosisLabels[item.diagnosis]||item.diagnosis)}</td><td>${date(item.updated_at)}</td></tr>`).join('');
     const rows=items.map(item=>`<tr><td>#${esc(item.story_id)}</td><td>${esc(item.owner_id)}</td><td>${badge(item.effect_status)}</td><td>${date(item.updated_at)}</td><td>${item.requires_manual_review?'⚠ Требуется проверка':'Ожидает обработки'}</td><td><button class="secondary" data-action="legend-detail" data-owner="${esc(item.owner_id)}" data-story="${esc(item.story_id)}">Диагностика</button></td></tr>`).join('');
-    return heading('Неопределённые доставки PDF. Повторная отправка запрещена.')+`<article class="card"><h2>Очередь операций · ${items.length}</h2><p class="sub">Показаны последние 50 незавершённых операций. Детские материалы не загружаются.</p><div style="overflow-x:auto"><table><thead><tr><th>Книга</th><th>Telegram ID</th><th>Состояние</th><th>Обновлено</th><th>Действие</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6">Незавершённых доставок нет</td></tr>'}</tbody></table></div></article>`;
+    return heading('Производство оплаченных книг, готовые PDF и контроль доставки. Без повторных отправок.')+
+      `<div class="legend-metrics">${[['pending','Ожидают'],['processing','В работе'],['blocked','Блокировки'],['ready','PDF готовы'],['failed','Ошибки']].map(([key,label])=>`<article class="card legend-metric"><p class="label">${label}</p><strong>${num(counts[key]||0)}</strong></article>`).join('')}</div>
+      <section class="panel"><div class="panel-head"><div><h2>Оплаченные книги · ${orders.length}</h2><p>Последние 100 заказов из Neon. Содержимое детских книг не загружается.</p></div></div><div class="legend-table-scroll"><table><thead><tr><th>Заказ</th><th>Производство</th><th>Файл</th><th>Диагностика</th><th>Обновлено</th></tr></thead><tbody>${orderRows||'<tr><td colspan="5">Оплаченных книг пока нет</td></tr>'}</tbody></table></div></section>
+      <section class="panel"><div class="panel-head"><div><h2>Сверка Telegram · ${items.length}</h2><p>Неопределённые доставки. Повторная отправка запрещена.</p></div></div><div class="legend-table-scroll"><table><thead><tr><th>Книга</th><th>Telegram ID</th><th>Состояние</th><th>Обновлено</th><th>Действие</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6">Незавершённых доставок нет</td></tr>'}</tbody></table></div></section>
+      <p class="sub">Если отправка могла пройти, сначала сверьте историю Telegram. Повторное скачивание клиентом доступно через защищённый API книги.</p>`;
   }
   function showDialog(html){document.querySelector('#dialog-body').innerHTML=html;document.querySelector('#dialog').showModal();}
   function closeDialog(){document.querySelector('#dialog').close();}
