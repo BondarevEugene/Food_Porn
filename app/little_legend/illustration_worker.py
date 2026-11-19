@@ -14,6 +14,7 @@ from app.little_legend.generated_art_store import (
     GeneratedArtStore,
     save_generated_illustration,
 )
+from app.little_legend.illustration_provider_receipts import IllustrationProviderResult
 from app.little_legend.illustration_queue_store import IllustrationJob
 from app.little_legend.image_ai_consent import (
     ImageAIConsent,
@@ -51,6 +52,9 @@ async def run_illustration_job(
     fence_dispatch: Callable[[IllustrationJob], Awaitable[None]],
     persist_image: Callable[[IllustrationJob, bytes], Awaitable[None]],
     mark_completed: Callable[[IllustrationJob], Awaitable[None]],
+    mark_completed_with_receipt: Callable[
+        [IllustrationJob, IllustrationProviderResult], Awaitable[None]
+    ] | None = None,
 ) -> None:
     """Execute one claimed job; never retry after an ambiguous dispatch.
 
@@ -74,13 +78,26 @@ async def run_illustration_job(
         raise ValueError("Continuity notes are oversized")
     await fence_dispatch(job)
     # No retry of this call without explicit reconciliation.
-    raw = await illustrator.generate_scene(
-        scene=context.scene, hero=context.hero, style=context.style,
-        continuity=context.continuity,
-    )
-    sanitized = sanitize_image(raw)
+    receipt_method = getattr(illustrator, "generate_scene_with_receipt", None)
+    if mark_completed_with_receipt is not None and callable(receipt_method):
+        provider_result = await receipt_method(
+            scene=context.scene, hero=context.hero, style=context.style,
+            continuity=context.continuity,
+        )
+        if not isinstance(provider_result, IllustrationProviderResult):
+            raise ValueError("Invalid image provider receipt result")
+    else:
+        raw = await illustrator.generate_scene(
+            scene=context.scene, hero=context.hero, style=context.style,
+            continuity=context.continuity,
+        )
+        provider_result = IllustrationProviderResult(data=raw)
+    sanitized = sanitize_image(provider_result.data)
     await persist_image(job, sanitized.data)
-    await mark_completed(job)
+    if mark_completed_with_receipt is not None:
+        await mark_completed_with_receipt(job, provider_result)
+    else:
+        await mark_completed(job)
 
 
 async def run_illustration_job_with_private_store(
