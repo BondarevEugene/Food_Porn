@@ -16,8 +16,8 @@ from sqlalchemy import select, update
 from app.database.session import async_session_maker
 from app.little_legend.fulfillment_queue import fulfillment_jobs
 from app.little_legend.order_quotes import order_quotes
-from app.little_legend.payment_entitlement import has_verified_entitlement
 from app.little_legend.paid_book_storage import PaidBookStore, pdf_key
+from app.little_legend.payment_entitlement import has_verified_entitlement
 
 logger = logging.getLogger(__name__)
 
