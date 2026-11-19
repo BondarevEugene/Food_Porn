@@ -3,7 +3,10 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from app.bot.handlers.little_legend import show_little_legend_book
+from app.bot.handlers.little_legend import (
+    prepare_little_legend_book,
+    show_little_legend_book,
+)
 from app.little_legend.book_delivery import DeliveryStatus
 
 
@@ -50,3 +53,37 @@ async def test_missing_book_does_not_query_release_manifest() -> None:
 def test_delivery_status_labels_include_all_terminal_states() -> None:
     assert DeliveryStatus.SENT.value == "sent"
     assert DeliveryStatus.UNCERTAIN.value == "uncertain"
+
+
+@pytest.mark.asyncio
+async def test_prepare_rejects_foreign_private_chat_before_storage() -> None:
+    callback = Mock(data="ll_prepare:12")
+    callback.from_user.id = 42
+    callback.message.chat.type = "private"
+    callback.message.chat.id = 999
+    callback.answer = AsyncMock()
+    with (
+        patch("app.bot.handlers.little_legend.async_session_maker") as database,
+        patch("app.bot.handlers.little_legend.configured_private_pdf_store") as storage,
+    ):
+        await prepare_little_legend_book(callback)
+    database.assert_not_called()
+    storage.assert_not_called()
+    callback.answer.assert_awaited_once_with(
+        "Book not found", show_alert=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_prepare_invalid_story_never_touches_storage() -> None:
+    callback = Mock(data="ll_prepare:invalid")
+    callback.message.chat.type = "private"
+    callback.answer = AsyncMock()
+    with patch(
+        "app.bot.handlers.little_legend.configured_generated_art_store",
+    ) as storage:
+        await prepare_little_legend_book(callback)
+    storage.assert_not_called()
+    callback.answer.assert_awaited_once_with(
+        "Invalid book", show_alert=True,
+    )
