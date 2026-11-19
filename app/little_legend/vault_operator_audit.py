@@ -5,7 +5,7 @@ This audit reports capabilities; it never enables upload or AI processing.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,6 +63,15 @@ async def audit_private_vault(
             )), 0),
         ).where(vault_assets.c.state != AssetState.DELETED.value)
     )).one()
+    pending_old = (await session.execute(
+        select(func.count()).select_from(vault_assets).where(
+            vault_assets.c.state.in_([
+                AssetState.DELETION_PENDING.value,
+                AssetState.DELETE_FAILED.value,
+            ]),
+            vault_assets.c.expires_at < instant - timedelta(hours=24),
+        )
+    )).scalar_one()
     expired = int(totals[2])
     exhausted = int(totals[1])
     launch = photo_launch_preflight(config)
@@ -77,8 +86,8 @@ async def audit_private_vault(
         by_state=states,
         expired_not_deleted=expired,
         exhausted_retries=exhausted,
-        pending_over_24h=0,
-        requires_operator_attention=bool(expired or exhausted),
+        pending_over_24h=int(pending_old),
+        requires_operator_attention=bool(expired or exhausted or pending_old),
         photo_upload_enabled=bool(capability["enabled"]),
         photo_processing_enabled=bool(launch["photo_processing_enabled"]),
         automatic_deletion_enabled=bool(launch["automatic_deletion_enabled"]),
