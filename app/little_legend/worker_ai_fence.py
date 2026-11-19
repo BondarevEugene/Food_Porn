@@ -47,7 +47,9 @@ async def fence_worker_ai_effect(
             rounding=ROUND_CEILING,
         )
     )
-    effect_key = "llai:" + hashlib.sha256(\n        f"{kind.value}:{job.job_id}".encode("utf-8")\n    ).hexdigest()
+    effect_key = "llai:" + hashlib.sha256(
+        f"{kind.value}:{job.job_id}".encode("utf-8")
+    ).hexdigest()
     fingerprint = request_fingerprint({
         "kind": kind.value, "job_id": job.job_id,
         "story_id": job.story_id, "owner_id": job.owner_id,
