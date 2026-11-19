@@ -16,7 +16,6 @@ from app.database.session import async_session_maker
 from app.little_legend.secure_vault import AssetState
 from app.little_legend.vault_registry import vault_assets
 
-_PRIVATE_PREFIX = "little-legend/private/"
 _MAX_ATTEMPTS = 8
 
 
@@ -61,7 +60,7 @@ async def erase_due_private_assets(
     instant = now or datetime.now(UTC)
     if instant.tzinfo is None:
         raise ValueError("Timezone-aware timestamp required")
-    summary = {"deleted": 0, "failed": 0, "skipped": 0}
+    summary = {"deleted": 0, "failed": 0}
     # Process one locked row per transaction. The lock remains held while
     # the storage deletion is in flight to prevent two workers racing.
     for _ in range(batch_size):
@@ -72,7 +71,6 @@ async def erase_due_private_assets(
                         AssetState.DELETION_PENDING.value,
                         AssetState.DELETE_FAILED.value,
                     ]),
-                    vault_assets.c.expires_at <= instant,
                     vault_assets.c.deletion_attempts < _MAX_ATTEMPTS,
                     (
                         (vault_assets.c.next_deletion_attempt_at.is_(None))
