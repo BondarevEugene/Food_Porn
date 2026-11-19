@@ -8,6 +8,8 @@ from __future__ import annotations
 import hashlib
 from typing import Protocol
 
+from app.little_legend.book_delivery import BookDelivery
+from app.little_legend.book_release import BookRelease
 from app.little_legend.release_package import ReleasePackage
 
 MAX_PDF_BYTES = 40 * 1024 * 1024
@@ -106,15 +108,21 @@ def persist_release_pdf(
 
 
 def restore_release_pdf(
-    *, store: PrivatePDFStore, package: ReleasePackage,
-    owner_id: int, story_id: int,
+    *, store: PrivatePDFStore, release: BookRelease,
+    delivery: BookDelivery, owner_id: int, story_id: int,
 ) -> ReleasePackage:
-    """Rehydrate bytes only after validating owner and immutable release hash."""
-    package.verified_pdf(owner_id=owner_id, story_id=story_id)
+    """Rehydrate sealed bytes from private storage without a PDF in memory."""
+    if release.owner_id != owner_id or release.story_id != story_id:
+        raise PermissionError("Foreign book release")
+    if (delivery.owner_id != owner_id or delivery.story_id != story_id
+            or delivery.pdf_sha256 != release.pdf_sha256):
+        raise PermissionError("Foreign or stale delivery")
     key = pdf_object_key(
         owner_id=owner_id, story_id=story_id,
-        pdf_sha256=package.release.pdf_sha256,
+        pdf_sha256=release.pdf_sha256,
     )
     pdf = store.get(key=key)
-    validate_pdf(pdf, expected_sha256=package.release.pdf_sha256)
-    return package.model_copy(update={"pdf": pdf})
+    validate_pdf(pdf, expected_sha256=release.pdf_sha256)
+    package = ReleasePackage(release=release, delivery=delivery, pdf=pdf)
+    package.verified_pdf(owner_id=owner_id, story_id=story_id)
+    return package
