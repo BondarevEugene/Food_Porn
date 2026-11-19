@@ -40,6 +40,39 @@ def fictional_character_continuity(blueprint: BookBlueprint | None) -> str:
     return " ".join(note for note in notes if note)[:1200]
 
 
+def production_character_continuity(blueprint: BookBlueprint | None) -> str:
+    """Build one stable character contract for every chapter of a book.
+
+    Only parent-supplied textual traits are used. The existing text-only
+    provider cannot guarantee likeness and receives no photo or URL.
+    """
+    if blueprint is None:
+        return ""
+    hero = next((person for person in blueprint.characters if person.role == "hero"), None)
+    if hero is None:
+        return ""
+    appearance = hero.appearance.strip()
+    identity_notes = hero.visual_identity_notes.strip()
+    if not appearance and not identity_notes:
+        return ""
+    clauses = [
+        "ONE RECURRING FICTIONAL HERO: keep the same facial features, hair, "
+        "apparent age, body proportions and distinguishing marks in every scene.",
+    ]
+    if appearance:
+        clauses.append(f"Approved appearance: {appearance}")
+    if identity_notes:
+        clauses.append(f"Fixed visual identity: {identity_notes}")
+    clauses.append(
+        "Change only pose, expression, camera angle, setting and story-required "
+        "outfit; never invent new permanent physical traits."
+    )
+    contract = " ".join(clauses)
+    if len(contract) > 1200:
+        raise ValueError("Character continuity exceeds provider limit")
+    return contract
+
+
 def directed_scene_for_provider(scene: SceneNode) -> SceneNode:
     """Include approved scene composition in the production provider input.
 
@@ -98,7 +131,7 @@ async def process_next_illustration(
         disclosure=configured_image_ai_disclosure(),
         current_revision=chapter.revision,
         owner_verified=True,
-        continuity=fictional_character_continuity(draft.blueprint),
+        continuity=production_character_continuity(draft.blueprint),
         manuscript_approved=(
             draft.manuscript.parent_approved and chapter.approved
         ),
