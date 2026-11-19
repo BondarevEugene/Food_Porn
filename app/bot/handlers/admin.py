@@ -274,28 +274,39 @@ async def admin_panel_command(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "crm_secure_login")
 async def crm_secure_login_callback(callback: CallbackQuery):
-    secure_url = await issue_crm_login_url(async_session_maker, callback.from_user.id)
-    if not secure_url:
+    """Issue separate one-time credentials for WebApp and external browser.
+
+    Telegram may pre-open the WebApp while a user later taps the browser link.
+    Reusing one ticket for both buttons causes a spurious expired-link 401.
+    """
+    webapp_url = await issue_crm_login_url(async_session_maker, callback.from_user.id)
+    if not webapp_url:
         await callback.answer(
             "Доступ к Mini CRM разрешён только Telegram ID из "
             "ADMIN_TELEGRAM_IDS или CRM_VIP_TELEGRAM_IDS.",
             show_alert=True,
         )
         return
+    browser_url = await issue_crm_login_url(async_session_maker, callback.from_user.id)
+    if not browser_url or browser_url == webapp_url:
+        await callback.answer("Не удалось создать отдельную ссылку. Повторите вход.", show_alert=True)
+        return
     await callback.message.answer(
-        "🔐 <b>Mini CRM</b>\\nСсылка действует 2 минуты и только один раз. "
-        "Если Telegram не открывает встроенное окно, используйте кнопку браузера.",
+        "🔐 <b>Mini CRM</b>\\nКаждая кнопка имеет собственную одноразовую ссылку "
+        "на 2 минуты. Если время истекло, нажмите «✦ Открыть Mini CRM» "
+        "в меню /admin ещё раз.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(
                 text="✦ Открыть Mini CRM",
-                web_app=WebAppInfo(url=secure_url),
+                web_app=WebAppInfo(url=webapp_url),
             ),
         ], [
             InlineKeyboardButton(
                 text="🌐 Открыть в браузере",
-                url=secure_url,
+                url=browser_url,
             ),
         ]]),
+        parse_mode="HTML",
     )
     await callback.answer()
 
