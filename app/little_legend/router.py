@@ -73,6 +73,7 @@ from app.little_legend.manuscript_repository import (
 )
 from app.little_legend.narrative_design import StoryDesign, design_guidance
 from app.little_legend.order_quotes import BookOrderQuote, create_order_quote, order_quotes
+from app.little_legend.palette_catalog import PaletteCatalog, book_palette_catalog
 from app.little_legend.portfolio_cost_summary import get_portfolio_cost_summary
 from app.little_legend.portrait_studio import PortraitPlan, portrait_preflight
 from app.little_legend.precheckout import BookPrecheckout, preview_book_precheckout
@@ -119,6 +120,12 @@ stories = Table(
     Column("data", Text, nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
+
+@router.get("/api/palettes", response_model=PaletteCatalog)
+async def read_book_palettes() -> PaletteCatalog:
+    """Expose all fifteen safe cover styles for a customer-facing selector."""
+    return book_palette_catalog()
+
 
 @router.get("/api/catalog", response_model=BookCatalog)
 async def read_book_catalog() -> BookCatalog:
