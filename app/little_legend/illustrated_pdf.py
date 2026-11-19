@@ -31,6 +31,36 @@ from app.little_legend.story_writer import StoryManuscript
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_IMAGE_PIXELS = 24_000_000
 
+# Exactly five light, five vivid and five dark cover directions.
+# Tuple: cover background, primary accent, secondary accent, cover title, ornament.
+PALETTE_GROUPS = {
+    "light": ("lavender", "blush", "sage", "champagne", "sky"),
+    "vivid": ("sunrise", "ocean", "coral", "sunflower", "emerald"),
+    "dark": ("midnight", "royal", "forest", "burgundy", "obsidian"),
+}
+
+EDITION_PALETTES = {
+    # Light: soft, airy paper tones.
+    "lavender": ("#D9C6F3", "#A88AE0", "#E9D8FF", "#34234F", "#8964C7"),
+    "blush": ("#F5C5D8", "#EB83AB", "#FFE1EB", "#59233E", "#D85D91"),
+    "sage": ("#C5DDB3", "#8CB86D", "#E5F2CF", "#2D4B32", "#74A653"),
+    "champagne": ("#EAD4A5", "#CBA56C", "#F8E7C1", "#59402A", "#B48A50"),
+    "sky": ("#B7DDF8", "#6FB5EA", "#DDF1FF", "#234969", "#4E9AD3"),
+    # Vivid: saturated and cheerful.
+    "sunrise": ("#FFB36B", "#F97358", "#FFD66D", "#49253D", "#E55D52"),
+    "ocean": ("#21B6C8", "#087DA3", "#76E1D5", "#073D56", "#087F9C"),
+    "coral": ("#FF7C86", "#EF436C", "#FFC168", "#542640", "#D83F67"),
+    "sunflower": ("#FFD54D", "#FF983E", "#FFE98A", "#533A24", "#E9A51B"),
+    "emerald": ("#36C99A", "#098C82", "#A2E9AD", "#124A43", "#168D70"),
+    # Dark: genuine deep backgrounds, luminous accents and light cover type.
+    "midnight": ("#171D3D", "#5654A6", "#354B83", "#FFF5E9", "#A4A5E8"),
+    "royal": ("#292052", "#6B4DB1", "#443475", "#F8EDFF", "#BFA4F2"),
+    "forest": ("#122E2A", "#286955", "#1D4A3C", "#FFF4DE", "#8DCAA7"),
+    "burgundy": ("#401D34", "#8A365F", "#61304C", "#FFF1E9", "#D99AB9"),
+    "obsidian": ("#1B2530", "#425A6E", "#2B3B4C", "#F7F0DE", "#B2C7D5"),
+}
+
+
 
 def _validated_image(raw: bytes) -> Image:
     if not isinstance(raw, bytes) or not raw or len(raw) > MAX_IMAGE_BYTES:
@@ -56,10 +86,14 @@ def render_illustrated_proof(
     manuscript: StoryManuscript, illustrations: dict[str, bytes],
     approved_scene_ids: set[str],
     edition: str = "editorial_proof",
+    palette: str = "lavender",
 ) -> bytes:
     """Render all chapters and approved images; fail closed on mismatches."""
     if edition not in {"editorial_proof", "digital"}:
         raise ValueError("Unsupported book edition")
+    if palette not in EDITION_PALETTES:
+        raise ValueError("Unsupported book palette")
+    paper, accent, secondary, ink, ornament = EDITION_PALETTES[palette]
     if not title.strip() or not manuscript.hero_name.strip():
         raise ValueError("Title and hero are required")
     nodes = sorted(graph.nodes, key=lambda item: item.order)
@@ -91,13 +125,13 @@ def render_illustrated_proof(
     def page(canvas, document):
         canvas.saveState()
         if document.page == 1:
-            canvas.setFillColor(colors.HexColor("#F3F0FA"))
+            canvas.setFillColor(colors.HexColor(paper))
             canvas.rect(0, 0, width, height, fill=1, stroke=0)
-            canvas.setFillColor(colors.HexColor("#D9D1F1"))
+            canvas.setFillColor(colors.HexColor(accent))
             canvas.circle(width - 40, height - 75, 95, fill=1, stroke=0)
-            canvas.setFillColor(colors.HexColor("#E1EBF8"))
+            canvas.setFillColor(colors.HexColor(secondary))
             canvas.circle(38, 65, 105, fill=1, stroke=0)
-            canvas.setStrokeColor(colors.HexColor("#B8A9D9"))
+            canvas.setStrokeColor(colors.HexColor(ornament))
             canvas.setLineWidth(1.4)
             canvas.line(52, height - 155, width - 52, height - 155)
             # The approved first-scene artwork anchors the actual cover;
@@ -114,6 +148,13 @@ def render_illustrated_proof(
                 width=draw_width, height=draw_height,
                 preserveAspectRatio=True, mask="auto",
             )
+        elif edition == "digital":
+            canvas.setFillColor(colors.HexColor("#FCFBFA"))
+            canvas.rect(0, 0, width, height, fill=1, stroke=0)
+            canvas.setFillColor(colors.HexColor(accent))
+            canvas.circle(width - 22, height - 21, 31, fill=1, stroke=0)
+            canvas.setFillColor(colors.HexColor(secondary))
+            canvas.circle(18, 21, 27, fill=1, stroke=0)
         canvas.setStrokeColor(colors.HexColor("#D6C6A3"))
         canvas.setLineWidth(0.55)
         canvas.line(48, height - 39, width - 46, height - 39)
@@ -129,18 +170,25 @@ def render_illustrated_proof(
     doc.addPageTemplates(PageTemplate(id="book", frames=[frame], onPage=page))
     title_style = ParagraphStyle(
         "Title", fontName=font, fontSize=25, leading=36,
-        textColor=colors.HexColor("#27394B"),
+        textColor=colors.HexColor(ink),
         alignment=TA_CENTER, spaceAfter=18,
     )
     heading = ParagraphStyle(
         "Chapter", fontName=font, fontSize=16, leading=24,
-        textColor=colors.HexColor("#415269"),
+        textColor=colors.HexColor(ink),
         alignment=TA_LEFT, spaceAfter=15, keepWithNext=True,
+    )
+    digital_heading = ParagraphStyle(
+        "DigitalChapter", parent=heading, fontSize=17, leading=26,
     )
     body = ParagraphStyle(
         "Body", fontName=font, fontSize=10.5, leading=18,
         textColor=colors.HexColor("#30394C"),
         spaceAfter=12, allowWidows=0, allowOrphans=0,
+    )
+    chapter_label = ParagraphStyle(
+        "ChapterLabel", fontName=font, fontSize=8, leading=13,
+        textColor=colors.HexColor("#847A70"), spaceAfter=8,
     )
     note = ParagraphStyle(
         "Note", parent=body, fontSize=8, leading=13,
@@ -160,9 +208,16 @@ def render_illustrated_proof(
         PageBreak(),
     ]
     for node in nodes:
-        flow.append(Paragraph(
-            f"Глава {node.order}. {escape(node.title)}", heading,
-        ))
+        if edition == "digital":
+            flow.append(Spacer(1, 14))
+            flow.append(Paragraph(
+                f"Глава {node.order:02d}  ·  LITTLE LEGEND", chapter_label,
+            ))
+            flow.append(Paragraph(escape(node.title), digital_heading))
+        else:
+            flow.append(Paragraph(
+                f"Глава {node.order}. {escape(node.title)}", heading,
+            ))
         flow.append(images[node.id])
         flow.append(Spacer(1, 20))
         for paragraph in chapters[node.id].text.splitlines():

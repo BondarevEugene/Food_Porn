@@ -20,6 +20,7 @@ def assemble_stored_book_proof(
     title: str, dedication: str, graph: StoryGraph,
     manuscript: StoryManuscript, jobs: list[IllustrationJob],
     edition: str = "editorial_proof",
+    palette: str = "lavender",
 ) -> bytes:
     """Require a complete approved, revision-matched batch before storage reads."""
     if owner_id <= 0 or story_id <= 0:
@@ -51,7 +52,7 @@ def assemble_stored_book_proof(
     pdf = render_illustrated_proof(
         title=title, dedication=dedication, graph=graph,
         manuscript=manuscript, illustrations=images,
-        approved_scene_ids=expected, edition=edition,
+        approved_scene_ids=expected, edition=edition, palette=palette,
     )
     quality = inspect_illustrated_book(
         pdf=pdf, illustrations=images, expected_min_pages=len(expected) + 2,
