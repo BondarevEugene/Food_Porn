@@ -8,7 +8,10 @@ from sqlalchemy import select
 from app.bot.handlers.wallpaper import language_for, text_for
 from app.config import get_settings
 from app.database.session import async_session_maker
+from app.little_legend.aiogram_pdf_sender import AiogramPDFSender
 from app.little_legend.book_delivery import DeliveryStatus
+from app.little_legend.pdf_storage_config import configured_private_pdf_store
+from app.little_legend.release_orchestrator import send_owned_release
 from app.little_legend.release_manifest_store import get_release_manifest
 from app.little_legend.router import stories
 
@@ -133,13 +136,73 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
         DeliveryStatus.UNCERTAIN: ("⚠️ Потрібна перевірка", "⚠️ Нужна проверка", "⚠️ Needs review"),
     }
     status_text = text_for(lang, *status_labels[status])
-    await callback.message.answer(
-        f"📖 #{story_id} — {status_text}",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+    buttons = []
+    if status == DeliveryStatus.READY and callback.message.chat.type == "private":
+        buttons.append([InlineKeyboardButton(
+            text=text_for(lang, "📥 Отримати PDF", "📥 Получить PDF", "📥 Get PDF"),
+            callback_data=f"ll_send:{story_id}",
+        )])
+    buttons.append([
             InlineKeyboardButton(
                 text=text_for(lang, "⬅️ Мої книги", "⬅️ Мои книги", "⬅️ My books"),
                 callback_data="ll_books",
             ),
-        ]]),
+        ])
+    await callback.message.answer(
+        f"📖 #{story_id} — {status_text}",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ll_send:"))
+async def send_little_legend_book(callback: CallbackQuery) -> None:
+    """One explicit owner-authorized send; no automatic retries on ambiguity."""
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("Open this in a private chat", show_alert=True)
+        return
+    try:
+        story_id = int((callback.data or "").split(":", 1)[1])
+    except (IndexError, ValueError):
+        await callback.answer("Invalid book", show_alert=True)
+        return
+    if story_id <= 0:
+        await callback.answer("Invalid book", show_alert=True)
+        return
+    owner_id = callback.from_user.id
+    if callback.message.chat.id != owner_id:
+        await callback.answer("Open your own private chat", show_alert=True)
+        return
+    async with async_session_maker() as session:
+        owned = (await session.execute(select(stories.c.id).where(
+            stories.c.id == story_id, stories.c.owner_id == owner_id,
+        ))).scalar_one_or_none()
+    if owned is None:
+        await callback.answer("Book not found", show_alert=True)
+        return
+    manifest = await get_release_manifest(owner_id=owner_id, story_id=story_id)
+    if manifest is None or manifest.status != DeliveryStatus.READY:
+        await callback.answer("Book is not ready for delivery", show_alert=True)
+        return
+    try:
+        pdf_store = configured_private_pdf_store()
+    except ValueError:
+        await callback.answer("Delivery storage is not configured", show_alert=True)
+        return
+    await callback.answer()
+    try:
+        outcome = await send_owned_release(
+            owner_id=owner_id, story_id=story_id,
+            pdf_store=pdf_store, sender=AiogramPDFSender(callback.bot),
+        )
+    except PermissionError:
+        await callback.message.answer(
+            "Delivery is already reserved or needs review. No duplicate was sent.",
+        )
+        return
+    if outcome.status == DeliveryStatus.SENT:
+        await callback.message.answer("✅ Your PDF book has been delivered.")
+    else:
+        await callback.message.answer(
+            "⚠️ Delivery result is uncertain. Contact support; do not retry.",
+        )
