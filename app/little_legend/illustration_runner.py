@@ -127,8 +127,16 @@ async def process_next_illustration(
     from app.little_legend.reviewed_identity_prompt import reviewed_identity_continuity
 
     art_fingerprint = art_dispatch_fingerprint(draft, job.scene_id)
+    from app.little_legend.book_art_director import (
+        directed_scene_from_plan, plan_book_shots,
+    )
+
+    shot = next(
+        item for item in plan_book_shots(draft.graph).shots
+        if item.scene_id == job.scene_id
+    )
     context = IllustrationContext(
-        scene=directed_scene_for_provider(scene), hero=draft.hero,
+        scene=directed_scene_from_plan(scene, shot), hero=draft.hero,
         style=(draft.blueprint.controls.illustration_style
                if draft.blueprint else "storybook"),
         consent=draft.image_ai_consent,
