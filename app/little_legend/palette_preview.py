@@ -25,19 +25,43 @@ def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
 
 
 def _lines(draw: ImageDraw.ImageDraw, title: str, font: ImageFont.ImageFont) -> list[str]:
-    words = title.split()
+    """Wrap every character, including long unspaced titles, without truncation."""
     result: list[str] = []
     current = ""
-    for word in words:
+    for word in title.split():
         candidate = f"{current} {word}".strip()
-        if current and draw.textbbox((0, 0), candidate, font=font)[2] > 550:
-            result.append(current)
-            current = word
-        else:
+        if draw.textbbox((0, 0), candidate, font=font)[2] <= 540:
             current = candidate
+            continue
+        if current:
+            result.append(current)
+            current = ""
+        for char in word:
+            candidate = current + char
+            if current and draw.textbbox((0, 0), candidate, font=font)[2] > 540:
+                result.append(current)
+                current = char
+            else:
+                current = candidate
     if current:
         result.append(current)
-    return result[:5]
+    return result
+
+
+def _title_layout(
+    draw: ImageDraw.ImageDraw, title: str,
+) -> tuple[ImageFont.ImageFont, list[str], int]:
+    """Fit the complete title inside the cover's bounded typography area."""
+    for size in range(49, 17, -1):
+        font = _font(size)
+        lines = _lines(draw, title, font)
+        line_height = max(size + 9, 29)
+        if len(lines) * line_height <= 245 and all(
+            draw.textbbox((0, 0), line, font=font)[2] <= 540
+            for line in lines
+        ):
+            return font, lines, line_height
+    raise ValueError("Book title cannot fit on preview cover")
 
 
 def render_palette_preview(*, palette: str, title: str) -> bytes:
@@ -58,13 +82,8 @@ def render_palette_preview(*, palette: str, title: str) -> bytes:
     draw.line((235, 195, 485, 195), fill=ornament, width=4)
     draw.ellipse((260, 255, 460, 455), fill=secondary, outline=ornament, width=5)
     draw.ellipse((316, 309, 404, 397), fill=accent)
-    font = _font(49)
-    lines = _lines(draw, title.strip(), font)
-    if len(lines) == 5 and " ".join(lines) != " ".join(title.split()):
-        font = _font(34)
-        lines = _lines(draw, title.strip(), font)
-    line_height = 70 if len(lines) <= 3 else 53
-    y = 540 - (len(lines) - 1) * line_height // 2
+    font, lines, line_height = _title_layout(draw, title.strip())
+    y = 570 - (len(lines) - 1) * line_height // 2
     for line in lines:
         draw.text((360, y), line, font=font, fill=ink, anchor="mm")
         y += line_height
