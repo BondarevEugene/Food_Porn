@@ -6,7 +6,9 @@ fence and reserves money without committing; caller commits all changes once.
 """
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
+from decimal import Decimal, ROUND_CEILING
 
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -40,14 +42,12 @@ async def fence_worker_ai_effect(
     if job.estimated_cost_usd <= 0:
         raise PermissionError("Job has no positive AI cost estimate")
     # Round up so the reserved ceiling is never below the estimate.
-    from decimal import Decimal, ROUND_CEILING
-
     amount = int(
         (Decimal(str(job.estimated_cost_usd)) * 1_000_000).to_integral_value(
             rounding=ROUND_CEILING,
         )
     )
-    effect_key = f"{kind.value}:{job.job_id}"
+    effect_key = "llai:" + hashlib.sha256(\n        f"{kind.value}:{job.job_id}".encode("utf-8")\n    ).hexdigest()
     fingerprint = request_fingerprint({
         "kind": kind.value, "job_id": job.job_id,
         "story_id": job.story_id, "owner_id": job.owner_id,
