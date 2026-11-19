@@ -1,6 +1,4 @@
 """Mobile CRM login buttons must never embed a stale one-time ticket."""
-from aiogram.types import CallbackQuery, InlineKeyboardButton
-
 from app.bot.handlers.admin import get_admin_main_keyboard
 
 
