@@ -5,7 +5,24 @@ import pytest
 from pypdf import PdfReader
 
 from app.little_legend.illustrated_pdf import render_illustrated_proof
-from tests.test_little_legend_illustrated_pdf import sample
+from PIL import Image as PILImage
+
+from app.little_legend.story_graph import build_graph
+from app.little_legend.story_writer import ChapterDraft, StoryManuscript
+
+
+def sample():
+    graph = build_graph(["Открытие сада"])
+    manuscript = StoryManuscript(
+        hero_name="Марта", parent_approved=True,
+        chapters=[ChapterDraft(
+            scene_id="scene_1", text="Марта вошла в сад.", approved=True,
+        )],
+    )
+    picture = PILImage.new("RGB", (600, 600), "white")
+    output = BytesIO()
+    picture.save(output, format="PNG")
+    return graph, manuscript, output.getvalue()
 
 
 def test_paid_digital_book_is_clean_and_keeps_approved_story():
