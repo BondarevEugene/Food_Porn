@@ -6,11 +6,10 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from app.little_legend.chapter_provider_receipts import ChapterProviderResult
-
 from sqlalchemy import select
 
 from app.database.session import async_session_maker
+from app.little_legend.chapter_provider_receipts import ChapterProviderResult
 from app.little_legend.hero_contract import contract_from_blueprint
 from app.little_legend.sketch_writer_briefs import (
     SketchWritingSettings,
