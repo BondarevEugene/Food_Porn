@@ -146,3 +146,35 @@ async def vault_summary(
         )
     ).all()
     return {state: count for state, count in rows}
+
+
+async def request_story_asset_erasure(
+    session: AsyncSession, *, owner_id: int, story_id: int,
+) -> int:
+    """Queue every non-deleted private asset after parental consent withdrawal.
+
+    Owner/story ownership is checked in SQL. This does NOT claim that S3
+    objects have been erased: only the deletion worker may mark DELETED.
+    """
+    if owner_id <= 0 or story_id <= 0:
+        raise ValueError("Owner and story must be positive")
+    exists = select(1).select_from(stories_table).where(
+        stories_table.c.id == story_id,
+        stories_table.c.owner_id == owner_id,
+    ).exists()
+    result = await session.execute(
+        update(vault_assets).where(
+            vault_assets.c.owner_id == owner_id,
+            vault_assets.c.story_id == story_id,
+            vault_assets.c.state.notin_([
+                AssetState.DELETED.value,
+                AssetState.DELETION_PENDING.value,
+            ]),
+            exists,
+        ).values(
+            state=AssetState.DELETION_PENDING.value,
+            next_deletion_attempt_at=None,
+            last_error_code=None,
+        )
+    )
+    return result.rowcount
