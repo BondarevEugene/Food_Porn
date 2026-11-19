@@ -36,6 +36,8 @@ SETTING_RULES = {
     "usd_exchange_rate": (Decimal("0.01"), Decimal("10000"), False, "usd_exchange_rate"),
     "price_electronic_uah": (Decimal("1"), Decimal("100000"), True, "price_electronic_uah"),
     "price_print_uah": (Decimal("1"), Decimal("100000"), True, "price_print_uah"),
+    "little_legend_digital_price_uah": (Decimal("0"), Decimal("100000"), True, "little_legend_digital_price_uah"),
+    "little_legend_print_price_uah": (Decimal("0"), Decimal("100000"), True, "little_legend_print_price_uah"),
 }
 
 
