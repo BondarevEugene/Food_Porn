@@ -41,11 +41,11 @@ PALETTE_GROUPS = {
 
 EDITION_PALETTES = {
     # Light: soft, airy paper tones.
-    "lavender": ("#F3F0FA", "#D9D1F1", "#E1EBF8", "#27394B", "#B8A9D9"),
-    "blush": ("#FFF2F5", "#F4C6D4", "#FBE1E8", "#573D50", "#DCA0B5"),
-    "sage": ("#F3F7F0", "#C9D9C1", "#E1EAD8", "#344D40", "#A3B99A"),
-    "champagne": ("#FAF6EE", "#EAD9BB", "#F4E7D2", "#5B493B", "#C9B38D"),
-    "sky": ("#F1F8FF", "#BEDDF5", "#DBEEFC", "#2C4B69", "#91C2E6"),
+    "lavender": ("#D9C6F3", "#A88AE0", "#E9D8FF", "#34234F", "#8964C7"),
+    "blush": ("#F5C5D8", "#EB83AB", "#FFE1EB", "#59233E", "#D85D91"),
+    "sage": ("#C5DDB3", "#8CB86D", "#E5F2CF", "#2D4B32", "#74A653"),
+    "champagne": ("#EAD4A5", "#CBA56C", "#F8E7C1", "#59402A", "#B48A50"),
+    "sky": ("#B7DDF8", "#6FB5EA", "#DDF1FF", "#234969", "#4E9AD3"),
     # Vivid: saturated and cheerful.
     "sunrise": ("#FFB36B", "#F97358", "#FFD66D", "#49253D", "#E55D52"),
     "ocean": ("#21B6C8", "#087DA3", "#76E1D5", "#073D56", "#087F9C"),
