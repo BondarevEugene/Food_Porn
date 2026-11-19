@@ -1354,3 +1354,17 @@ async function saveDirector(){try{if(!storyId)throw Error('Сначала сох
 function fresh(){storyId=null;fill({title:'Новая история',hero:'Оля',genre:'Научная фантастика',scenes:defaults});$('status').textContent='Новый черновик — сохраните его'}
 fresh();if(auth){$('workspace').classList.remove('hidden');load().catch(e=>$('status').textContent='Не удалось загрузить книги: '+e.message)}else{$('authError').classList.remove('hidden')}
 </script></body></html>"""
+
+
+@router.get("/api/stories/{story_id}/production-readiness")
+async def read_production_readiness(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Show private, actionable production blockers without exposing child text."""
+    from app.little_legend.owned_production import load_owned_production
+
+    try:
+        production = await load_owned_production(owner_id=owner, story_id=story_id)
+    except PermissionError as exc:
+        raise HTTPException(404, "Story production not found") from exc
+    return production.readiness().model_dump(mode="json")
