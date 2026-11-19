@@ -31,22 +31,33 @@ from app.little_legend.story_writer import StoryManuscript
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_IMAGE_PIXELS = 24_000_000
 
+# Exactly five light, five vivid and five dark cover directions.
+# Tuple: cover background, primary accent, secondary accent, cover title, ornament.
+PALETTE_GROUPS = {
+    "light": ("lavender", "blush", "sage", "champagne", "sky"),
+    "vivid": ("sunrise", "ocean", "coral", "sunflower", "emerald"),
+    "dark": ("midnight", "royal", "forest", "burgundy", "obsidian"),
+}
+
 EDITION_PALETTES = {
+    # Light: soft, airy paper tones.
     "lavender": ("#F3F0FA", "#D9D1F1", "#E1EBF8", "#27394B", "#B8A9D9"),
-    "ocean": ("#EFF7FA", "#C8E6EC", "#DCEEF6", "#234C60", "#8ABCCB"),
-    "sunrise": ("#FFF5ED", "#F8DCC8", "#FBE9D7", "#593F48", "#D8A48B"),
     "blush": ("#FFF2F5", "#F4C6D4", "#FBE1E8", "#573D50", "#DCA0B5"),
     "sage": ("#F3F7F0", "#C9D9C1", "#E1EAD8", "#344D40", "#A3B99A"),
-    "forest": ("#EFF5F0", "#B9D3C2", "#D9E8DD", "#284637", "#8BAE98"),
-    "midnight": ("#F1F1FA", "#C9C9E8", "#DFE0F4", "#2D3156", "#9B9DCE"),
-    "royal": ("#F2F2FC", "#C9C7EF", "#E0E0FA", "#32366A", "#9A9BD6"),
     "champagne": ("#FAF6EE", "#EAD9BB", "#F4E7D2", "#5B493B", "#C9B38D"),
-    "peach": ("#FFF4EC", "#F6CEB3", "#FCE3D0", "#60433C", "#E3AD91"),
-    "terracotta": ("#FCF3EC", "#E8B9A0", "#F4DDCC", "#654538", "#CA9276"),
-    "lemon": ("#FFFBEA", "#F4E6A0", "#FFF1C6", "#554B35", "#D6C778"),
-    "mint": ("#EFFBF7", "#BDE6D8", "#D8F3E8", "#285248", "#8ACDB7"),
     "sky": ("#F1F8FF", "#BEDDF5", "#DBEEFC", "#2C4B69", "#91C2E6"),
-    "lilac": ("#F8F2FC", "#DEC7EE", "#EDE0F8", "#4C3D62", "#C4A7DC"),
+    # Vivid: saturated and cheerful.
+    "sunrise": ("#FFB36B", "#F97358", "#FFD66D", "#49253D", "#E55D52"),
+    "ocean": ("#21B6C8", "#087DA3", "#76E1D5", "#073D56", "#087F9C"),
+    "coral": ("#FF7C86", "#EF436C", "#FFC168", "#542640", "#D83F67"),
+    "sunflower": ("#FFD54D", "#FF983E", "#FFE98A", "#533A24", "#E9A51B"),
+    "emerald": ("#36C99A", "#098C82", "#A2E9AD", "#124A43", "#168D70"),
+    # Dark: genuine deep backgrounds, luminous accents and light cover type.
+    "midnight": ("#171D3D", "#5654A6", "#354B83", "#FFF5E9", "#A4A5E8"),
+    "royal": ("#292052", "#6B4DB1", "#443475", "#F8EDFF", "#BFA4F2"),
+    "forest": ("#122E2A", "#286955", "#1D4A3C", "#FFF4DE", "#8DCAA7"),
+    "burgundy": ("#401D34", "#8A365F", "#61304C", "#FFF1E9", "#D99AB9"),
+    "obsidian": ("#1B2530", "#425A6E", "#2B3B4C", "#F7F0DE", "#B2C7D5"),
 }
 
 
