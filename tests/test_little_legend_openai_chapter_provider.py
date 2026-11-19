@@ -45,7 +45,10 @@ async def test_adapter_sends_approved_brief_and_returns_prose():
     adapter = OpenAIChapterProvider(
         client=client, settings=WriterAdapterSettings(enabled=True),
     )
-    assert await adapter.write_chapter(approved_brief()) == "Готовая сказочная глава."
+    result = await adapter.write_chapter(approved_brief())
+    assert result.text == "Готовая сказочная глава."
+    assert result.actual_micro_usd is None
+    assert result.provider_reference is None
     kwargs = client.chat.completions.create.await_args.kwargs
     assert kwargs["model"] == "gpt-4o-mini"
     assert "История от родителей" in kwargs["messages"][1]["content"]
