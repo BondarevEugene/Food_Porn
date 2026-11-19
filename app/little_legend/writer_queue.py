@@ -96,6 +96,12 @@ def finish_job(
     if success:
         status = JobStatus.COMPLETED
         retry_after = None
+    elif job.provider_dispatched_at is not None:
+        # A provider may already have charged us. Never schedule another call.
+        # The persisted dispatch fence and budget hold remain for reconciliation.
+        status = JobStatus.FAILED
+        retry_after = None
+        error_code = "provider_reconciliation_required"
     elif retryable and job.attempt < policy.max_attempts:
         status = JobStatus.RETRY_WAIT
         retry_after = now + timedelta(
