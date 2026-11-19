@@ -1,5 +1,8 @@
 """Entry point for Little Legend as Food_Porn's third product."""
+import logging
 from urllib.parse import urlsplit, urlunsplit
+
+logger = logging.getLogger(__name__)
 
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
@@ -132,6 +135,7 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
     status_labels = {
         None: ("⏳ У роботі", "⏳ В работе", "⏳ In production"),
         DeliveryStatus.READY: ("📦 Готова до видачі", "📦 Готова к выдаче", "📦 Ready for delivery"),
+        DeliveryStatus.SENDING: ("⏳ Відправлення", "⏳ Отправка", "⏳ Sending"),
         DeliveryStatus.SENT: ("✅ Надіслано", "✅ Отправлено", "✅ Delivered"),
         DeliveryStatus.UNCERTAIN: ("⚠️ Потрібна перевірка", "⚠️ Нужна проверка", "⚠️ Needs review"),
     }
@@ -198,6 +202,12 @@ async def send_little_legend_book(callback: CallbackQuery) -> None:
     except PermissionError:
         await callback.message.answer(
             "Delivery is already reserved or needs review. No duplicate was sent.",
+        )
+        return
+    except Exception:
+        logger.exception("Little Legend delivery requires reconciliation")
+        await callback.message.answer(
+            "⚠️ Delivery could not be confirmed. Contact support; do not retry."
         )
         return
     if outcome.status == DeliveryStatus.SENT:
