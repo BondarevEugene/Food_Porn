@@ -39,12 +39,13 @@ def validate_paid_digital_pdf(pdf: bytes, *, expected_scenes: int) -> None:
             raise ValueError("Editorial notices found in paid PDF")
         if not texts[0].strip() or not texts[1].strip():
             raise ValueError("Paid PDF cover or dedication is empty")
+        # Check cover art first: a synthetic PDF may not embed Cyrillic fonts,
+        # but missing approved artwork must still be diagnosed correctly.
+        if not reader.pages[0].images:
+            raise ValueError("Paid PDF cover illustration is missing")
         # Each chapter must contain selectable text, not only raster artwork.
         chapter_pages = texts[2:]
         if sum("Глава " in text for text in chapter_pages) < expected_scenes:
             raise ValueError("Paid PDF chapters are incomplete")
-        # Cover must contain the explicitly approved hero illustration.
-        if not reader.pages[0].images:
-            raise ValueError("Paid PDF cover illustration is missing")
     except (PdfReadError, KeyError, TypeError, OSError) as exc:
         raise ValueError("Paid PDF content cannot be inspected") from exc
