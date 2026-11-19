@@ -19,7 +19,7 @@ class OpenAISceneArtAdapter:
         if not isinstance(prompt, dict):
             raise ValueError("Scene prompt must be a dictionary")
         required = (
-            "scene_id", "scene_order", "scene_title", "hero_name",
+            "scene_id", "scene_order", "hero_name",
             "scene_action", "setting_and_context", "identity_anchor",
             "continuity_rules", "forbidden_inventions", "style",
         )
