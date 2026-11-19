@@ -174,9 +174,12 @@ def render_illustrated_proof(
         alignment=TA_CENTER, spaceAfter=18,
     )
     heading = ParagraphStyle(
-        "Chapter", fontName=font, fontSize=17, leading=26,
+        "Chapter", fontName=font, fontSize=16, leading=24,
         textColor=colors.HexColor(ink),
         alignment=TA_LEFT, spaceAfter=15, keepWithNext=True,
+    )
+    digital_heading = ParagraphStyle(
+        "DigitalChapter", parent=heading, fontSize=17, leading=26,
     )
     body = ParagraphStyle(
         "Body", fontName=font, fontSize=10.5, leading=18,
@@ -210,7 +213,7 @@ def render_illustrated_proof(
             flow.append(Paragraph(
                 f"Глава {node.order:02d}  ·  LITTLE LEGEND", chapter_label,
             ))
-            flow.append(Paragraph(escape(node.title), heading))
+            flow.append(Paragraph(escape(node.title), digital_heading))
         else:
             flow.append(Paragraph(
                 f"Глава {node.order}. {escape(node.title)}", heading,
