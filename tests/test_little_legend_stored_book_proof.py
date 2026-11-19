@@ -64,6 +64,10 @@ def test_assembly_rejects_malformed_rendered_pdf() -> None:
             "app.little_legend.stored_book_proof.render_illustrated_proof",
             return_value=b"%PDF-not-a-real-document",
         ),
+        patch(
+            "app.little_legend.stored_book_proof.inspect_illustrated_book",
+            return_value=Mock(structurally_valid=False),
+        ),
     ):
         with pytest.raises(ValueError, match="preflight"):
             assemble_stored_book_proof(
