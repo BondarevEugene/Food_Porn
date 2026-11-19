@@ -127,6 +127,7 @@ async def run_retention_cycle(
 
     outcome = await erase_due_private_assets(
         deleter=_LegacyStoreAdapter(), batch_size=batch_size, now=instant,
+        session_factory=session_factory,
     )
 
     async with session_factory() as session:
