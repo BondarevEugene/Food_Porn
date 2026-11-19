@@ -87,9 +87,9 @@ def _book_paragraphs(text: str) -> list[str]:
     This prevents a chapter supplied as a single giant line from becoming an
     unbreakable flowable, without altering punctuation or dropping content.
     """
-    normalized = text.replace("\\r\\n", "\\n").replace("\\r", "\\n")
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     result: list[str] = []
-    for block in normalized.split("\\n"):
+    for block in normalized.split("\n"):
         block = block.strip()
         if block:
             result.append(block)
