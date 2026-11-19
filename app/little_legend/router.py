@@ -187,6 +187,12 @@ async def list_stories(owner: Annotated[int, Depends(_owner)]):
 
 @router.post("/api/stories", status_code=201)
 async def create_story(draft: StoryDraft, owner: Annotated[int, Depends(_owner)]):
+    from app.little_legend.story_budget_provision import (
+        configured_book_budget_micro_usd,
+        provision_story_budget,
+    )
+
+    budget_ceiling = configured_book_budget_micro_usd()
     now = datetime.now(UTC)
     async with async_session_maker() as session:
         result = await session.execute(insert(stories).values(
@@ -194,6 +200,10 @@ async def create_story(draft: StoryDraft, owner: Annotated[int, Depends(_owner)]
             data=draft.model_dump_json(), updated_at=now
         ).returning(stories.c.id))
         story_id = result.scalar_one()
+        await provision_story_budget(
+            session, story_id=story_id, owner_id=owner,
+            limit_micro_usd=budget_ceiling,
+        )
         await session.commit()
     return {"id": story_id}
 
