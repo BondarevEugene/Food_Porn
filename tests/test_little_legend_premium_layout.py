@@ -6,7 +6,11 @@ from PIL import Image as PILImage
 from pypdf import PdfReader
 
 from app.little_legend.digital_delivery_gate import validate_paid_digital_pdf
-from app.little_legend.illustrated_pdf import EDITION_PALETTES, render_illustrated_proof
+from app.little_legend.illustrated_pdf import (
+    EDITION_PALETTES,
+    PALETTE_GROUPS,
+    render_illustrated_proof,
+)
 from app.little_legend.story_graph import build_graph
 from app.little_legend.story_writer import ChapterDraft, StoryManuscript
 
@@ -53,3 +57,14 @@ def test_collection_has_fifteen_unique_accessible_color_sets() -> None:
     for colors in EDITION_PALETTES.values():
         assert len(colors) == 5
         assert all(len(color) == 7 and color.startswith("#") for color in colors)
+
+
+def test_palette_groups_are_exactly_five_each() -> None:
+    assert set(PALETTE_GROUPS) == {"light", "vivid", "dark"}
+    assert all(len(group) == 5 for group in PALETTE_GROUPS.values())
+    assert {name for group in PALETTE_GROUPS.values() for name in group} == set(
+        EDITION_PALETTES
+    )
+    for name in PALETTE_GROUPS["dark"]:
+        background = EDITION_PALETTES[name][0]
+        assert max(int(background[index:index + 2], 16) for index in (1, 3, 5)) < 90
