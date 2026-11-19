@@ -10,7 +10,6 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.little_legend.deletion_worker import delete_pending_assets
 from app.little_legend.object_store import ObjectStore
 from app.little_legend.secure_vault import AssetState
 from app.little_legend.vault_registry import (
@@ -112,18 +111,24 @@ async def run_retention_cycle(
     if instant.tzinfo is None:
         raise ValueError("Timezone-aware timestamp required")
 
+    # Single canonical deletion worker: legacy store is adapted to the
+    # confirmed, row-locked erasure worker. Do not run two independent paths.
+    from app.little_legend.vault_erasure_worker import erase_due_private_assets
+
+    class _LegacyStoreAdapter:
+        def delete_private_object(self, *, object_key: str) -> None:
+            store.delete(key=object_key)
+
     async with session_factory() as session, session.begin():
-        retried = await requeue_failed_deletions(
-            session, now=instant, batch_size=batch_size
-        )
+        retried = 0  # Canonical worker handles due DELETE_FAILED rows directly.
         queued = await request_expired_deletions(
             session, now=instant, batch_size=batch_size
         )
 
-    async with session_factory() as session, session.begin():
-        outcome = await delete_pending_assets(
-            session, store, now=instant, batch_size=batch_size
-        )
+    outcome = await erase_due_private_assets(
+        deleter=_LegacyStoreAdapter(), batch_size=batch_size, now=instant,
+        session_factory=session_factory,
+    )
 
     async with session_factory() as session:
         health = await retention_health(session, now=instant)
