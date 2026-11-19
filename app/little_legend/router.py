@@ -1368,3 +1368,21 @@ async def read_production_readiness(
     except PermissionError as exc:
         raise HTTPException(404, "Story production not found") from exc
     return production.readiness().model_dump(mode="json")
+
+
+@router.get("/api/stories/{story_id}/release-status")
+async def read_release_status(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Owner-only delivery state, with no PDF bytes or child manuscript."""
+    from app.little_legend.release_manifest_store import get_release_manifest
+
+    await _owned_draft(story_id, owner)
+    manifest = await get_release_manifest(owner_id=owner, story_id=story_id)
+    if manifest is None:
+        return {"status": "not_sealed", "story_id": story_id}
+    return {
+        "story_id": story_id,
+        "status": manifest.status.value,
+        "telegram_message_id": manifest.telegram_message_id,
+    }
