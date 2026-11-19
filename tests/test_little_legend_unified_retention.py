@@ -1,6 +1,6 @@
 """Canonical retention worker contract and legacy adapter."""
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -9,12 +9,14 @@ from app.little_legend.vault_operations import run_retention_cycle
 
 @pytest.mark.asyncio
 async def test_legacy_cycle_delegates_to_one_canonical_worker():
-    session = AsyncMock()
-    context = Mock()
-    context.__aenter__ = AsyncMock(return_value=session)
-    context.__aexit__ = AsyncMock(return_value=None)
-    session.begin.return_value = context
-    factory = Mock(return_value=context)
+    session = MagicMock()
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=None)
+    transaction = MagicMock()
+    transaction.__aenter__ = AsyncMock(return_value=transaction)
+    transaction.__aexit__ = AsyncMock(return_value=None)
+    session.begin.return_value = transaction
+    factory = Mock(return_value=session)
     store = Mock()
     instant = datetime(2026, 11, 19, tzinfo=UTC)
     with (
