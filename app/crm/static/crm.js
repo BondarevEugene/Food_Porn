@@ -5,7 +5,7 @@
   const launch = tg?.initData || '';
   const now = new Date();
   const state = {financePeriod:'month',financeYear:now.getFullYear(),financeIndex:now.getMonth()+1,tab:'dashboard',days:30,page:1,search:'',product:'all',payment:'all',csrf:'',owner:false,data:null,version:0};
-  const titles = {products:'Продукты',dashboard:'Обзор',customers:'Клиенты',orders:'Заказы',finance:'Финансы',ads:'Реклама',storage:'Хранилище',settings:'Настройки и VIP',audit:'Журнал действий'};
+  const titles = {legend:'Little Legend · доставка',products:'Продукты',dashboard:'Обзор',customers:'Клиенты',orders:'Заказы',finance:'Финансы',ads:'Реклама',storage:'Хранилище',settings:'Настройки и VIP',audit:'Журнал действий'};
   const content = document.querySelector('#content');
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const num = value => new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2}).format(Number(value||0));
@@ -83,11 +83,17 @@
       if(state.tab==='finance')data=await Promise.all([get('/dashboard?days='+state.days),get('/expenses?days='+state.days+'&page='+state.page),get('/ledger'),get('/finance/calendar?period='+state.financePeriod+'&year='+state.financeYear+'&index='+state.financeIndex)]);
       else if(state.tab==='ads')data=await get('/integrations');
       else if(state.tab==='storage')data=await get('/storage');
+      else if(state.tab==='legend')data=await get('/little-legend/delivery-queue');
       else if(state.tab==='products')data=await get('/settings');
       else if(state.tab==='dashboard'){const [overview,calendar]=await Promise.all([get('/dashboard?days='+state.days),get('/finance/calendar?period=month&year='+now.getFullYear()+'&index='+(now.getMonth()+1))]);data={...overview,calendar};}
       else data=await get('/'+(state.tab==='audit'?'audit':state.tab)+'?'+query);
-      if(version!==state.version)return;state.data=data;content.innerHTML=({dashboard,customers,orders,finance,products,ads:advertising,storage,settings,audit}[state.tab])(data);
+      if(version!==state.version)return;state.data=data;content.innerHTML=({dashboard,customers,orders,finance,products,ads:advertising,storage,settings,audit,legend}[state.tab])(data);
     }catch(error){if(version!==state.version)return;content.innerHTML=`<div class="auth-screen"><p class="eyebrow">FOOD_PORN / ДОСТУП</p><h1>Рабочее пространство недоступно</h1><p>${esc(error.message)}</p><a class="button primary" href="/admin/login">Войти через веб-админку</a><button class="secondary" data-action="refresh" style="margin-left:10px">Повторить</button></div>`;}
+  }
+  function legend(data){
+    const items=data.items||[];
+    const rows=items.map(item=>`<tr><td>#${esc(item.story_id)}</td><td>${esc(item.owner_id)}</td><td>${badge(item.effect_status)}</td><td>${date(item.updated_at)}</td><td>${item.requires_manual_review?'⚠ Требуется проверка':'Ожидает обработки'}</td><td><button class="secondary" data-action="legend-detail" data-owner="${esc(item.owner_id)}" data-story="${esc(item.story_id)}">Диагностика</button></td></tr>`).join('');
+    return heading('Неопределённые доставки PDF. Повторная отправка запрещена.')+`<article class="card"><h2>Очередь операций · ${items.length}</h2><p class="sub">Показаны последние 50 незавершённых операций. Детские материалы не загружаются.</p><div style="overflow-x:auto"><table><thead><tr><th>Книга</th><th>Telegram ID</th><th>Состояние</th><th>Обновлено</th><th>Действие</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6">Незавершённых доставок нет</td></tr>'}</tbody></table></div></article>`;
   }
   function showDialog(html){document.querySelector('#dialog-body').innerHTML=html;document.querySelector('#dialog').showModal();}
   function closeDialog(){document.querySelector('#dialog').close();}
@@ -97,6 +103,8 @@
     const action=el.dataset.action;
     try{
       if(action==='refresh'){await render();return;}
+      if(action==='legend-detail'){const owner=el.dataset.owner,story=el.dataset.story;const result=await get('/little-legend/delivery-queue/'+owner+'/'+story);showDialog(`<h2>Диагностика книги #${esc(story)}</h2><p>Состояние журнала: ${esc(result.effect_status||'нет')}</p><p>Состояние книги: ${esc(result.manifest_status||'нет')}</p><p>Решение: ${esc(result.action)}</p><p>Telegram message ID: ${esc(result.telegram_message_id||'нет')}</p><p class="sub">Восстановление не отправляет PDF повторно. Для неопределённых операций требуется ручная проверка.</p><div class="form-footer"><button class="primary" data-action="legend-repair" data-owner="${esc(owner)}" data-story="${esc(story)}" ${result.action==='repair_projection'?'':'disabled'}>Восстановить подтверждённый статус</button></div>`);return;}
+      if(action==='legend-repair'){if(!window.confirm('Восстановить только подтверждённый статус? PDF не будет отправлен повторно.'))return;const result=await write('/little-legend/delivery-queue/'+el.dataset.owner+'/'+el.dataset.story+'/repair','POST',{});closeDialog();toast('Результат сверки: '+result.action);await render();return;}
       if(action==='storage-cleanup'){if(!window.confirm('Удалить только временные файлы gift_scratch старше 24 часов?'))return;const result=await write('/storage/cleanup','POST',{});toast('Удалено временных файлов: '+result.deleted);await render();return;}
       if(action==='prev'||action==='next'){state.page+=action==='next'?1:-1;await render();return;}
       if(action==='close-dialog'){closeDialog();return;}
