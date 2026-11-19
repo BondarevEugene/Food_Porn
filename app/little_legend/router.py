@@ -1091,6 +1091,17 @@ class IllustrationBatchRequest(BaseModel):
     estimated_cost_usd_per_scene: float = Field(default=0.05, gt=0, le=1)
 
 
+@router.get("/api/stories/{story_id}/illustrations/preflight")
+async def story_illustration_preflight(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Preview illustration blockers without queueing or charging."""
+    from app.little_legend.art_preflight import inspect_book_art
+
+    draft = await _owned_draft(story_id, owner)
+    return inspect_book_art(draft)
+
+
 @router.post("/api/stories/{story_id}/illustrations/queue")
 async def queue_story_illustrations(
     story_id: int, request: IllustrationBatchRequest,
