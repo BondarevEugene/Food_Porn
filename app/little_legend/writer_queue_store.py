@@ -148,6 +148,8 @@ async def transition_writer_job(
     *, job_id: str, owner_id: int, token: str,
     success: bool, policy: JobPolicy, retryable: bool = True,
     error_code: str = "provider_error",
+    actual_micro_usd: int | None = None,
+    provider_reference: str | None = None,
 ) -> WriterJob:
     now = datetime.now(UTC)
     async with async_session_maker() as session:
@@ -164,6 +166,26 @@ async def transition_writer_job(
             token=token, success=success, policy=policy,
             retryable=retryable, error_code=error_code, now=now,
         )
+        from app.little_legend.production_effect_ledger import EffectKind
+        from app.little_legend.worker_charge_receipts import (
+            settle_worker_receipt,
+            validate_provider_receipt,
+        )
+
+        has_receipt = validate_provider_receipt(
+            actual_micro_usd=actual_micro_usd,
+            provider_reference=provider_reference,
+        )
+        if has_receipt:
+            if not success:
+                raise ValueError("Cannot settle failed provider result")
+            await settle_worker_receipt(
+                session,
+                job=WriterJob.model_validate_json(row),
+                kind=EffectKind.WRITER_AI,
+                actual_micro_usd=actual_micro_usd,
+                provider_reference=provider_reference,
+            )
         await session.execute(update(writer_jobs).where(
             writer_jobs.c.job_id == job_id,
             writer_jobs.c.owner_id == owner_id,

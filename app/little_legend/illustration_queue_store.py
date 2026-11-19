@@ -221,6 +221,8 @@ async def fence_illustration_dispatch(
 async def complete_illustration_job(
     *, job_id: str, owner_id: int, token: str,
     success: bool, policy: JobPolicy,
+    actual_micro_usd: int | None = None,
+    provider_reference: str | None = None,
 ) -> IllustrationJob:
     now = datetime.now(UTC)
     async with async_session_maker() as session:
@@ -239,6 +241,26 @@ async def complete_illustration_job(
             job, token=token, success=success, policy=policy,
             retryable=False, now=now,
         )
+        from app.little_legend.production_effect_ledger import EffectKind
+        from app.little_legend.worker_charge_receipts import (
+            settle_worker_receipt,
+            validate_provider_receipt,
+        )
+
+        has_receipt = validate_provider_receipt(
+            actual_micro_usd=actual_micro_usd,
+            provider_reference=provider_reference,
+        )
+        if has_receipt:
+            if not success:
+                raise ValueError("Cannot settle failed provider result")
+            await settle_worker_receipt(
+                session,
+                job=job,
+                kind=EffectKind.ILLUSTRATION_AI,
+                actual_micro_usd=actual_micro_usd,
+                provider_reference=provider_reference,
+            )
         await session.execute(update(illustration_jobs).where(
             illustration_jobs.c.job_id == job_id,
         ).values(
