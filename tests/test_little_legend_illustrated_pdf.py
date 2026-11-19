@@ -66,4 +66,5 @@ def test_book_has_cover_dedication_scene_and_editorial_endnote():
     cover = reader.pages[0].extract_text()
     assert "Сказка Марты" in cover
     assert "EDITORIAL PROOF" in cover
+    assert len(reader.pages[0].images) >= 1, "Approved hero art must appear on the cover"
     assert any("Марта вошла в сад" in (page.extract_text() or "") for page in reader.pages)
