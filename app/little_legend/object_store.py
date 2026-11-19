@@ -48,6 +48,11 @@ class S3PrivateStore:
             aws_access_key_id=settings.access_key_id,
             aws_secret_access_key=settings.secret_access_key,
         )
+        versioning = self._client.get_bucket_versioning(Bucket=self._bucket)
+        if versioning.get("Status") in {"Enabled", "Suspended"}:
+            raise PermissionError(
+                "Versioned private bucket requires verified version-aware erasure"
+            )
 
     def put(self, *, key: str, data: bytes, content_type: str) -> None:
         _validate_key(key)
@@ -64,7 +69,12 @@ class S3PrivateStore:
 
     def delete(self, *, key: str) -> None:
         _validate_key(key)
-        self._client.delete_object(Bucket=self._bucket, Key=key)
+        response = self._client.delete_object(Bucket=self._bucket, Key=key)
+        if not isinstance(response, dict):
+            raise RuntimeError("Private object deletion was not confirmed")
+        status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if status not in {200, 204}:
+            raise RuntimeError("Private object deletion was not confirmed")
 
 
 def _validate_key(key: str) -> None:

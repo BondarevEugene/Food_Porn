@@ -52,7 +52,10 @@ async def delete_pending_assets(
                 vault_assets.c.object_key,
                 vault_assets.c.deletion_attempts,
             )
-            .where(vault_assets.c.state == AssetState.DELETION_PENDING.value)
+            .where(
+                vault_assets.c.state == AssetState.DELETION_PENDING.value,
+                vault_assets.c.deletion_attempts < 8,
+            )
             .order_by(vault_assets.c.expires_at, vault_assets.c.asset_id)
             .limit(batch_size)
             .with_for_update(skip_locked=True)
