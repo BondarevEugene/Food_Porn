@@ -90,6 +90,9 @@ async def enqueue_illustration_jobs(
             raise PermissionError("Image AI consent is missing or outdated")
         if draft.manuscript is None or draft.graph is None:
             raise PermissionError("Approved manuscript and graph required")
+        from app.little_legend.art_preflight import require_book_art_ready
+
+        require_book_art_ready(draft)
         expected = {node.id for node in draft.graph.nodes}
         chapters = {c.scene_id: c for c in draft.manuscript.chapters}
         if (set(scene_ids) != expected or set(chapters) != expected
