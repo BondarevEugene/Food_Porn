@@ -12,6 +12,7 @@ from app.database.session import async_session_maker
 from app.little_legend.aiogram_pdf_sender import AiogramPDFSender
 from app.little_legend.art_storage_config import configured_generated_art_store
 from app.little_legend.book_delivery import DeliveryStatus
+from app.little_legend.commercial_catalog import book_catalog
 from app.little_legend.owned_production import load_owned_production
 from app.little_legend.pdf_storage_config import configured_private_pdf_store
 from app.little_legend.readiness_messages import readiness_message
@@ -56,6 +57,10 @@ async def open_little_legend(callback: CallbackQuery) -> None:
             text=text_for(lang, "📖 Відкрити студію", "📖 Открыть студию", "📖 Open story studio"),
             web_app=WebAppInfo(url=studio_url),
         )])
+    buttons.append([InlineKeyboardButton(
+        text=text_for(lang, "💎 Формати й ціни", "💎 Форматы и цены", "💎 Editions & prices"),
+        callback_data="ll_catalog",
+    )])
     buttons.append([InlineKeyboardButton(
         text=text_for(lang, "📚 Мої книги", "📚 Мои книги", "📚 My books"),
         callback_data="ll_books",
@@ -312,3 +317,49 @@ async def prepare_little_legend_book(callback: CallbackQuery) -> None:
         await callback.message.answer(
             "📘 This book has already entered the delivery workflow."
         )
+
+
+@router.callback_query(F.data == "ll_catalog")
+async def show_little_legend_catalog(callback: CallbackQuery) -> None:
+    """Customer catalog, never an unverified checkout link."""
+    lang = language_for(callback.from_user)
+    try:
+        catalog = book_catalog()
+    except ValueError:
+        logger.exception("Little Legend catalog configuration invalid")
+        await callback.answer("Pricing temporarily unavailable", show_alert=True)
+        return
+    digital, physical = catalog.offers
+    digital_price = (
+        f"{digital.price_minor // 100},{digital.price_minor % 100:02d} ₴"
+        if digital.price_minor is not None else "—"
+    )
+    physical_price = (
+        f"{physical.price_minor // 100},{physical.price_minor % 100:02d} ₴"
+        if physical.price_minor is not None else "—"
+    )
+    heading = text_for(lang, "💎 Формати Little Legend", "💎 Форматы Little Legend",
+                       "💎 Little Legend editions")
+    digital_label = text_for(lang, "Цифрова книга PDF", "Цифровая книга PDF",
+                             "Digital PDF book")
+    print_label = text_for(lang, "Друкована книга", "Печатная книга",
+                           "Printed book")
+    note = text_for(
+        lang,
+        "Ціни довідкові. Оплата ще недоступна. Друкована версія готується.",
+        "Цены справочные. Оплата пока недоступна. Печатная версия готовится.",
+        "Prices are informational. Checkout is not yet available. Print is coming later.",
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text=text_for(lang, "⬅️ Назад", "⬅️ Назад", "⬅️ Back"),
+            callback_data="prod_little_legend",
+        ),
+    ]])
+    await callback.message.answer(
+        f"{heading}\\n\\n📱 {digital_label}: {digital_price}"
+        f"\\n📚 {print_label}: {physical_price} (⏳)"
+        f"\\n\\n{note}",
+        reply_markup=keyboard,
+    )
+    await callback.answer()
