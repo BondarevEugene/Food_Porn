@@ -4,13 +4,19 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 from sqlalchemy import select, update
 
 from app.bot.handlers.wallpaper import language_for, text_for
 from app.database.session import async_session_maker
 from app.little_legend.order_quotes import order_quotes
 from app.little_legend.palette_catalog import book_palette_catalog
+from app.little_legend.palette_preview import render_palette_preview
 from app.little_legend.router import StoryDraft, stories
 
 router = Router(name="little_legend_palettes")
@@ -104,7 +110,8 @@ async def confirm_palette_color(callback: CallbackQuery) -> None:
         await callback.answer("Invalid request", show_alert=True)
         return
     story_id, palette = int(parts[1]), parts[2]
-    if await _owned(story_id, callback.from_user.id) is None:
+    draft = await _owned(story_id, callback.from_user.id)
+    if draft is None:
         await callback.answer("Book not found", show_alert=True)
         return
     option = next((o for g in book_palette_catalog().groups
@@ -112,14 +119,23 @@ async def confirm_palette_color(callback: CallbackQuery) -> None:
     if option is None:
         await callback.answer("Unknown palette", show_alert=True)
         return
-    await callback.message.answer(
-        f"🎨 {option.title}\n"
-        f"Основной цвет: {option.background}\n"
-        "Подтвердите оформление книги.",
-        reply_markup=_keyboard([
-            ("✅ Подтвердить", f"ll_psave:{story_id}:{palette}"),
-            ("⬅️ Изменить", f"ll_palette:{story_id}"),
-        ]),
+    keyboard = _keyboard([
+        ("✅ Подтвердить", f"ll_psave:{story_id}:{palette}"),
+        ("⬅️ Изменить", f"ll_palette:{story_id}"),
+    ])
+    try:
+        preview = render_palette_preview(palette=palette, title=draft.title)
+    except ValueError:
+        await callback.answer("Preview unavailable", show_alert=True)
+        return
+    await callback.message.answer_photo(
+        BufferedInputFile(preview, filename=f"little-legend-{palette}.png"),
+        caption=(
+            f"🎨 {option.title}\\n"
+            "Предпросмотр цветового оформления. Иллюстрации ребёнка "
+            "и окончательная обложка появятся в готовой книге."
+        ),
+        reply_markup=keyboard,
     )
     await callback.answer()
 
