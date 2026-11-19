@@ -6,12 +6,12 @@ from PIL import Image as PILImage
 from pypdf import PdfReader
 
 from app.little_legend.digital_delivery_gate import validate_paid_digital_pdf
-from app.little_legend.illustrated_pdf import render_illustrated_proof
+from app.little_legend.illustrated_pdf import EDITION_PALETTES, render_illustrated_proof
 from app.little_legend.story_graph import build_graph
 from app.little_legend.story_writer import ChapterDraft, StoryManuscript
 
 
-@pytest.mark.parametrize("palette", ["lavender", "ocean", "sunrise"])
+@pytest.mark.parametrize("palette", sorted(EDITION_PALETTES))
 def test_premium_palette_preserves_delivery_contract(palette: str) -> None:
     graph = build_graph(["Звёздный сад"])
     manuscript = StoryManuscript(
@@ -45,3 +45,11 @@ def test_unknown_palette_is_rejected_before_rendering() -> None:
             illustrations={}, approved_scene_ids=set(),
             edition="digital", palette="not-a-palette",
         )
+
+
+def test_collection_has_fifteen_unique_accessible_color_sets() -> None:
+    assert len(EDITION_PALETTES) == 15
+    assert len(set(EDITION_PALETTES.values())) == 15
+    for colors in EDITION_PALETTES.values():
+        assert len(colors) == 5
+        assert all(len(color) == 7 and color.startswith("#") for color in colors)
