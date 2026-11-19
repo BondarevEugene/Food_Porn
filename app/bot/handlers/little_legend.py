@@ -2,8 +2,6 @@
 import logging
 from urllib.parse import urlsplit, urlunsplit
 
-logger = logging.getLogger(__name__)
-
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from sqlalchemy import select
@@ -17,6 +15,8 @@ from app.little_legend.pdf_storage_config import configured_private_pdf_store
 from app.little_legend.release_manifest_store import get_release_manifest
 from app.little_legend.release_orchestrator import send_owned_release
 from app.little_legend.router import stories
+
+logger = logging.getLogger(__name__)
 
 router = Router(name="little_legend")
 
