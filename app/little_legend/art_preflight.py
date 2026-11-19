@@ -48,6 +48,7 @@ def inspect_book_art(draft: StoryDraft) -> BookArtPreflight:
     style = draft.blueprint.controls.illustration_style if draft.blueprint else "storybook"
     if not style.strip() or len(style) > 120:
         blockers.append("Invalid illustration style")
+    from app.little_legend.book_art_director import plan_book_shots
     from app.little_legend.reviewed_identity_prompt import reviewed_identity_continuity
 
     try:
@@ -57,6 +58,15 @@ def inspect_book_art(draft: StoryDraft) -> BookArtPreflight:
         )
     except (ValueError, PermissionError) as exc:
         blockers.append(str(exc))
+    shot_prompts: dict[str, str] = {}
+    if draft.graph is not None and all(node.summary.strip() for node in draft.graph.nodes):
+        try:
+            shot_prompts = {
+                shot.scene_id: shot.prompt
+                for shot in plan_book_shots(draft.graph).shots
+            }
+        except ValueError as exc:
+            blockers.append(str(exc))
     if draft.graph is not None:
         chapters = (
             {chapter.scene_id: chapter for chapter in draft.manuscript.chapters}
@@ -76,7 +86,7 @@ def inspect_book_art(draft: StoryDraft) -> BookArtPreflight:
                 directed = directed_scene_for_provider(scene)
                 if not directed.summary.strip():
                     problems.append("Scene description is empty")
-                length = len(directed.summary)
+                length = len(shot_prompts.get(scene.id, directed.summary))
             except ValueError as exc:
                 problems.append(str(exc))
                 length = 0
