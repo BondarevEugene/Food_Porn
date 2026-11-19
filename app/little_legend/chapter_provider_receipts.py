@@ -5,7 +5,7 @@ receipt; its existing financial reservation stays held for reconciliation.
 """
 from __future__ import annotations
 
-from decimal import Decimal, ROUND_CEILING
+from decimal import ROUND_CEILING, Decimal
 
 from pydantic import BaseModel, Field
 
