@@ -8,7 +8,12 @@ from __future__ import annotations
 import hashlib
 from typing import Protocol
 
-from app.little_legend.book_delivery import BookDelivery, begin_delivery, confirm_delivery, mark_uncertain
+from app.little_legend.book_delivery import (
+    BookDelivery,
+    begin_delivery,
+    confirm_delivery,
+    mark_uncertain,
+)
 from app.little_legend.production_effect_ledger import (
     EffectKind,
     EffectStatus,
