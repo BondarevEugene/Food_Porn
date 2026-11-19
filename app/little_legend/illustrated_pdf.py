@@ -10,7 +10,7 @@ from xml.sax.saxutils import escape
 
 from PIL import Image as PILImage
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
 from reportlab.lib.pagesizes import A5
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.utils import ImageReader
@@ -79,6 +79,21 @@ def _validated_image(raw: bytes) -> Image:
     available_height = 285
     scale = min(available_width / width, available_height / height)
     return Image(BytesIO(raw), width=width * scale, height=height * scale)
+
+
+def _book_paragraphs(text: str) -> list[str]:
+    """Preserve author paragraphs and normalize excessively long raw lines.
+
+    This prevents a chapter supplied as a single giant line from becoming an
+    unbreakable flowable, without altering punctuation or dropping content.
+    """
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    result: list[str] = []
+    for block in normalized.split("\n"):
+        block = block.strip()
+        if block:
+            result.append(block)
+    return result
 
 
 def render_illustrated_proof(
@@ -184,7 +199,9 @@ def render_illustrated_proof(
     body = ParagraphStyle(
         "Body", fontName=font, fontSize=10.5, leading=18,
         textColor=colors.HexColor("#30394C"),
-        spaceAfter=12, allowWidows=0, allowOrphans=0,
+        alignment=TA_JUSTIFY if edition == "digital" else TA_LEFT,
+        firstLineIndent=13 if edition == "digital" else 0,
+        spaceAfter=13, allowWidows=0, allowOrphans=0,
     )
     chapter_label = ParagraphStyle(
         "ChapterLabel", fontName=font, fontSize=8, leading=13,
@@ -214,15 +231,15 @@ def render_illustrated_proof(
                 f"Глава {node.order:02d}  ·  LITTLE LEGEND", chapter_label,
             ))
             flow.append(Paragraph(escape(node.title), digital_heading))
+            flow.append(Spacer(1, 6))
         else:
             flow.append(Paragraph(
                 f"Глава {node.order}. {escape(node.title)}", heading,
             ))
         flow.append(images[node.id])
         flow.append(Spacer(1, 20))
-        for paragraph in chapters[node.id].text.splitlines():
-            if paragraph.strip():
-                flow.append(Paragraph(escape(paragraph.strip()), body))
+        for paragraph in _book_paragraphs(chapters[node.id].text):
+            flow.append(Paragraph(escape(paragraph), body))
         flow.append(PageBreak())
     if edition == "editorial_proof":
         flow.extend([
