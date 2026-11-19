@@ -2,16 +2,15 @@
 from urllib.parse import urlsplit, urlunsplit
 
 from aiogram import F, Router
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from sqlalchemy import select
 
+from app.bot.handlers.wallpaper import language_for, text_for
+from app.config import get_settings
 from app.database.session import async_session_maker
 from app.little_legend.book_delivery import DeliveryStatus
 from app.little_legend.release_manifest_store import get_release_manifest
 from app.little_legend.router import stories
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
-
-from app.bot.handlers.wallpaper import language_for, text_for
-from app.config import get_settings
 
 router = Router(name="little_legend")
 
