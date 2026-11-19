@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import base64
 import binascii
+import os
+from decimal import ROUND_CEILING, Decimal, InvalidOperation
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from app.little_legend.illustrated_pdf import MAX_IMAGE_BYTES
+from app.little_legend.illustration_provider_receipts import IllustrationProviderResult
 from app.little_legend.story_graph import SceneNode
 
 
@@ -41,6 +44,16 @@ class OpenAIIllustrationProvider:
         self, *, scene: SceneNode, hero: str, style: str,
         continuity: str = "",
     ) -> bytes:
+        result = await self.generate_scene_with_receipt(
+            scene=scene, hero=hero, style=style, continuity=continuity,
+        )
+        return result.data
+
+    async def generate_scene_with_receipt(
+        self, *, scene: SceneNode, hero: str, style: str,
+        continuity: str = "",
+    ) -> IllustrationProviderResult:
+        """Return bytes plus receipt only with operator-verified per-image price."""
         if not hero.strip() or not style.strip() or not scene.summary.strip():
             raise ValueError("Scene, hero and style are required")
         if len(continuity) > 1200:
@@ -77,4 +90,20 @@ class OpenAIIllustrationProvider:
             raise ValueError("Illustration provider returned invalid base64") from exc
         if not raw or len(raw) > MAX_IMAGE_BYTES:
             raise ValueError("Illustration exceeds size limit")
-        return raw
+        reference = getattr(response, "id", None)
+        configured_price = os.getenv("LL_ILLUSTRATION_USD_PER_IMAGE")
+        if configured_price is None or not reference:
+            return IllustrationProviderResult(data=raw)
+        try:
+            price = Decimal(configured_price)
+        except InvalidOperation as exc:
+            raise ValueError("Invalid configured illustration price") from exc
+        if not price.is_finite() or price < 0:
+            raise ValueError("Invalid configured illustration price")
+        amount = int(
+            (price * 1_000_000).to_integral_value(rounding=ROUND_CEILING)
+        )
+        return IllustrationProviderResult(
+            data=raw, actual_micro_usd=amount,
+            provider_reference=reference,
+        )
