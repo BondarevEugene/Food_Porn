@@ -88,6 +88,13 @@ async def _product_is_paid(payment: WayForPayPayment) -> bool:
         except (TypeError, ValueError):
             return False
 
+        if payment.product == "little_legend":
+            from app.little_legend.payment_entitlement import has_verified_entitlement
+
+            return await has_verified_entitlement(
+                session, quote_id=reference_id, owner_id=payment.telegram_user_id
+            )
+
         if payment.product == "menu":
             record = await session.get(Menu, reference_id)
             return bool(record and record.is_paid)
