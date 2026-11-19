@@ -14,6 +14,7 @@ from app.little_legend.generated_art_store import (
     GeneratedArtStore,
     save_generated_illustration,
 )
+from app.little_legend.illustration_provider_receipts import IllustrationProviderResult
 from app.little_legend.illustration_queue_store import IllustrationJob
 from app.little_legend.image_ai_consent import (
     ImageAIConsent,
@@ -74,13 +75,30 @@ async def run_illustration_job(
         raise ValueError("Continuity notes are oversized")
     await fence_dispatch(job)
     # No retry of this call without explicit reconciliation.
-    raw = await illustrator.generate_scene(
-        scene=context.scene, hero=context.hero, style=context.style,
-        continuity=context.continuity,
-    )
+    receipt: IllustrationProviderResult | None = None
+    generate_with_receipt = getattr(illustrator, "generate_scene_with_receipt", None)
+    if callable(generate_with_receipt):
+        receipt = await generate_with_receipt(
+            scene=context.scene, hero=context.hero, style=context.style,
+            continuity=context.continuity,
+        )
+        if not isinstance(receipt, IllustrationProviderResult):
+            raise ValueError("Invalid illustration provider receipt")
+        raw = receipt.image
+    else:
+        raw = await illustrator.generate_scene(
+            scene=context.scene, hero=context.hero, style=context.style,
+            continuity=context.continuity,
+        )
     sanitized = sanitize_image(raw)
     await persist_image(job, sanitized.data)
-    await mark_completed(job)
+    if receipt is not None and receipt.actual_micro_usd is not None:
+        await mark_completed(
+            job, actual_micro_usd=receipt.actual_micro_usd,
+            provider_reference=receipt.provider_reference,
+        )
+    else:
+        await mark_completed(job)
 
 
 async def run_illustration_job_with_private_store(

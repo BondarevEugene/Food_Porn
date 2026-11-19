@@ -89,10 +89,14 @@ async def process_next_illustration(
             token=current.lease_token,
         )
 
-    async def complete(current):
+    async def complete(
+        current, *, actual_micro_usd=None, provider_reference=None,
+    ):
         await complete_illustration_job(
             job_id=current.job_id, owner_id=current.owner_id,
             token=current.lease_token, success=True, policy=policy,
+            actual_micro_usd=actual_micro_usd,
+            provider_reference=provider_reference,
         )
 
     async def persist(current, data):
