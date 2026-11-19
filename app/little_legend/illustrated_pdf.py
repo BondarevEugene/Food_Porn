@@ -31,6 +31,13 @@ from app.little_legend.story_writer import StoryManuscript
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_IMAGE_PIXELS = 24_000_000
 
+EDITION_PALETTES = {
+    "lavender": ("#F3F0FA", "#D9D1F1", "#E1EBF8", "#27394B", "#B8A9D9"),
+    "ocean": ("#EFF7FA", "#C8E6EC", "#DCEEF6", "#234C60", "#8ABCCB"),
+    "sunrise": ("#FFF5ED", "#F8DCC8", "#FBE9D7", "#593F48", "#D8A48B"),
+}
+
+
 
 def _validated_image(raw: bytes) -> Image:
     if not isinstance(raw, bytes) or not raw or len(raw) > MAX_IMAGE_BYTES:
@@ -56,10 +63,14 @@ def render_illustrated_proof(
     manuscript: StoryManuscript, illustrations: dict[str, bytes],
     approved_scene_ids: set[str],
     edition: str = "editorial_proof",
+    palette: str = "lavender",
 ) -> bytes:
     """Render all chapters and approved images; fail closed on mismatches."""
     if edition not in {"editorial_proof", "digital"}:
         raise ValueError("Unsupported book edition")
+    if palette not in EDITION_PALETTES:
+        raise ValueError("Unsupported book palette")
+    paper, accent, secondary, ink, ornament = EDITION_PALETTES[palette]
     if not title.strip() or not manuscript.hero_name.strip():
         raise ValueError("Title and hero are required")
     nodes = sorted(graph.nodes, key=lambda item: item.order)
@@ -91,13 +102,13 @@ def render_illustrated_proof(
     def page(canvas, document):
         canvas.saveState()
         if document.page == 1:
-            canvas.setFillColor(colors.HexColor("#F3F0FA"))
+            canvas.setFillColor(colors.HexColor(paper))
             canvas.rect(0, 0, width, height, fill=1, stroke=0)
-            canvas.setFillColor(colors.HexColor("#D9D1F1"))
+            canvas.setFillColor(colors.HexColor(accent))
             canvas.circle(width - 40, height - 75, 95, fill=1, stroke=0)
-            canvas.setFillColor(colors.HexColor("#E1EBF8"))
+            canvas.setFillColor(colors.HexColor(secondary))
             canvas.circle(38, 65, 105, fill=1, stroke=0)
-            canvas.setStrokeColor(colors.HexColor("#B8A9D9"))
+            canvas.setStrokeColor(colors.HexColor(ornament))
             canvas.setLineWidth(1.4)
             canvas.line(52, height - 155, width - 52, height - 155)
             # The approved first-scene artwork anchors the actual cover;
@@ -114,6 +125,13 @@ def render_illustrated_proof(
                 width=draw_width, height=draw_height,
                 preserveAspectRatio=True, mask="auto",
             )
+        elif edition == "digital":
+            canvas.setFillColor(colors.HexColor("#FCFBFA"))
+            canvas.rect(0, 0, width, height, fill=1, stroke=0)
+            canvas.setFillColor(colors.HexColor(accent))
+            canvas.circle(width - 22, height - 21, 31, fill=1, stroke=0)
+            canvas.setFillColor(colors.HexColor(secondary))
+            canvas.circle(18, 21, 27, fill=1, stroke=0)
         canvas.setStrokeColor(colors.HexColor("#D6C6A3"))
         canvas.setLineWidth(0.55)
         canvas.line(48, height - 39, width - 46, height - 39)
@@ -129,18 +147,22 @@ def render_illustrated_proof(
     doc.addPageTemplates(PageTemplate(id="book", frames=[frame], onPage=page))
     title_style = ParagraphStyle(
         "Title", fontName=font, fontSize=25, leading=36,
-        textColor=colors.HexColor("#27394B"),
+        textColor=colors.HexColor(ink),
         alignment=TA_CENTER, spaceAfter=18,
     )
     heading = ParagraphStyle(
-        "Chapter", fontName=font, fontSize=16, leading=24,
-        textColor=colors.HexColor("#415269"),
+        "Chapter", fontName=font, fontSize=17, leading=26,
+        textColor=colors.HexColor(ink),
         alignment=TA_LEFT, spaceAfter=15, keepWithNext=True,
     )
     body = ParagraphStyle(
         "Body", fontName=font, fontSize=10.5, leading=18,
         textColor=colors.HexColor("#30394C"),
         spaceAfter=12, allowWidows=0, allowOrphans=0,
+    )
+    chapter_label = ParagraphStyle(
+        "ChapterLabel", fontName=font, fontSize=8, leading=13,
+        textColor=colors.HexColor("#847A70"), spaceAfter=8,
     )
     note = ParagraphStyle(
         "Note", parent=body, fontSize=8, leading=13,
@@ -160,9 +182,16 @@ def render_illustrated_proof(
         PageBreak(),
     ]
     for node in nodes:
-        flow.append(Paragraph(
-            f"Глава {node.order}. {escape(node.title)}", heading,
-        ))
+        if edition == "digital":
+            flow.append(Spacer(1, 14))
+            flow.append(Paragraph(
+                f"ГЛАВА {node.order:02d}  ·  LITTLE LEGEND", chapter_label,
+            ))
+            flow.append(Paragraph(escape(node.title), heading))
+        else:
+            flow.append(Paragraph(
+                f"Глава {node.order}. {escape(node.title)}", heading,
+            ))
         flow.append(images[node.id])
         flow.append(Spacer(1, 20))
         for paragraph in chapters[node.id].text.splitlines():
