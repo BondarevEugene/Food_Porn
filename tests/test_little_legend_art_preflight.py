@@ -81,3 +81,32 @@ def test_preflight_rejects_missing_story_graph():
     assert not report.ready
     assert report.scenes_total == 0
     assert "Story graph is missing" in report.blockers
+
+
+def test_parent_identity_edit_invalidates_previously_ready_book():
+    from app.little_legend.character_identity import IdentityBible, VisualIdentity
+
+    draft = approved_book()
+    assert inspect_book_art(draft).ready
+    draft.identity_bible = IdentityBible(
+        hero_name="Марта",
+        identity=VisualIdentity(
+            parent_reviewed_description=True, hair="А" * 200,
+            eyes="Б" * 200, face="В" * 300,
+            proportions="Г" * 300, clothing_signature="Д" * 300,
+        ),
+    )
+    report = inspect_book_art(draft)
+    assert not report.ready
+    assert any("continuity limit" in blocker for blocker in report.blockers)
+
+
+def test_parent_changes_other_chapter_after_book_was_ready():
+    draft = approved_book()
+    assert inspect_book_art(draft).ready
+    draft.manuscript.chapters[0].approved = False
+    report = inspect_book_art(draft)
+    assert not report.ready
+    assert report.scenes_ready == 1
+    with pytest.raises(PermissionError, match="Chapter is not approved"):
+        require_book_art_ready(draft)

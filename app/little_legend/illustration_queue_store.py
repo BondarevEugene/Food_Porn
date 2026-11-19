@@ -207,6 +207,12 @@ async def fence_illustration_dispatch(
                 or chapter.revision != job.expected_revision
                 or job.scene_id not in {node.id for node in draft.graph.nodes}):
             raise PermissionError("Story approval or revision changed")
+        # Parent edits may invalidate the visual identity or another chapter
+        # after queueing. Revalidate the entire book under the story row lock
+        # immediately before the irreversible paid-provider dispatch fence.
+        from app.little_legend.art_preflight import require_book_art_ready
+
+        require_book_art_ready(draft)
         from app.little_legend.production_effect_ledger import EffectKind
         from app.little_legend.worker_ai_fence import fence_worker_ai_effect
 
