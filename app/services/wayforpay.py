@@ -44,7 +44,7 @@ WAYFORPAY_API_URL = "https://api.wayforpay.com/api"
 # It is deliberately not a production credential.
 TEST_MERCHANT_ACCOUNT = "test_merch_n1"
 TEST_MERCHANT_SECRET = "flk3409refn54t54t*FNJRET"
-PRODUCTS = frozenset({"menu", "wallpaper", "video_story", "gift_purchase"})
+PRODUCTS = frozenset({"menu", "wallpaper", "video_story", "gift_purchase", "little_legend"})
 
 
 class WayForPayError(RuntimeError):
@@ -124,8 +124,8 @@ class WayForPayService:
             return _money(self.settings.wayforpay_menu_price_uah)
         if product == "wallpaper":
             return _money(self.settings.wayforpay_wallpaper_price_uah)
-        if product == "gift_purchase":
-            raise WayForPayError("Gift purchase requires an immutable database quote")
+        if product in {"gift_purchase", "little_legend"}:
+            raise WayForPayError("Product requires an immutable database quote")
         if product == "video_story":
             if self.settings.wayforpay_video_story_price_uah is None:
                 raise WayForPayError("Video story price is not configured")
@@ -163,6 +163,27 @@ class WayForPayService:
                 or _money(amount_override) != purchase.total_amount
             ):
                 raise WayForPayError("Gift purchase quote is missing, paid or mismatched")
+        if product == "little_legend":
+            from app.little_legend.order_quotes import order_quotes
+
+            if not grants_entitlement or amount_override is None:
+                raise WayForPayError("Little Legend requires an entitlement-bearing quote")
+            try:
+                quote_id = int(reference_id)
+            except (ValueError, TypeError) as exc:
+                raise WayForPayError("Invalid Little Legend quote ID") from exc
+            quote = (await session.execute(
+                select(order_quotes).where(order_quotes.c.id == quote_id).with_for_update()
+            )).mappings().one_or_none()
+            if (
+                quote is None
+                or quote["owner_id"] != telegram_user_id
+                or quote["edition"] != "digital"
+                or quote["status"] != "quoted"
+                or quote["currency"] != "UAH"
+                or _money(amount_override) != Decimal(quote["price_minor"]) / 100
+            ):
+                raise WayForPayError("Little Legend quote owner or price mismatch")
         amount = _money(amount_override) if amount_override is not None else self.price_for(product)
         if amount <= 0:
             raise WayForPayError("Checkout amount must be positive")
@@ -332,6 +353,17 @@ async def wayforpay_entitlement_is_active(
     if not payment.grants_entitlement:
         return True
 
+    if payment.product == "little_legend":
+        from app.little_legend.payment_entitlement import has_verified_entitlement
+
+        try:
+            quote_id = int(payment.reference_id)
+        except (TypeError, ValueError):
+            return False
+        return await has_verified_entitlement(
+            session, quote_id=quote_id, owner_id=payment.telegram_user_id
+        )
+
     if payment.product == "gift_purchase":
         purchase = await session.get(GiftPurchase, payment.reference_id)
         receipt = await session.get(GiftPaymentReceipt, payment.reference_id)
@@ -429,6 +461,79 @@ async def apply_verified_payment(
 
         await session.commit()
         return True
+
+    if payment.product == "little_legend" and payment.test_mode:
+        # Sandbox approvals must never unlock billable book production.
+        payment.status = "approved"
+        payment.provider_payment_id = str(
+            payload.get("authCode") or payment.order_reference
+        )[:120]
+        payment.paid_at = payment.paid_at or datetime.now(UTC)
+        payment.error_message = "sandbox_only_no_entitlement"
+        await session.commit()
+        return False
+
+    if payment.product == "little_legend":
+        from sqlalchemy import insert
+
+        from app.little_legend.order_quotes import order_quotes
+        from app.little_legend.payment_entitlement import (
+            PaymentEvidence,
+            evidence_matches_quote,
+            receipts,
+        )
+
+        try:
+            quote_id = int(payment.reference_id)
+        except (TypeError, ValueError) as exc:
+            raise WayForPayError("Invalid Little Legend quote ID") from exc
+        quote = (await session.execute(
+            select(order_quotes).where(order_quotes.c.id == quote_id).with_for_update()
+        )).mappings().one_or_none()
+        if quote is None:
+            raise WayForPayError("Little Legend quote missing")
+        evidence = PaymentEvidence(
+            quote_id=quote_id,
+            owner_id=payment.telegram_user_id,
+            provider="wayforpay",
+            provider_reference=payment.order_reference,
+            amount_minor=int(payment.amount * 100),
+            currency=payment.currency,
+        )
+        if not evidence_matches_quote(evidence, dict(quote)):
+            raise WayForPayError("Little Legend quote owner or amount mismatch")
+        previous = (await session.execute(
+            select(receipts).where(receipts.c.quote_id == quote_id)
+        )).mappings().one_or_none()
+        same_attempt = bool(
+            previous
+            and previous["provider"] == "wayforpay"
+            and previous["provider_reference"] == payment.order_reference
+            and previous["owner_id"] == payment.telegram_user_id
+            and previous["amount_minor"] == evidence.amount_minor
+            and previous["currency"] == evidence.currency
+        )
+        if previous is None:
+            await session.execute(insert(receipts).values(
+                quote_id=quote_id,
+                owner_id=evidence.owner_id,
+                provider=evidence.provider,
+                provider_reference=evidence.provider_reference,
+                amount_minor=evidence.amount_minor,
+                currency=evidence.currency,
+                verified_at=datetime.now(UTC),
+            ))
+            same_attempt = True
+        payment.status = "approved"
+        payment.provider_payment_id = str(
+            payload.get("authCode") or payment.order_reference
+        )[:120]
+        payment.paid_at = payment.paid_at or datetime.now(UTC)
+        payment.error_message = (
+            None if same_attempt else "duplicate_payment: manual refund required"
+        )
+        await session.commit()
+        return same_attempt
 
     if payment.product == "gift_purchase":
         # The webhook caller has already checked the WayForPay HMAC signature.
