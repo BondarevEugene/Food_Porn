@@ -614,3 +614,89 @@ async def export(
             "Cache-Control": "no-store",
         },
     )
+
+
+@router.get("/api/little-legend/delivery-queue")
+async def little_legend_delivery_queue(
+    identity: Identity, limit: int = Query(ge=1, le=100, default=50),
+):
+    """Owner-only, metadata-only queue of unresolved PDF effects."""
+    from app.little_legend.production_effect_ledger import (
+        EffectKind, EffectStatus, production_effects,
+    )
+
+    require_owner(identity)
+    async with async_session_maker() as session:
+        rows = (await session.execute(select(production_effects).where(
+            production_effects.c.kind == EffectKind.TELEGRAM_PDF.value,
+            production_effects.c.status != EffectStatus.CONFIRMED.value,
+        ).order_by(
+            production_effects.c.updated_at.desc(),
+            production_effects.c.effect_key,
+        ).limit(limit))).mappings().all()
+    return {
+        "items": [
+            {
+                "story_id": row["story_id"],
+                "owner_id": row["owner_id"],
+                "effect_status": row["status"],
+                "updated_at": row["updated_at"].isoformat(),
+                "requires_manual_review": row["status"] in {
+                    EffectStatus.DISPATCHED.value, EffectStatus.UNCERTAIN.value,
+                },
+            }
+            for row in rows
+        ],
+        "automatic_retry_enabled": False,
+    }
+
+
+@router.get("/api/little-legend/delivery-queue/{owner_id}/{story_id}")
+async def little_legend_delivery_detail(
+    owner_id: int, story_id: int, identity: Identity,
+):
+    """Owner-only diagnosis without children's text or PDF bytes."""
+    from app.little_legend.delivery_reconciliation import diagnose_delivery
+
+    require_owner(identity)
+    try:
+        diagnosis = await diagnose_delivery(owner_id=owner_id, story_id=story_id)
+    except PermissionError as exc:
+        raise HTTPException(404, "Release not found") from exc
+    return {
+        "story_id": diagnosis.story_id,
+        "owner_id": diagnosis.owner_id,
+        "action": diagnosis.action.value,
+        "effect_status": diagnosis.effect_status.value if diagnosis.effect_status else None,
+        "manifest_status": diagnosis.manifest_status.value if diagnosis.manifest_status else None,
+        "telegram_message_id": diagnosis.telegram_message_id,
+    }
+
+
+@router.post("/api/little-legend/delivery-queue/{owner_id}/{story_id}/repair")
+async def little_legend_delivery_repair(
+    owner_id: int, story_id: int, identity: Identity,
+):
+    """Repair confirmed ledger projection only; audit all operator attempts."""
+    from app.little_legend.delivery_reconciliation import repair_confirmed_projection
+
+    require_owner(identity)
+    try:
+        diagnosis = await repair_confirmed_projection(owner_id=owner_id, story_id=story_id)
+    except PermissionError as exc:
+        raise HTTPException(404, "Release not found") from exc
+    async with async_session_maker() as session:
+        session.add(Audit(
+            actor=identity["actor"], action="little_legend_delivery_repair",
+            details={
+                "owner_id": owner_id, "story_id": story_id,
+                "result": diagnosis.action.value,
+            },
+        ))
+        await session.commit()
+    return {
+        "story_id": story_id,
+        "action": diagnosis.action.value,
+        "telegram_message_id": diagnosis.telegram_message_id,
+        "automatic_retry_enabled": False,
+    }
