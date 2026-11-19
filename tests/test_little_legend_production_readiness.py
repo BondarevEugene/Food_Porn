@@ -20,7 +20,7 @@ def _production():
     )
     jobs = [
         IllustrationJob(
-            job_id=f"lli_{index}", owner_id=3, story_id=2,
+            job_id=f"lli_scene_{index}", owner_id=3, story_id=2,
             scene_id=f"scene_{index}", expected_revision=1,
             estimated_cost_usd=0.05, status=JobStatus.COMPLETED,
             provider_dispatched_at=datetime.now(UTC),
