@@ -12,8 +12,10 @@ from app.little_legend.story_writer import ChapterDraft, StoryManuscript
 def sample():
     graph = build_graph(["Открытие сада"])
     manuscript = StoryManuscript(
-        hero_name="Марта",
-        chapters=[ChapterDraft(scene_id="scene_1", text="Марта вошла в сад.")],
+        hero_name="Марта", parent_approved=True,
+        chapters=[ChapterDraft(
+            scene_id="scene_1", text="Марта вошла в сад.", approved=True,
+        )],
     )
     image = PILImage.new("RGB", (600, 600), "white")
     output = BytesIO()
