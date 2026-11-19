@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.database.session import async_session_maker
 from app.little_legend.blueprint import BookBlueprint
 from app.little_legend.generated_art_store import GeneratedArtStore, save_generated_illustration
+from app.little_legend.illustration_provider_receipts import IllustrationProviderResult
 from app.little_legend.illustration_queue_store import (
     claim_next_illustration_job,
     complete_illustration_job,
@@ -95,6 +96,16 @@ async def process_next_illustration(
             token=current.lease_token, success=True, policy=policy,
         )
 
+    async def complete_with_receipt(
+        current, receipt: IllustrationProviderResult,
+    ):
+        await complete_illustration_job(
+            job_id=current.job_id, owner_id=current.owner_id,
+            token=current.lease_token, success=True, policy=policy,
+            actual_micro_usd=receipt.actual_micro_usd,
+            provider_reference=receipt.provider_reference,
+        )
+
     async def persist(current, data):
         await asyncio.to_thread(
             save_generated_illustration,
@@ -106,5 +117,6 @@ async def process_next_illustration(
         job=job, context=context, illustrator=illustrator,
         fence_dispatch=fence, persist_image=persist,
         mark_completed=complete,
+        mark_completed_with_receipt=complete_with_receipt,
     )
     return True
