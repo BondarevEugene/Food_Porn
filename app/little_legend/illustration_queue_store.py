@@ -159,6 +159,7 @@ async def claim_next_illustration_job(
 
 async def fence_illustration_dispatch(
     *, job_id: str, owner_id: int, token: str,
+    expected_art_fingerprint: str | None = None,
 ) -> IllustrationJob:
     """Persist dispatch marker BEFORE invoking any billable image provider."""
     now = datetime.now(UTC)
@@ -213,6 +214,16 @@ async def fence_illustration_dispatch(
         from app.little_legend.art_preflight import require_book_art_ready
 
         require_book_art_ready(draft)
+        if expected_art_fingerprint is not None:
+            from app.little_legend.art_dispatch_snapshot import (
+                art_dispatch_fingerprint,
+            )
+
+            actual_fingerprint = art_dispatch_fingerprint(draft, job.scene_id)
+            if actual_fingerprint != expected_art_fingerprint:
+                raise PermissionError(
+                    "Art context changed after worker snapshot; dispatch cancelled"
+                )
         from app.little_legend.production_effect_ledger import EffectKind
         from app.little_legend.worker_ai_fence import fence_worker_ai_effect
 
