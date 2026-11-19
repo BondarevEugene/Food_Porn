@@ -25,6 +25,7 @@ from app.little_legend.illustration_worker import (
 )
 from app.little_legend.image_ai_consent import configured_image_ai_disclosure
 from app.little_legend.router import StoryDraft, stories
+from app.little_legend.story_graph import SceneNode
 from app.little_legend.writer_queue import JobPolicy
 
 
