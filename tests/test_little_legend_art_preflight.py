@@ -63,7 +63,7 @@ def test_preflight_rejects_missing_chapters_and_parent_approval():
     report = inspect_book_art(draft)
     assert not report.ready
     assert "Parent has not approved the manuscript" in report.blockers
-    assert "Manuscript chapters do not match" in report.blockers
+    assert "Manuscript chapters do not match the story graph" in report.blockers
 
 
 def test_preflight_rejects_oversized_hero_identity():
