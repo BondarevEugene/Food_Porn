@@ -1386,3 +1386,45 @@ async def read_release_status(
         "status": manifest.status.value,
         "telegram_message_id": manifest.telegram_message_id,
     }
+
+
+@router.get("/api/stories/{story_id}/delivery-diagnosis")
+async def read_delivery_diagnosis(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Owner-only read-only reconciliation; never dispatches Telegram messages."""
+    from app.little_legend.delivery_reconciliation import diagnose_delivery
+
+    await _owned_draft(story_id, owner)
+    try:
+        result = await diagnose_delivery(owner_id=owner, story_id=story_id)
+    except PermissionError as exc:
+        raise HTTPException(404, "Release not found") from exc
+    return {
+        "story_id": result.story_id,
+        "action": result.action.value,
+        "effect_status": result.effect_status.value if result.effect_status else None,
+        "manifest_status": result.manifest_status.value if result.manifest_status else None,
+        "telegram_message_id": result.telegram_message_id,
+    }
+
+
+@router.post("/api/stories/{story_id}/delivery-reconcile")
+async def reconcile_confirmed_delivery(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Repair a confirmed Neon projection only; never send or retry a PDF."""
+    from app.little_legend.delivery_reconciliation import repair_confirmed_projection
+
+    await _owned_draft(story_id, owner)
+    try:
+        result = await repair_confirmed_projection(owner_id=owner, story_id=story_id)
+    except PermissionError as exc:
+        raise HTTPException(404, "Release not found") from exc
+    return {
+        "story_id": result.story_id,
+        "action": result.action.value,
+        "effect_status": result.effect_status.value if result.effect_status else None,
+        "manifest_status": result.manifest_status.value if result.manifest_status else None,
+        "telegram_message_id": result.telegram_message_id,
+    }
