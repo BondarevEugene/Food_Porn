@@ -4,9 +4,9 @@ from io import BytesIO
 import pytest
 from pypdf import PdfReader
 
-from app.little_legend.illustrated_pdf import render_illustrated_proof
 from PIL import Image as PILImage
 
+from app.little_legend.illustrated_pdf import render_illustrated_proof
 from app.little_legend.story_graph import build_graph
 from app.little_legend.story_writer import ChapterDraft, StoryManuscript
 
