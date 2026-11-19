@@ -20,7 +20,6 @@ from sqlalchemy import (
     MetaData,
     String,
     Table,
-    Text,
     select,
     update,
 )
