@@ -46,7 +46,7 @@ class OwnedProduction:
 
 
 async def load_owned_production(*, owner_id: int, story_id: int) -> OwnedProduction:
-    """Read the story and its art jobs under one repeatable-read snapshot."""
+    """Read owner-scoped story and art jobs without starting external work."""
     if owner_id <= 0 or story_id <= 0:
         raise PermissionError("Story not found")
     async with async_session_maker() as session:
