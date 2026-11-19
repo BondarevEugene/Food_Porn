@@ -3,10 +3,12 @@ from sqlalchemy import BigInteger, Column, Integer, Table
 from sqlalchemy.dialects import postgresql
 
 from app.little_legend.production_checkpoint import (
-    ProductionCheckpoint, ProductionPhase,
+    ProductionCheckpoint,
+    ProductionPhase,
 )
 from app.little_legend.production_checkpoint_store import (
-    _decode, production_checkpoints,
+    _decode,
+    production_checkpoints,
 )
 
 
