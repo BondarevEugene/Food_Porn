@@ -47,13 +47,15 @@ def directed_scene_for_provider(scene: SceneNode) -> SceneNode:
     copy so the stored story graph is never mutated by generation.
     """
     action = scene.illustration_prompt.strip()
-    if not action:
-        return scene
     summary = scene.summary.strip()
+    if not action:
+        if len(summary) > 2000:
+            raise ValueError("Scene summary exceeds provider prompt limit")
+        return scene
     if not summary:
         raise ValueError("Illustration scene has no narrative summary")
     combined = f"Scene action and composition: {action}. Story context: {summary}"
-    if len(combined) > 4000:
+    if len(combined) > 2000:
         raise ValueError("Scene-specific illustration description is oversized")
     return scene.model_copy(update={"summary": combined})
 
