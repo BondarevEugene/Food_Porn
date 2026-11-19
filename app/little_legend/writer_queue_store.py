@@ -130,6 +130,12 @@ async def mark_writer_provider_dispatched(
             raise PermissionError("Lease expired before dispatch")
         if job.provider_dispatched_at is not None:
             raise PermissionError("Provider dispatch already recorded")
+        from app.little_legend.production_effect_ledger import EffectKind
+        from app.little_legend.worker_ai_fence import fence_worker_ai_effect
+
+        await fence_worker_ai_effect(
+            session, job=job, kind=EffectKind.WRITER_AI,
+        )
         job = job.model_copy(update={"provider_dispatched_at": now})
         await session.execute(update(writer_jobs).where(
             writer_jobs.c.job_id == job_id,
