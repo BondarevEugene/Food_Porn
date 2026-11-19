@@ -11,8 +11,8 @@ from app.database.session import async_session_maker
 from app.little_legend.aiogram_pdf_sender import AiogramPDFSender
 from app.little_legend.book_delivery import DeliveryStatus
 from app.little_legend.pdf_storage_config import configured_private_pdf_store
-from app.little_legend.release_orchestrator import send_owned_release
 from app.little_legend.release_manifest_store import get_release_manifest
+from app.little_legend.release_orchestrator import send_owned_release
 from app.little_legend.router import stories
 
 router = Router(name="little_legend")
