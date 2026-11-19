@@ -50,14 +50,18 @@ class OpenAIIllustrationProvider:
             raise ValueError("Scene, hero and style are required")
         if len(continuity) > 1200:
             raise ValueError("Continuity notes are oversized")
+        if len(scene.summary) > 2000:
+            raise ValueError("Scene description exceeds provider prompt limit")
+        if len(style) > 120 or len(hero) > 100:
+            raise ValueError("Hero or illustration style exceeds provider prompt limit")
         prompt = (
             "Original child-friendly storybook illustration. "
             "No typography, logos, watermarks, copyrighted characters, "
             "photorealistic child likeness or identifiable real person. "
             "Do not depict a real child's face. "
-            f"Visual style: {style[:120]}. "
-            f"Fictional protagonist name: {hero[:100]}. "
-            f"Scene: {scene.summary[:2000]}. "
+            f"Visual style: {style}. "
+            f"Fictional protagonist name: {hero}. "
+            f"Scene: {scene.summary}. "
             f"Character continuity notes (fictional only): {continuity}. "
             "Keep main subjects away from the page trim and gutter."
         )
