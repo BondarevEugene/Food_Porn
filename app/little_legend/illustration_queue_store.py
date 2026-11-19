@@ -204,6 +204,12 @@ async def fence_illustration_dispatch(
                 or chapter.revision != job.expected_revision
                 or job.scene_id not in {node.id for node in draft.graph.nodes}):
             raise PermissionError("Story approval or revision changed")
+        from app.little_legend.production_effect_ledger import EffectKind
+        from app.little_legend.worker_ai_fence import fence_worker_ai_effect
+
+        await fence_worker_ai_effect(
+            session, job=job, kind=EffectKind.ILLUSTRATION_AI,
+        )
         job = job.model_copy(update={"provider_dispatched_at": now})
         await session.execute(update(illustration_jobs).where(
             illustration_jobs.c.job_id == job_id,
