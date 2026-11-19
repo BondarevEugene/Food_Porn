@@ -8,6 +8,7 @@ from app.little_legend.generated_art_store import (
 )
 from app.little_legend.illustrated_pdf import render_illustrated_proof
 from app.little_legend.illustration_queue_store import IllustrationJob
+from app.little_legend.pdf_preflight import inspect_book_pdf
 from app.little_legend.story_graph import StoryGraph
 from app.little_legend.story_writer import StoryManuscript
 from app.little_legend.writer_queue import JobStatus
@@ -45,8 +46,12 @@ def assemble_stored_book_proof(
         image = store.get(key=key)
         validate_generated_art(image)
         images[job.scene_id] = image
-    return render_illustrated_proof(
+    pdf = render_illustrated_proof(
         title=title, dedication=dedication, graph=graph,
         manuscript=manuscript, illustrations=images,
         approved_scene_ids=expected,
     )
+    preflight = inspect_book_pdf(pdf)
+    if not preflight.valid or preflight.page_count < len(expected) + 2:
+        raise ValueError("Illustrated book PDF failed structural preflight")
+    return pdf
