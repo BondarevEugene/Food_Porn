@@ -122,8 +122,7 @@ def get_admin_main_keyboard(secure_url: str | None = None) -> InlineKeyboardMark
     if url:
         rows.append([InlineKeyboardButton(
             text="✦ Открыть Mini CRM",
-            web_app=WebAppInfo(url=secure_url) if secure_url else None,
-            callback_data=None if secure_url else "crm_secure_login",
+            callback_data="crm_secure_login",
         )])
     rows.extend(
         [
@@ -284,13 +283,18 @@ async def crm_secure_login_callback(callback: CallbackQuery):
         )
         return
     await callback.message.answer(
-        "🔐 <b>Mini CRM</b>\\nНажмите кнопку для безопасного входа без пароля. "
-        "Ссылка действует 2 минуты и только один раз.",
+        "🔐 <b>Mini CRM</b>\\nСсылка действует 2 минуты и только один раз. "
+        "Если Telegram не открывает встроенное окно, используйте кнопку браузера.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(
                 text="✦ Открыть Mini CRM",
                 web_app=WebAppInfo(url=secure_url),
-            )
+            ),
+        ], [
+            InlineKeyboardButton(
+                text="🌐 Открыть в браузере",
+                url=secure_url,
+            ),
         ]]),
     )
     await callback.answer()
