@@ -74,6 +74,7 @@ from app.little_legend.narrative_design import StoryDesign, design_guidance
 from app.little_legend.portfolio_cost_summary import get_portfolio_cost_summary
 from app.little_legend.portrait_studio import PortraitPlan, portrait_preflight
 from app.little_legend.precheckout import BookPrecheckout, preview_book_precheckout
+from app.little_legend.order_quotes import BookOrderQuote, create_order_quote
 from app.little_legend.print_renderer import render_print_proof
 from app.little_legend.privacy_lifecycle import (
     PrivacyLaunchConfig,
@@ -214,6 +215,19 @@ async def create_story(draft: StoryDraft, owner: Annotated[int, Depends(_owner)]
         )
         await session.commit()
     return {"id": story_id}
+
+
+@router.post("/api/stories/{story_id}/order-quotes/{edition}", response_model=BookOrderQuote)
+async def create_book_order_quote(
+    story_id: int, edition: BookEdition,
+    owner: Annotated[int, Depends(_owner)],
+) -> BookOrderQuote:
+    """Freeze CRM price for an owned story; no charge or generation starts."""
+    await _owned_draft(story_id, owner)
+    try:
+        return await create_order_quote(owner_id=owner, story_id=story_id, edition=edition)
+    except PermissionError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @router.get("/api/stories/{story_id}/precheckout/{edition}", response_model=BookPrecheckout)
