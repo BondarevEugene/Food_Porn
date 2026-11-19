@@ -71,10 +71,10 @@ from app.little_legend.manuscript_repository import (
     upsert_generated_chapter,
 )
 from app.little_legend.narrative_design import StoryDesign, design_guidance
+from app.little_legend.order_quotes import BookOrderQuote, create_order_quote
 from app.little_legend.portfolio_cost_summary import get_portfolio_cost_summary
 from app.little_legend.portrait_studio import PortraitPlan, portrait_preflight
 from app.little_legend.precheckout import BookPrecheckout, preview_book_precheckout
-from app.little_legend.order_quotes import BookOrderQuote, create_order_quote
 from app.little_legend.print_renderer import render_print_proof
 from app.little_legend.privacy_lifecycle import (
     PrivacyLaunchConfig,
