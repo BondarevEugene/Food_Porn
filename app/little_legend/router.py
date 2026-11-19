@@ -289,13 +289,31 @@ async def read_book_payment_status(
         verified = await has_verified_entitlement(
             session, quote_id=quote_id, owner_id=owner
         )
+    from app.little_legend.fulfillment_queue import fulfillment_jobs
+
+    async with async_session_maker() as session:
+        job = (await session.execute(
+            select(
+                fulfillment_jobs.c.status,
+                fulfillment_jobs.c.delivered_at,
+                fulfillment_jobs.c.delivery_started_at,
+            ).where(
+                fulfillment_jobs.c.quote_id == quote_id,
+                fulfillment_jobs.c.owner_id == owner,
+            )
+        )).mappings().one_or_none()
     return {
         "quote_id": quote_id,
         "story_id": quote["story_id"],
         "edition": quote["edition"],
         "payment_status": "paid" if verified else "awaiting_confirmation",
         "payment_verified": verified,
-        "production_started": False,
+        "production_status": job["status"] if job else "not_queued",
+        "delivery_status": (
+            "delivered" if job and job["delivered_at"]
+            else "reconciliation_required" if job and job["delivery_started_at"]
+            else "not_started"
+        ),
     }
 
 
