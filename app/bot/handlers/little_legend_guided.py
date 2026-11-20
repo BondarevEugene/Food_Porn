@@ -278,7 +278,11 @@ async def save_intake(callback: CallbackQuery, state: FSMContext) -> None:
         draft = StoryDraft(
             title=f"Сказка про {hero}",
             hero=hero,
-            entry=StoryEntry(\n                mode=StoryMode.BRIEF, brief=brief,\n                photo_reference_ids=data.get("photo_reference_ids", []),\n                photo_consent_confirmed=data.get("photo_consent_confirmed", False),\n            ),
+            entry=StoryEntry(
+                mode=StoryMode.BRIEF, brief=brief,
+                photo_reference_ids=data.get("photo_reference_ids", []),
+                photo_consent_confirmed=data.get("photo_consent_confirmed", False),
+            ),
             parent_sketch=None,
             graph=outline.graph,
             design=outline.design,
@@ -293,7 +297,11 @@ async def save_intake(callback: CallbackQuery, state: FSMContext) -> None:
         draft = StoryDraft(
             title=f"{source.title} — {hero}",
             hero=hero,
-            entry=StoryEntry(\n                mode=StoryMode.CLASSIC, classic=source,\n                photo_reference_ids=data.get("photo_reference_ids", []),\n                photo_consent_confirmed=data.get("photo_consent_confirmed", False),\n            ),
+            entry=StoryEntry(
+                mode=StoryMode.CLASSIC, classic=source,
+                photo_reference_ids=data.get("photo_reference_ids", []),
+                photo_consent_confirmed=data.get("photo_consent_confirmed", False),
+            ),
             setup=f"Адаптация: {source.title}; оригинальный герой: {source.original_hero}",
         )
     try:
