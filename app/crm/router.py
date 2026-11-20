@@ -24,6 +24,7 @@ from app.crm.models import Audit, CustomerNote, Expense, Integration
 from app.crm.security import crm_identity, decrypt_credentials, encrypt_credentials, require_owner
 from app.database.models import AppSetting, Customer, WallpaperOrder
 from app.database.session import async_session_maker
+from app.little_legend.retention_history import recent_retention_runs
 from app.services.gift_cleanup import cleanup_scratch
 from app.services.payment import PaymentService
 
@@ -715,4 +716,23 @@ async def little_legend_delivery_repair(
         "action": diagnosis.action.value,
         "telegram_message_id": diagnosis.telegram_message_id,
         "automatic_retry_enabled": False,
+    }
+
+
+@router.get("/api/little-legend/retention-operations")
+async def little_legend_retention_operations(
+    identity: Identity,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+):
+    """Owner-only aggregate retention history, no child/media identifiers."""
+    require_owner(identity)
+    async with async_session_maker() as session:
+        runs = await recent_retention_runs(session, limit=limit)
+    latest = runs[0] if runs else None
+    return {
+        "latest": latest,
+        "runs": runs,
+        "total_returned": len(runs),
+        "read_only": True,
+        "photo_upload_enabled_by_this_endpoint": False,
     }
