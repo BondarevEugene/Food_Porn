@@ -35,7 +35,11 @@ class BookQualityReport(BaseModel):
     issues: list[str] = Field(default_factory=list)
 
 
-def inspect_illustration(\n    scene_id: str, raw: bytes, *,\n    box_width_pt: float = ILLUSTRATION_WIDTH_PT,\n    box_height_pt: float = ILLUSTRATION_HEIGHT_PT,\n) -> IllustrationQuality:
+def inspect_illustration(
+    scene_id: str, raw: bytes, *,
+    box_width_pt: float = ILLUSTRATION_WIDTH_PT,
+    box_height_pt: float = ILLUSTRATION_HEIGHT_PT,
+) -> IllustrationQuality:
     """Check real pixel dimensions at the current maximum illustration box."""
     if not raw or len(raw) > 12 * 1024 * 1024:
         raise ValueError("Invalid illustration bytes")
@@ -47,7 +51,9 @@ def inspect_illustration(\n    scene_id: str, raw: bytes, *,\n    box_width_pt: 
         raise ValueError("Invalid illustration") from exc
     if width <= 0 or height <= 0:
         raise ValueError("Invalid illustration geometry")
-    if box_width_pt <= 0 or box_height_pt <= 0:\n        raise ValueError("Invalid illustration display box")\n    scale = min(box_width_pt / width, box_height_pt / height)
+    if box_width_pt <= 0 or box_height_pt <= 0:
+        raise ValueError("Invalid illustration display box")
+    scale = min(box_width_pt / width, box_height_pt / height)
     effective_dpi = int(72 / scale)
     issues = ["illustration_below_300_dpi"] if effective_dpi < MIN_PRINT_DPI else []
     return IllustrationQuality(
