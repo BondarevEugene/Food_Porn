@@ -78,19 +78,23 @@ def entry_preflight(entry: StoryEntry) -> dict:
     return {"ready": not blockers, "blockers": blockers, "mode": entry.mode.value}
 
 
-def brief_outline(brief: SimpleBrief, *, chapter_count: int = 12) -> SketchOutline:
-    """Reuse the existing source-only outline engine, without inventing events."""
+def brief_parent_sketch(brief: SimpleBrief) -> ParentSketch:
+    """Persist the exact parental source used by the approved writer pipeline."""
     premise = (
         f"Главный герой: {brief.child_hero}. "
         f"Другие персонажи: {', '.join(brief.characters)}."
     )
-    sketch = ParentSketch(
+    return ParentSketch(
         premise=premise,
         moments=brief.events,
         lesson=brief.moral,
         avoid=brief.exclusions,
     )
-    return outline_from_sketch(sketch, chapter_count=chapter_count)
+
+
+def brief_outline(brief: SimpleBrief, *, chapter_count: int = 12) -> SketchOutline:
+    """Reuse the existing source-only outline engine, without inventing events."""
+    return outline_from_sketch(brief_parent_sketch(brief), chapter_count=chapter_count)
 
 
 def classic_adaptation_brief(source: ClassicSource) -> dict:
