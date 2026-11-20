@@ -262,7 +262,11 @@ async def save_intake(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer()
         return
     data = await state.get_data()
-    if data.get("saving"):\n        await callback.answer("Сохранение уже выполняется")\n        return\n    await state.update_data(saving=True)\n    hero = data["hero"]
+    if data.get("saving"):
+        await callback.answer("Сохранение уже выполняется")
+        return
+    await state.update_data(saving=True)
+    hero = data["hero"]
     if data["mode"] == StoryMode.BRIEF:
         brief = SimpleBrief(
             child_hero=hero,
@@ -294,7 +298,9 @@ async def save_intake(callback: CallbackQuery, state: FSMContext) -> None:
         )
     try:
         result = await create_story(draft, owner=callback.from_user.id)
-    except Exception:\n        await state.update_data(saving=False)\n        await callback.message.answer(
+    except Exception:
+        await state.update_data(saving=False)
+        await callback.message.answer(
             "⚠️ Не удалось сохранить черновик. Попробуйте ещё раз позже."
         )
         await callback.answer()
