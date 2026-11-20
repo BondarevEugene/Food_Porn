@@ -26,8 +26,16 @@ def test_dashboard_does_not_expose_mutating_payment_or_generation_actions():
     assert "/order-quotes/'+id+'/diagnostics" in RELEASE_CONTROL_HTML
     assert "/order-quotes/'+id+'/book.pdf" in RELEASE_CONTROL_HTML
     assert "/checkout" not in RELEASE_CONTROL_HTML
-    assert "method:'POST'" not in RELEASE_CONTROL_HTML
+    # The only permitted mutation repairs a previously confirmed delivery
+    # projection; it must never initiate payment, generation or Telegram send.
+    assert RELEASE_CONTROL_HTML.count("method:'POST'") == 1
+    assert "/stories/'+id+'/delivery-reconcile" in RELEASE_CONTROL_HTML
+    assert "x.action==='repair_projection'" in RELEASE_CONTROL_HTML
+    assert "Number.isSafeInteger(x.telegram_message_id)" in RELEASE_CONTROL_HTML
+    assert "recoverableStory!==id||!auth" in RELEASE_CONTROL_HTML
     assert "method:'PUT'" not in RELEASE_CONTROL_HTML
+    assert "/regenerate" not in RELEASE_CONTROL_HTML
+    assert "/retry" not in RELEASE_CONTROL_HTML
 
 
 def test_mobile_and_accessibility_controls_exist():
