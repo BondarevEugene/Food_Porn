@@ -281,6 +281,26 @@ async def start_book_checkout(
     return {"payment_id": payment.id, "checkout_url": url, "status": payment.status}
 
 
+@router.get("/api/order-quotes/{quote_id}/production-operations")
+async def read_production_operations(
+    quote_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Authenticated read-only recovery dashboard for a paid book."""
+    from app.little_legend.production_operations import inspect_production_operations
+
+    async with async_session_maker() as session:
+        view = await inspect_production_operations(
+            session, quote_id=quote_id, owner_id=owner,
+        )
+    if view is None:
+        raise HTTPException(404, "Production job not found")
+    return Response(
+        content=view.model_dump_json(),
+        media_type="application/json",
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 @router.get("/api/order-quotes/{quote_id}/status")
 async def read_book_payment_status(
     quote_id: int, owner: Annotated[int, Depends(_owner)],
