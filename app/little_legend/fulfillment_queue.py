@@ -7,7 +7,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Integer, MetaData, String, Table, select
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    select,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
