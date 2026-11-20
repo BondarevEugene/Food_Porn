@@ -92,8 +92,15 @@ def assess_production(
         completed_scenes=sum(
             1 for scene_id in expected
             if counts[scene_id] == 1
-            and next(job for job in jobs if job.scene_id == scene_id).status
-            == JobStatus.COMPLETED
+            and scene_id in chapters
+            and chapters[scene_id].approved
+            and any(
+                job.scene_id == scene_id
+                and job.status == JobStatus.COMPLETED
+                and job.provider_dispatched_at is not None
+                and job.expected_revision == chapters[scene_id].revision
+                for job in jobs
+            )
         ),
         total_scenes=len(expected),
         issues=issues,
