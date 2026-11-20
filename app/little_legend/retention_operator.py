@@ -16,6 +16,7 @@ from dataclasses import asdict
 from app.database.session import async_session_maker, engine
 from app.little_legend.privacy_lifecycle import PrivacyLaunchConfig
 from app.little_legend.retention_alert_policy import evaluate_retention
+from app.little_legend.retention_history import record_retention_run
 from app.little_legend.retention_notifications import alert_message, notify_retention
 from app.little_legend.vault_operator_audit import audit_private_vault
 
@@ -87,6 +88,8 @@ async def run_operator(
         result["notification"]["sent"] = await notify_retention(
             result["operations"],
         )
+    async with async_session_maker() as session:
+        await record_retention_run(session, result)
     return result
 
 
