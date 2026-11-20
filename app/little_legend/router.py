@@ -281,6 +281,23 @@ async def start_book_checkout(
     return {"payment_id": payment.id, "checkout_url": url, "status": payment.status}
 
 
+@router.get("/api/order-quotes/{quote_id}/journey")
+async def read_paid_book_journey(
+    quote_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Parent-safe, no-store status of the paid story production journey."""
+    from app.little_legend.production_journey import inspect_paid_journey
+
+    view = await inspect_paid_journey(quote_id=quote_id, owner_id=owner)
+    if view is None:
+        raise HTTPException(404, "Quote not found")
+    return Response(
+        content=view.model_dump_json(),
+        media_type="application/json",
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 @router.get("/api/order-quotes/{quote_id}/production-operations")
 async def read_production_operations(
     quote_id: int, owner: Annotated[int, Depends(_owner)],
