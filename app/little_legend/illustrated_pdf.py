@@ -5,6 +5,7 @@ URLs, uploads photos, stores files or calls an image generation provider.
 """
 from __future__ import annotations
 
+import re
 from io import BytesIO
 from xml.sax.saxutils import escape
 
@@ -94,6 +95,37 @@ def _book_paragraphs(text: str) -> list[str]:
         if block:
             result.append(block)
     return result
+
+
+_PARAGRAPH_BREAK = re.compile(r"\n[ \t]*\n+")
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?…])\s+")
+
+
+def _editorial_paragraphs(text: str, *, max_chars: int = 650) -> list[str]:
+    """Break oversized blocks at sentence boundaries without dropping prose."""
+    if max_chars < 100:
+        raise ValueError("Paragraph limit must be at least 100 characters")
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    output: list[str] = []
+    for block in _PARAGRAPH_BREAK.split(normalized):
+        for line in block.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            if len(line) <= max_chars:
+                output.append(line)
+                continue
+            sentences = _SENTENCE_BOUNDARY.split(line)
+            current = ""
+            for sentence in sentences:
+                if current and len(current) + 1 + len(sentence) > max_chars:
+                    output.append(current)
+                    current = sentence
+                else:
+                    current = (current + " " + sentence).strip()
+            if current:
+                output.append(current)
+    return output
 
 
 def render_illustrated_proof(
@@ -201,6 +233,7 @@ def render_illustrated_proof(
         textColor=colors.HexColor("#30394C"),
         alignment=TA_JUSTIFY if edition == "digital" else TA_LEFT,
         firstLineIndent=13 if edition == "digital" else 0,
+        splitLongWords=1,
         spaceAfter=13, allowWidows=0, allowOrphans=0,
     )
     chapter_label = ParagraphStyle(
@@ -238,7 +271,7 @@ def render_illustrated_proof(
             ))
         flow.append(images[node.id])
         flow.append(Spacer(1, 20))
-        for paragraph in _book_paragraphs(chapters[node.id].text):
+        for paragraph in _editorial_paragraphs(chapters[node.id].text):
             flow.append(Paragraph(escape(paragraph), body))
         flow.append(PageBreak())
     if edition == "editorial_proof":
