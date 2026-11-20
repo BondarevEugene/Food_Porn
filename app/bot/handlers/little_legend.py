@@ -53,10 +53,13 @@ def little_legend_studio_url(configured_url: str) -> str | None:
 async def open_little_legend(callback: CallbackQuery) -> None:
     lang = language_for(callback.from_user)
     studio_url = little_legend_studio_url(get_settings().miniapp_url)
-    buttons = []
+    buttons = [[InlineKeyboardButton(
+        text=text_for(lang, "✨ Створити книгу", "✨ Создать книгу", "✨ Create a book"),
+        callback_data="ll_choose_mode",
+    )]]
     if studio_url:
         buttons.append([InlineKeyboardButton(
-            text=text_for(lang, "📖 Відкрити студію", "📖 Открыть студию", "📖 Open story studio"),
+            text=text_for(lang, "🎨 Редактор книги", "🎨 Редактор книги", "🎨 Book editor"),
             web_app=WebAppInfo(url=studio_url),
         )])
     buttons.append([InlineKeyboardButton(
@@ -84,6 +87,85 @@ async def open_little_legend(callback: CallbackQuery) -> None:
             "The studio will open once MINIAPP_URL (HTTPS) is configured.",
         )
     await callback.message.answer(message, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "ll_choose_mode")
+async def choose_little_legend_mode(callback: CallbackQuery) -> None:
+    """One clear decision per screen; preserve the existing editor route."""
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("Open this in a private chat", show_alert=True)
+        return
+    lang = language_for(callback.from_user)
+    options = [
+        ("director", ("✍️ Моя історія", "✍️ Моя история", "✍️ My story")),
+        ("classic", ("🏰 Я — герой казки", "🏰 Я — герой сказки", "🏰 Classic hero")),
+        ("brief", ("✨ Казка за моєю ідеєю", "✨ Сказка по моей идее", "✨ My story idea")),
+    ]
+    buttons = [
+        [InlineKeyboardButton(text=text_for(lang, *labels), callback_data=f"ll_mode:{mode}")]
+        for mode, labels in options
+    ]
+    buttons.append([InlineKeyboardButton(
+        text=text_for(lang, "⬅️ Назад", "⬅️ Назад", "⬅️ Back"),
+        callback_data="prod_little_legend",
+    )])
+    await callback.message.answer(
+        text_for(lang,
+                 "📖 Крок 1/5 · Як створимо вашу книгу?",
+                 "📖 Шаг 1/5 · Как создадим вашу книгу?",
+                 "📖 Step 1/5 · How shall we create your book?"),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ll_mode:"))
+async def show_little_legend_mode(callback: CallbackQuery) -> None:
+    """Explain mode readiness without pretending an unsupported editor is live."""
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("Open this in a private chat", show_alert=True)
+        return
+    lang = language_for(callback.from_user)
+    mode = (callback.data or "").removeprefix("ll_mode:")
+    if mode not in {"director", "classic", "brief"}:
+        await callback.answer("Unknown mode", show_alert=True)
+        return
+    studio_url = little_legend_studio_url(get_settings().miniapp_url)
+    if mode == "director":
+        message = text_for(
+            lang,
+            "✍️ Моя історія: детально створюйте героїв, події та сцени.",
+            "✍️ Моя история: подробно создавайте героев, события и сцены.",
+            "✍️ My story: design characters, events and scenes in detail.",
+        )
+    elif mode == "classic":
+        message = text_for(
+            lang,
+            "🏰 Адаптація класики: перевірка прав на твір та новий редактор ще готуються.",
+            "🏰 Адаптация классики: проверка прав на произведение и новый редактор ещё готовятся.",
+            "🏰 Classic adaptation: rights review and the new editor are being prepared.",
+        )
+    else:
+        message = text_for(
+            lang,
+            "✨ Короткий бриф: сценарний рушій додано, покроковий редактор ще готується.",
+            "✨ Короткий бриф: сценарный движок добавлен, пошаговый редактор ещё готовится.",
+            "✨ Short brief: story planning is available internally; the guided editor is coming.",
+        )
+    buttons = []
+    if mode == "director" and studio_url:
+        buttons.append([InlineKeyboardButton(
+            text=text_for(lang, "📖 Відкрити редактор", "📖 Открыть редактор", "📖 Open editor"),
+            web_app=WebAppInfo(url=studio_url),
+        )])
+    buttons.append([InlineKeyboardButton(
+        text=text_for(lang, "⬅️ Обрати інший режим", "⬅️ Выбрать другой режим", "⬅️ Choose another mode"),
+        callback_data="ll_choose_mode",
+    )])
+    await callback.message.answer(
+        message, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+    )
     await callback.answer()
 
 
