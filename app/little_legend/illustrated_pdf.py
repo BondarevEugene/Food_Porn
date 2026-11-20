@@ -223,11 +223,15 @@ def render_illustrated_proof(
     doc.addPageTemplates(PageTemplate(id="book", frames=[frame], onPage=page))
     cover_font_size = 25 if len(title) <= 38 else 20 if len(title) <= 65 else 16
     title_style = ParagraphStyle(
-        "Title", fontName=font, fontSize=cover_font_size,
-        leading=cover_font_size * 1.4,
+        "Title", fontName=font, fontSize=25, leading=35,
         textColor=colors.HexColor(ink),
         alignment=TA_CENTER, spaceAfter=18,
     )
+    if cover_font_size != 25:
+        title_style = ParagraphStyle(
+            "AdaptiveTitle", parent=title_style, fontSize=cover_font_size,
+            leading=cover_font_size * 1.4,
+        )
     heading = ParagraphStyle(
         "Chapter", fontName=font, fontSize=16, leading=24,
         textColor=colors.HexColor("#30394C"),
@@ -269,7 +273,7 @@ def render_illustrated_proof(
         if edition == "digital":
             flow.append(Spacer(1, 14))
             flow.append(Paragraph(
-                f"Глава {node.order:02d}  ·  LITTLE LEGEND", chapter_label,
+                f"ГЛАВА {node.order:02d}  ·  LITTLE LEGEND", chapter_label,
             ))
             flow.append(Paragraph(escape(node.title), digital_heading))
             flow.append(HRFlowable(width="28%", thickness=1.1, color=accent_color,
