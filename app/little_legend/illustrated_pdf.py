@@ -273,7 +273,7 @@ def render_illustrated_proof(
         if edition == "digital":
             flow.append(Spacer(1, 14))
             flow.append(Paragraph(
-                f"ГЛАВА {node.order:02d}  ·  LITTLE LEGEND", chapter_label,
+                f"Глава {node.order:02d}  ·  LITTLE LEGEND", chapter_label,
             ))
             flow.append(Paragraph(escape(node.title), digital_heading))
             flow.append(HRFlowable(width="28%", thickness=1.1, color=accent_color,
