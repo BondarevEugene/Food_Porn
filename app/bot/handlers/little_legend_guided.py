@@ -25,6 +25,8 @@ class BookIntake(StatesGroup):
     moral = State()
     classic_title = State()
     classic_original_hero = State()
+    photo_consent = State()
+    photos = State()
     confirm = State()
 
 
@@ -113,7 +115,7 @@ async def receive_events(message: Message, state: FSMContext) -> None:
 @router.callback_query(BookIntake.moral, F.data == "ll_intake_skip_moral")
 async def skip_moral(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(moral="")
-    await _review(callback.message, state)
+    await _request_photo_consent(callback.message, state)
     await callback.answer()
 
 
@@ -125,7 +127,7 @@ async def receive_moral(message: Message, state: FSMContext) -> None:
         await message.answer("Сократите мораль до 1000 символов.")
         return
     await state.update_data(moral=message.text.strip())
-    await _review(message, state)
+    await _request_photo_consent(message, state)
 
 
 @router.message(BookIntake.classic_title, F.text)
@@ -150,7 +152,70 @@ async def receive_original_hero(message: Message, state: FSMContext) -> None:
         await message.answer("Укажите имя персонажа до 100 символов.")
         return
     await state.update_data(original_hero=original)
-    await _review(message, state)
+    await _request_photo_consent(message, state)
+
+
+async def _request_photo_consent(message: Message, state: FSMContext) -> None:
+    await state.set_state(BookIntake.photo_consent)
+    await message.answer(
+        "📷 Фото ребёнка необязательно. Если хотите добавить фото, "
+        "подтвердите, что вы родитель или законный представитель и "
+        "разрешаете использовать изображение для создания книги. "
+        "Фото пока сохраняется только как Telegram file_id, "
+        "без скачивания и без запуска AI.",
+        reply_markup=_buttons(
+            ("✅ Разрешаю использовать фото", "ll_photo_consent_yes"),
+            ("Пропустить фото", "ll_photo_skip"),
+            ("✖️ Отменить", "ll_intake_cancel"),
+        ),
+    )
+
+
+@router.callback_query(BookIntake.photo_consent, F.data == "ll_photo_consent_yes")
+async def allow_photos(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.update_data(photo_consent_confirmed=True, photo_reference_ids=[])
+    await state.set_state(BookIntake.photos)
+    await callback.message.answer(
+        "📷 Отправьте до 5 фотографий отдельными сообщениями. "
+        "Когда закончите, нажмите «Готово».",
+        reply_markup=_buttons(
+            ("✅ Готово", "ll_photo_done"),
+            ("✖️ Отменить", "ll_intake_cancel"),
+        ),
+    )
+    await callback.answer()
+
+
+@router.message(BookIntake.photos, F.photo)
+async def collect_photo(message: Message, state: FSMContext) -> None:
+    if not await _private(message):
+        return
+    data = await state.get_data()
+    references = data.get("photo_reference_ids", [])
+    if len(references) >= 5:
+        await message.answer("Максимум 5 фотографий. Нажмите «Готово».")
+        return
+    file_id = message.photo[-1].file_id
+    if file_id not in references:
+        references.append(file_id)
+        await state.update_data(photo_reference_ids=references)
+    await message.answer(
+        f"📷 Добавлено {len(references)}/5.",
+        reply_markup=_buttons(("✅ Готово", "ll_photo_done")),
+    )
+
+
+@router.callback_query(BookIntake.photos, F.data == "ll_photo_done")
+async def finish_photos(callback: CallbackQuery, state: FSMContext) -> None:
+    await _review(callback.message, state)
+    await callback.answer()
+
+
+@router.callback_query(BookIntake.photo_consent, F.data == "ll_photo_skip")
+async def skip_photos(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.update_data(photo_consent_confirmed=False, photo_reference_ids=[])
+    await _review(callback.message, state)
+    await callback.answer()
 
 
 async def _review(message: Message, state: FSMContext) -> None:
@@ -197,6 +262,10 @@ async def save_intake(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer()
         return
     data = await state.get_data()
+    if data.get("saving"):
+        await callback.answer("Сохранение уже выполняется")
+        return
+    await state.update_data(saving=True)
     hero = data["hero"]
     if data["mode"] == StoryMode.BRIEF:
         brief = SimpleBrief(
@@ -209,7 +278,11 @@ async def save_intake(callback: CallbackQuery, state: FSMContext) -> None:
         draft = StoryDraft(
             title=f"Сказка про {hero}",
             hero=hero,
-            entry=StoryEntry(mode=StoryMode.BRIEF, brief=brief),
+            entry=StoryEntry(
+                mode=StoryMode.BRIEF, brief=brief,
+                photo_reference_ids=data.get("photo_reference_ids", []),
+                photo_consent_confirmed=data.get("photo_consent_confirmed", False),
+            ),
             parent_sketch=None,
             graph=outline.graph,
             design=outline.design,
@@ -224,12 +297,17 @@ async def save_intake(callback: CallbackQuery, state: FSMContext) -> None:
         draft = StoryDraft(
             title=f"{source.title} — {hero}",
             hero=hero,
-            entry=StoryEntry(mode=StoryMode.CLASSIC, classic=source),
+            entry=StoryEntry(
+                mode=StoryMode.CLASSIC, classic=source,
+                photo_reference_ids=data.get("photo_reference_ids", []),
+                photo_consent_confirmed=data.get("photo_consent_confirmed", False),
+            ),
             setup=f"Адаптация: {source.title}; оригинальный герой: {source.original_hero}",
         )
     try:
         result = await create_story(draft, owner=callback.from_user.id)
     except Exception:
+        await state.update_data(saving=False)
         await callback.message.answer(
             "⚠️ Не удалось сохранить черновик. Попробуйте ещё раз позже."
         )
