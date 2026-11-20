@@ -10,6 +10,7 @@ from app.little_legend.generated_art_store import (
 )
 from app.little_legend.illustrated_pdf import render_illustrated_proof
 from app.little_legend.illustration_queue_store import IllustrationJob
+from app.little_legend.release_quality_engine import audit_book_release
 from app.little_legend.story_graph import StoryGraph
 from app.little_legend.story_writer import StoryManuscript
 from app.little_legend.writer_queue import JobStatus
@@ -62,4 +63,10 @@ def assemble_stored_book_proof(
         raise ValueError("Illustrated book PDF failed structural preflight")
     if edition == "digital":
         validate_paid_digital_pdf(pdf, expected_scenes=len(expected))
+    audit = audit_book_release(
+        pdf=pdf, illustrations=images, expected_scenes=len(expected),
+        edition=edition, cover_scene_id=nodes[0].id,
+    )
+    if edition == "digital" and not audit.deliverable:
+        raise ValueError("Illustrated book failed release quality audit")
     return pdf
