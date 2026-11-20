@@ -298,6 +298,23 @@ async def read_paid_book_journey(
     )
 
 
+@router.get("/api/order-quotes/{quote_id}/release-readiness")
+async def read_paid_release_readiness(
+    quote_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Read-only release blockers, owner-scoped and free of private story text."""
+    from app.little_legend.release_readiness import inspect_paid_release
+
+    report = await inspect_paid_release(quote_id=quote_id, owner_id=owner)
+    if report is None:
+        raise HTTPException(404, "Quote not found")
+    return Response(
+        content=report.model_dump_json(),
+        media_type="application/json",
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 @router.get("/api/order-quotes/{quote_id}/production-operations")
 async def read_production_operations(
     quote_id: int, owner: Annotated[int, Depends(_owner)],
