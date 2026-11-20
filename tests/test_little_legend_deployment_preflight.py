@@ -10,7 +10,6 @@ from app.little_legend.deployment_preflight import (
     main,
 )
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
