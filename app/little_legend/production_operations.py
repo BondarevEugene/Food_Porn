@@ -5,6 +5,7 @@ payments, or release held money. Ambiguous side effects fail closed.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
@@ -32,6 +33,9 @@ class ProductionOperationsView(BaseModel):
     fulfillment_status: str
     lease_diagnosis: LeaseDiagnosis
     lease_attempts: int = Field(ge=0)
+    delivery_started_at: datetime | None = None
+    delivered_at: datetime | None = None
+    telegram_message_id: int | None = Field(default=None, gt=0)
     recovery_action: RecoveryAction
     budget_limit_micro_usd: int | None = Field(default=None, ge=0)
     budget_held_micro_usd: int | None = Field(default=None, ge=0)
@@ -85,6 +89,9 @@ async def inspect_production_operations(
         fulfillment_jobs.c.status,
         fulfillment_jobs.c.lease_expires_at,
         fulfillment_jobs.c.lease_attempts,
+        fulfillment_jobs.c.delivery_started_at,
+        fulfillment_jobs.c.delivered_at,
+        fulfillment_jobs.c.telegram_message_id,
     ).where(
         fulfillment_jobs.c.quote_id == quote_id,
         fulfillment_jobs.c.owner_id == owner_id,
@@ -118,9 +125,14 @@ async def inspect_production_operations(
         diagnosis=diagnosis, unresolved_effects=unresolved,
         held_reservations=held, has_budget=budget is not None,
     )
+    if row[3] is not None and row[4] is None:
+        action = RecoveryAction.MANUAL_REVIEW
+        notes.append("Telegram delivery was claimed but not confirmed; never auto-resend")
     return ProductionOperationsView(
         quote_id=quote_id, story_id=quote, fulfillment_status=row[0],
         lease_diagnosis=diagnosis, lease_attempts=row[2],
+        delivery_started_at=row[3], delivered_at=row[4],
+        telegram_message_id=row[5],
         recovery_action=action, unresolved_effects=unresolved,
         held_reservations=held,
         budget_limit_micro_usd=budget[0] if budget else None,
