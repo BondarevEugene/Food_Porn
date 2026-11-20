@@ -315,6 +315,23 @@ async def read_paid_release_readiness(
     )
 
 
+@router.get("/api/production/dashboard")
+async def read_owner_production_dashboard(
+    owner: Annotated[int, Depends(_owner)], limit: int = 50,
+):
+    """Private read-only production overview; never expose global counters."""
+    from app.little_legend.owner_production_dashboard import inspect_owner_dashboard
+
+    if not 1 <= limit <= 100:
+        raise HTTPException(422, "Limit must be between 1 and 100")
+    report = await inspect_owner_dashboard(owner_id=owner, limit=limit)
+    return Response(
+        content=report.model_dump_json(),
+        media_type="application/json",
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 @router.get("/api/order-quotes/{quote_id}/production-operations")
 async def read_production_operations(
     quote_id: int, owner: Annotated[int, Depends(_owner)],
