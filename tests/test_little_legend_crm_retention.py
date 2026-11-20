@@ -38,7 +38,11 @@ async def test_retention_endpoint_returns_only_aggregates():
     ), patch(
         "app.crm.router.recent_retention_runs",
         new_callable=AsyncMock, return_value=rows,
-    ) as history:
+    ) as history, patch(
+        "app.crm.router.alert_delivery_status",
+        new_callable=AsyncMock,
+        return_value={"configured": False, "in_progress": False, "last_sent_at": None},
+    ):
         result = await little_legend_retention_operations(
             identity={"owner": True}, limit=5,
         )
