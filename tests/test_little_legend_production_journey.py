@@ -98,3 +98,22 @@ def test_blocked_fulfillment_requires_operator():
     assert view(status="blocked") == (
         JourneyStage.MANUAL_REVIEW, "contact_support",
     )
+
+
+def test_partial_art_batch_is_not_final_review():
+    draft = approved_draft(manuscript=True, image_consent=True)
+    draft.graph = build_graph(["Scene one", "Scene two"])
+    assert view(draft, art=["completed"]) == (
+        JourneyStage.ILLUSTRATING, "wait",
+    )
+
+
+def test_final_editorial_approval_moves_to_pdf_stage():
+    draft = approved_draft(manuscript=True, image_consent=True)
+    draft.editorial_decision.hero_fidelity_reviewed = True
+    draft.editorial_decision.age_appropriateness_reviewed = True
+    draft.editorial_decision.narrative_continuity_reviewed = True
+    draft.editorial_decision.parent_final_approval = True
+    assert view(draft, art=["completed"]) == (
+        JourneyStage.PRODUCING_PDF, "wait",
+    )
