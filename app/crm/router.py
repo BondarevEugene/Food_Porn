@@ -24,6 +24,7 @@ from app.crm.models import Audit, CustomerNote, Expense, Integration
 from app.crm.security import crm_identity, decrypt_credentials, encrypt_credentials, require_owner
 from app.database.models import AppSetting, Customer, WallpaperOrder
 from app.database.session import async_session_maker
+from app.little_legend.retention_alert_state import alert_delivery_status
 from app.little_legend.retention_history import recent_retention_runs
 from app.services.gift_cleanup import cleanup_scratch
 from app.services.payment import PaymentService
@@ -728,9 +729,11 @@ async def little_legend_retention_operations(
     require_owner(identity)
     async with async_session_maker() as session:
         runs = await recent_retention_runs(session, limit=limit)
+        alert = await alert_delivery_status(session)
     latest = runs[0] if runs else None
     return {
         "latest": latest,
+        "alert_delivery": alert,
         "runs": runs,
         "total_returned": len(runs),
         "read_only": True,
