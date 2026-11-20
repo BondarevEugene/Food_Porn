@@ -16,6 +16,12 @@ from dataclasses import asdict
 from app.database.session import async_session_maker, engine
 from app.little_legend.privacy_lifecycle import PrivacyLaunchConfig
 from app.little_legend.retention_alert_policy import evaluate_retention
+from app.little_legend.retention_alert_state import (
+    alert_fingerprint,
+    claim_alert,
+    clear_alert_after_recovery,
+    finish_alert,
+)
 from app.little_legend.retention_history import record_retention_run
 from app.little_legend.retention_notifications import alert_message, notify_retention
 from app.little_legend.vault_operator_audit import audit_private_vault
@@ -85,9 +91,26 @@ async def run_operator(
         "sent": False,
     }
     if notify_owner:
-        result["notification"]["sent"] = await notify_retention(
-            result["operations"],
-        )
+        if result["operations"]["status"] == "ok":
+            async with async_session_maker() as session:
+                await clear_alert_after_recovery(session)
+            result["notification"]["reason"] = "healthy"
+        else:
+            fingerprint = alert_fingerprint(
+                result["operations"]["status"],
+                result["operations"]["codes"],
+            )
+            async with async_session_maker() as session:
+                claim = await claim_alert(session, fingerprint=fingerprint)
+            result["notification"]["reason"] = claim.reason
+            if claim.token is not None:
+                sent = False
+                try:
+                    sent = await notify_retention(result["operations"])
+                    result["notification"]["sent"] = sent
+                finally:
+                    async with async_session_maker() as session:
+                        await finish_alert(session, token=claim.token, sent=sent)
     async with async_session_maker() as session:
         await record_retention_run(session, result)
     return result
