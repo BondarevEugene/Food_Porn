@@ -58,7 +58,7 @@ def inspect_illustration(\n    scene_id: str, raw: bytes, *,\n    box_width_pt: 
 
 def inspect_illustrated_book(
     *, pdf: bytes, illustrations: dict[str, bytes],
-    expected_min_pages: int,
+    expected_min_pages: int, cover_scene_id: str | None = None,
 ) -> BookQualityReport:
     """Aggregate objective diagnostics without story prose or child photos."""
     if expected_min_pages < 1:
