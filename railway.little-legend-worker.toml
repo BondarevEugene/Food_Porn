@@ -1,0 +1,6 @@
+# Configure this file as the Railway worker service's config-as-code path.
+# Keep the existing web/bot service unchanged.
+[deploy]
+startCommand = "python -m app.little_legend.paid_book_worker"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

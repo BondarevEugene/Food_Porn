@@ -184,6 +184,10 @@ async def _deliver(row: dict, key: str) -> None:
     # Claim delivery BEFORE the external Telegram side effect. If Railway
     # crashes after dispatch, an operator must reconcile; never send twice.
     async with async_session_maker() as session:
+        if not await has_verified_entitlement(
+            session, quote_id=row["quote_id"], owner_id=row["owner_id"],
+        ):
+            raise PermissionError("Verified payment required before delivery")
         result = await session.execute(
             update(fulfillment_jobs)
             .where(
@@ -337,10 +341,49 @@ async def process_one() -> bool:
     return True
 
 
+def check_worker_configuration() -> None:
+    """Fail fast at deployment, before claiming a paid order."""
+    from app.config import get_settings
+
+    required = (
+        "LITTLE_LEGEND_ART_S3_ENDPOINT",
+        "LITTLE_LEGEND_ART_S3_BUCKET",
+        "LITTLE_LEGEND_ART_S3_REGION",
+        "LITTLE_LEGEND_ART_S3_ACCESS_KEY",
+        "LITTLE_LEGEND_ART_S3_SECRET_KEY",
+        "LITTLE_LEGEND_S3_ENDPOINT",
+        "LITTLE_LEGEND_S3_BUCKET",
+        "LITTLE_LEGEND_S3_REGION",
+        "LITTLE_LEGEND_S3_ACCESS_KEY_ID",
+        "LITTLE_LEGEND_S3_SECRET_ACCESS_KEY",
+    )
+    missing = [name for name in required if not os.getenv(name, "").strip()]
+    for name in ("LITTLE_LEGEND_ART_S3_ENDPOINT", "LITTLE_LEGEND_S3_ENDPOINT"):
+        value = os.getenv(name, "")
+        if value and not value.startswith("https://"):
+            raise RuntimeError(f"{name} must use HTTPS")
+    if missing:
+        raise RuntimeError("Missing Little Legend worker settings: " + ", ".join(missing))
+    token = get_settings().bot_token
+    if not token or ":" not in token:
+        raise RuntimeError("Telegram BOT_TOKEN is not configured")
+
+
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
+    check_worker_configuration()
+    logger.info("Little Legend paid-book worker started")
     while True:
-        worked = await process_one()
+        try:
+            worked = await process_one()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Do not exit permanently after a transient database outage.
+            # Existing leases and delivery claims still prevent unsafe retries.
+            logger.exception("Little Legend worker cycle failed")
+            await asyncio.sleep(15)
+            continue
         if not worked:
             await asyncio.sleep(5)
 

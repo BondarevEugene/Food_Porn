@@ -2,8 +2,8 @@
 
 ## Deployment
 
-This release requires migration `20261119_0026` after `0025`.
-Start **one dedicated Railway worker** using:
+Run `alembic upgrade head` before enabling the dedicated worker; the fulfillment schema includes migrations 0026 and 0029.
+Create a **separate Railway service** from the same GitHub repository. Set its **Railway config file path** to `railway.little-legend-worker.toml`, and disable any HTTP healthcheck on that worker (it does not expose a port). Keep the existing bot/web service untouched. Deploy **one worker replica** with the same commit and environment variables. Its start command is:
 
 ```powershell
 python -m app.little_legend.paid_book_worker
@@ -61,3 +61,15 @@ Run `ruff check .`, `pytest -q`, and `alembic upgrade head` against a
 throwaway PostgreSQL database. Test signed real/sandbox callbacks, duplicate
 callbacks, private download ownership, Railway restart between S3 upload
 and Telegram delivery, and a deliberately incomplete manuscript.
+
+## Финальная проверка перед продажами
+
+1. Проверьте, что отдельный Railway worker запущен и пишет `Little Legend paid-book worker started`. Один только merge PR не создаёт сервис в Railway.
+2. Установите одинаковый `DATABASE_URL` (Neon) для web и worker; секреты S3 и Telegram должны быть доступны worker.
+3. Воспроизведите реальную подписанную оплату WayForPay в безопасном тестовом окружении. **Sandbox не создаёт entitlement и не запускает платное производство.** Для проверки полноценного заказа используйте согласованный небольшой реальный платёж с последующим возвратом, если это допускает ваш процесс.
+4. Убедитесь, что в `little_legend_payment_receipts` ровно одна квитанция, в `little_legend_fulfillment_jobs` ровно одно задание и оно проходит `pending → processing → ready`.
+5. Утверждённые текст и иллюстрации должны существовать **до** PDF-сборки. Worker не запускает AI-производство сцен.
+6. Проверьте получение Telegram PDF, owner-only скачивание и повторный webhook (он не должен создать второе задание или отправку).
+7. Прервите Railway worker после сохранения PDF: незавершённая доставка до claim может возобновиться; после claim Telegram автоматическая повторная отправка запрещена.
+
+**Ограничение:** подключение нового Railway сервиса и его секретов требует действий владельца проекта в Railway; это нельзя выполнить одним GitHub PR. Полная коммерческая готовность подтверждается только после сквозного тестового заказа.
