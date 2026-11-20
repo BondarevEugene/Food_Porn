@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -18,7 +19,6 @@ from sqlalchemy import (
     Identity,
     Index,
     Integer,
-    JSON,
     MetaData,
     String,
     Table,
