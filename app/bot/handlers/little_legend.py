@@ -6,6 +6,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from sqlalchemy import select
 
+from app.bot.handlers.little_legend_guided import router as guided_router
 from app.bot.handlers.little_legend_palettes import router as palette_router
 from app.bot.handlers.wallpaper import language_for, text_for
 from app.config import get_settings
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 router = Router(name="little_legend")
 router.include_router(palette_router)
+router.include_router(guided_router)
 
 
 def little_legend_studio_url(configured_url: str) -> str | None:
@@ -120,7 +122,7 @@ async def choose_little_legend_mode(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("ll_mode:"))
+@router.callback_query(F.data == "ll_mode:director")
 async def show_little_legend_mode(callback: CallbackQuery) -> None:
     """Explain mode readiness without pretending an unsupported editor is live."""
     if callback.message is None or callback.message.chat.type != "private":
