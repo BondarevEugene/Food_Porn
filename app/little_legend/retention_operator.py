@@ -45,8 +45,8 @@ async def run_operator(
     if execute:
         import boto3
 
-        from app.little_legend.vault_erasure_worker import S3PrivateObjectDeleter
         from app.little_legend.retention_drain import drain_retention, drain_to_dict
+        from app.little_legend.vault_erasure_worker import S3PrivateObjectDeleter
 
         bucket = os.environ.get("LITTLE_LEGEND_PRIVATE_BUCKET", "").strip()
         if not bucket:
