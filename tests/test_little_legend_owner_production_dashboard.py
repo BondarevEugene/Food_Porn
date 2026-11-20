@@ -5,7 +5,6 @@ import pytest
 
 from app.little_legend.owner_production_dashboard import build_dashboard
 
-
 NOW = datetime(2026, 11, 20, 18, 0, tzinfo=UTC)
 
 
