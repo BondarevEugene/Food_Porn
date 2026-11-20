@@ -269,7 +269,7 @@ async def _send_claimed_delivery(row: dict, key: str) -> None:
     pdf = await asyncio.to_thread(PaidBookStore().get, key=key)
     bot = Bot(token=get_settings().bot_token)
     try:
-        await bot.send_document(
+        receipt = await bot.send_document(
             chat_id=row["owner_id"],
             document=BufferedInputFile(
                 pdf, filename=f"little-legend-{row['quote_id']}.pdf"
@@ -278,6 +278,8 @@ async def _send_claimed_delivery(row: dict, key: str) -> None:
         )
     finally:
         await bot.session.close()
+    if receipt.message_id <= 0:
+        raise RuntimeError("Telegram did not return a valid message receipt")
     async with async_session_maker() as session:
         await session.execute(
             update(fulfillment_jobs)
@@ -289,6 +291,7 @@ async def _send_claimed_delivery(row: dict, key: str) -> None:
             )
             .values(
                 delivered_at=datetime.now(UTC),
+                telegram_message_id=receipt.message_id,
                 updated_at=datetime.now(UTC),
             )
         )
