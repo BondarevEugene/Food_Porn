@@ -63,6 +63,7 @@ from app.little_legend.image_ai_consent import (
     configured_image_ai_disclosure,
 )
 from app.little_legend.manuscript_pdf import render_manuscript_proof
+from app.little_legend.manuscript_quality import manuscript_quality_report
 from app.little_legend.manuscript_repository import (
     ChapterApproval,
     ChapterEdit,
@@ -645,6 +646,16 @@ async def read_hero_contract(
 
 
 
+
+
+@router.get("/api/stories/{story_id}/manuscript-quality")
+async def read_manuscript_quality(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Owner-only aggregate diagnostics without exposing prose."""
+    draft = await _owned_draft(story_id, owner)
+    graph = draft.graph or build_graph(draft.scenes)
+    return manuscript_quality_report(graph, draft.manuscript)
 
 
 @router.get("/api/stories/{story_id}/editorial-review")
@@ -1361,7 +1372,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 <p class="hero-lead">Придумайте приключение за пару минут или станьте режиссёром каждой сцены. Личные детали необязательны.</p>
 <div id="authError" class="error hidden">Откройте студию кнопкой из Telegram-бота.</div>
 <div id="workspace" class="hidden">
-<nav><button class="secondary" onclick="tab('idea')">01 · Идея</button><button class="secondary" onclick="tab('hero')">02 · Герой</button><button class="secondary" onclick="openDesign()">03 · Драматургия</button><button class="secondary" onclick="tab('scenes')">04 · Сцены</button><button class="secondary" onclick="openPrivacy()">Безопасность</button><button class="secondary" onclick="openPortrait()">Портрет</button><button class="secondary" onclick="openConsent()">05 · Согласие и фото</button><button class="secondary" onclick="openIdentity()">06 · Внешность</button><button class="secondary" onclick="openDirector()">07 · Стиль</button><button class="secondary" onclick="tab('edition')">08 · Издание</button></nav>
+<nav><button class="secondary" onclick="tab('idea')">01 · Идея</button><button class="secondary" onclick="tab('hero')">02 · Герой</button><button class="secondary" onclick="openDesign()">03 · Драматургия</button><button class="secondary" onclick="tab('scenes')">04 · Сцены</button><button class="secondary" onclick="openPrivacy()">Безопасность</button><button class="secondary" onclick="openPortrait()">Портрет</button><button class="secondary" onclick="openConsent()">05 · Согласие и фото</button><button class="secondary" onclick="openManuscriptQuality()">✦ Качество книги</button><button class="secondary" onclick="openIdentity()">06 · Внешность</button><button class="secondary" onclick="openDirector()">07 · Стиль</button><button class="secondary" onclick="tab('edition')">08 · Издание</button></nav>
 <section id="idea" class="card">
 <h2>Ваша история</h2>
 <label>Название</label><input id="title" maxlength="180">
@@ -1397,6 +1408,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 <label><input id="portraitApproved" type="checkbox" style="width:auto"> Я проверил(а) текстовые настройки портрета</label>
 <button onclick="savePortrait()">Сохранить настройки</button><p id="portraitStatus" class="note" role="status"></p>
 </section>
+<section id="manuscriptQuality" class="card hidden"><h2>✦ Редакторский контроль книги</h2><p class="note">Автоматическая проверка структуры и полноты. Ручная редактура обязательна.</p><div id="qualitySummary" role="status" class="note"></div><div id="qualityScenes"></div><button class="secondary" onclick="tab('scenes')">К сценам →</button></section>
 <section id="consent" class="card hidden" aria-labelledby="consentHeading">
 <div class="consent-kicker">✦ LITTLE LEGEND / ЗАЩИТА ДЕТСКИХ ДАННЫХ</div>
 <h2 id="consentHeading">Фотографии ребёнка — только для вашей книги</h2>
@@ -1491,7 +1503,7 @@ const auth=tg?.initData;let storyId=null;let activeGraph=null;
 const fields=['title','genre','setup','mystery','ending','habits','phrases','dedication','city'];
 const defaults=['Знакомство с героем','Необычное событие','Первый союзник','Тайное послание','Первая загадка','Опасная находка','Неожиданный поворот','Испытание дружбы','Разгадка тайны','План спасения','Главное испытание','Развязка и новая тайна'];
 const $=id=>document.getElementById(id);
-function tab(id){['idea','hero','scenes','edition','graph','director','design','identity','consent','photoConstructor','portrait','privacy'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
+function tab(id){['idea','hero','scenes','edition','graph','director','design','identity','manuscriptQuality','consent','photoConstructor','portrait','privacy'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
 function drawScenes(items){$('sceneList').replaceChildren();items.forEach((value,i)=>{let row=document.createElement('div');row.className='scene';let n=document.createElement('span');n.textContent=i+1;let t=document.createElement('textarea');t.maxLength=4000;t.value=value;t.dataset.scene=i;row.append(n,t);$('sceneList').append(row)})}
 function collect(){let obj={};fields.forEach(k=>obj[k]=$(k).value);obj.hero=$('heroName').value;obj.scenes=[...document.querySelectorAll('[data-scene]')].map(x=>x.value);return obj}
 function fill(data){fields.forEach(k=>$(k).value=data[k]||'');$('heroName').value=data.hero||'Оля';drawScenes(data.scenes||defaults)}
@@ -1566,6 +1578,8 @@ async function savePortrait(){try{if(!storyId)throw Error('Сначала сох
 function consentChecksChanged(){$('consentContinue').disabled=!($('consentTermsCheck').checked&&$('consentParentCheck').checked)}
 $('consentTermsCheck').addEventListener('change',consentChecksChanged);
 $('consentParentCheck').addEventListener('change',consentChecksChanged);
+const qualityLabels={CHAPTER_MISSING:'Глава отсутствует',CHAPTER_TOO_SHORT:'Слишком короткая глава',CHAPTER_TOO_LONG:'Слишком длинная глава',SENTENCE_VARIETY_REVIEW:'Проверьте предложения',PARAGRAPH_STRUCTURE_REVIEW:'Добавьте абзацы',CHAPTER_NOT_APPROVED:'Глава не утверждена',REPEATED_CHAPTER_OPENING:'Повторяется начало',PARENT_APPROVAL_REQUIRED:'Нужно утверждение родителя',UNEXPECTED_CHAPTER:'Лишняя глава'};
+async function openManuscriptQuality(){tab('manuscriptQuality');$('qualityScenes').replaceChildren();if(!storyId){$('qualitySummary').textContent='Сначала сохраните книгу';return}try{const report=await api('/stories/'+storyId+'/manuscript-quality');$('qualitySummary').textContent='Сцен: '+report.completed_scenes+'/'+report.scene_count+' · Слов: '+report.total_words+' · '+(report.ready_for_editorial_human_review?'Готово к ручной редактуре':'Есть замечания');report.scenes.forEach(scene=>{const card=document.createElement('div');card.className='graph-node';const title=document.createElement('strong');title.textContent='Сцена '+scene.order+' · '+scene.word_count+' слов';card.append(title);const note=document.createElement('p');note.className='note';note.textContent=scene.codes.length?scene.codes.map(code=>qualityLabels[code]||code).join(' · '):'Замечаний нет';card.append(note);$('qualityScenes').append(card)})}catch(e){$('qualitySummary').textContent='Ошибка проверки: '+e.message}}
 async function openConsent(){tab('consent');$('consentContinue').disabled=true;$('consentTermsCheck').checked=false;$('consentParentCheck').checked=false;$('consentPhotoCheck').checked=false;if(!storyId){$('consentStatus').textContent='Сначала сохраните книгу';return}try{const x=await api('/stories/'+storyId+'/consent');$('consentTerms').textContent=x.terms;$('consentPhotoNotice').textContent=x.photo_notice;$('consentVersion').textContent='Версия условий: '+x.status.version;$('consentStatus').textContent=x.status.terms_accepted?'Условия ранее приняты. Для перехода подтвердите их повторно.':'Прочитайте условия и подтвердите два обязательных пункта.'}catch(e){$('consentStatus').textContent='Ошибка: '+e.message}}
 async function openPhotoConstructor(){tab('photoConstructor');if(!storyId){$('photoConstructorStatus').textContent='Сначала сохраните книгу';return}try{const x=await api('/stories/'+storyId+'/consent');if(!x.status.terms_accepted){$('photoConstructorStatus').textContent='Сначала примите условия и подтвердите статус родителя.';tab('consent');return}const capability=await api('/stories/'+storyId+'/photo-vault');$('photoConstructorStatus').textContent='Условия подтверждены. Фотографии не загружаются: защищённая функция ожидает запуска.';if(capability.photo_upload_enabled===true){$('photoConstructorStatus').textContent='Загрузка будет доступна после отдельного подтверждения политики фотографий и проверки безопасности.'}}catch(e){$('photoConstructorStatus').textContent='Ошибка: '+e.message}}
 async function acceptConsent(){try{if(!storyId)throw Error('Сначала сохраните книгу');if(!$('consentTermsCheck').checked||!$('consentParentCheck').checked)throw Error('Подтвердите оба обязательных пункта');const decision={accept_terms:true,declare_parental_authority:true,consent_to_child_photos:false};const x=await api('/stories/'+storyId+'/consent','POST',decision);if(!x.status.terms_accepted)throw Error('Согласие не подтверждено сервером');$('consentStatus').textContent='Условия сохранены. Открываем безопасный конструктор.';await openPhotoConstructor()}catch(e){$('consentStatus').textContent='Ошибка: '+e.message}}
