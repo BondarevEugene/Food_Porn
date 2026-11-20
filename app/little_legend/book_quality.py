@@ -14,7 +14,9 @@ from app.little_legend.pdf_preflight import inspect_book_pdf
 
 MIN_PRINT_DPI = 300
 ILLUSTRATION_WIDTH_PT = 325
-ILLUSTRATION_HEIGHT_PT = 260
+ILLUSTRATION_HEIGHT_PT = 285
+COVER_WIDTH_PT = 325
+COVER_HEIGHT_PT = 210
 
 
 class IllustrationQuality(BaseModel):
@@ -33,7 +35,11 @@ class BookQualityReport(BaseModel):
     issues: list[str] = Field(default_factory=list)
 
 
-def inspect_illustration(scene_id: str, raw: bytes) -> IllustrationQuality:
+def inspect_illustration(
+    scene_id: str, raw: bytes, *,
+    box_width_pt: float = ILLUSTRATION_WIDTH_PT,
+    box_height_pt: float = ILLUSTRATION_HEIGHT_PT,
+) -> IllustrationQuality:
     """Check real pixel dimensions at the current maximum illustration box."""
     if not raw or len(raw) > 12 * 1024 * 1024:
         raise ValueError("Invalid illustration bytes")
@@ -45,7 +51,9 @@ def inspect_illustration(scene_id: str, raw: bytes) -> IllustrationQuality:
         raise ValueError("Invalid illustration") from exc
     if width <= 0 or height <= 0:
         raise ValueError("Invalid illustration geometry")
-    scale = min(ILLUSTRATION_WIDTH_PT / width, ILLUSTRATION_HEIGHT_PT / height)
+    if box_width_pt <= 0 or box_height_pt <= 0:
+        raise ValueError("Invalid illustration display box")
+    scale = min(box_width_pt / width, box_height_pt / height)
     effective_dpi = int(72 / scale)
     issues = ["illustration_below_300_dpi"] if effective_dpi < MIN_PRINT_DPI else []
     return IllustrationQuality(
@@ -56,7 +64,7 @@ def inspect_illustration(scene_id: str, raw: bytes) -> IllustrationQuality:
 
 def inspect_illustrated_book(
     *, pdf: bytes, illustrations: dict[str, bytes],
-    expected_min_pages: int,
+    expected_min_pages: int, cover_scene_id: str | None = None,
 ) -> BookQualityReport:
     """Aggregate objective diagnostics without story prose or child photos."""
     if expected_min_pages < 1:
@@ -66,6 +74,17 @@ def inspect_illustrated_book(
         inspect_illustration(scene_id, raw)
         for scene_id, raw in sorted(illustrations.items())
     ]
+    if cover_scene_id is not None:
+        if cover_scene_id not in illustrations:
+            raise ValueError("Cover scene illustration is missing")
+        cover = inspect_illustration(
+            cover_scene_id, illustrations[cover_scene_id],
+            box_width_pt=COVER_WIDTH_PT,
+            box_height_pt=COVER_HEIGHT_PT,
+        )
+        images.append(cover.model_copy(update={
+            "scene_id": "cover:" + cover_scene_id,
+        }))
     issues = list(preflight.issues)
     if preflight.page_count < expected_min_pages:
         issues.append("insufficient_pages")

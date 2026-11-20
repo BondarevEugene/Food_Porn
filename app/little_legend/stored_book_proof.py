@@ -56,6 +56,7 @@ def assemble_stored_book_proof(
     )
     quality = inspect_illustrated_book(
         pdf=pdf, illustrations=images, expected_min_pages=len(expected) + 2,
+        cover_scene_id=nodes[0].id,
     )
     if not quality.structurally_valid:
         raise ValueError("Illustrated book PDF failed structural preflight")
