@@ -26,6 +26,7 @@ from app.little_legend.order_quotes import order_quotes
 from app.little_legend.payment_entitlement import has_verified_entitlement
 from app.little_legend.router import StoryDraft, stories
 from app.little_legend.sketch_enqueue import enqueue_sketch_chapters
+from app.little_legend.writer_queue import JobStatus
 from app.little_legend.writer_queue_store import writer_jobs
 
 logger = logging.getLogger(__name__)
@@ -114,6 +115,16 @@ async def advance_paid_quote(
             select(writer_jobs.c.job_id).where(
                 writer_jobs.c.story_id == story_id,
                 writer_jobs.c.owner_id == owner_id,
+                writer_jobs.c.status.in_((
+                    JobStatus.QUEUED.value, JobStatus.RUNNING.value,
+                    JobStatus.RETRY_WAIT.value,
+                )),
+            ).limit(1)
+        )
+        writer_history = await session.scalar(
+            select(writer_jobs.c.job_id).where(
+                writer_jobs.c.story_id == story_id,
+                writer_jobs.c.owner_id == owner_id,
             ).limit(1)
         )
         art_count = await session.scalar(
@@ -126,6 +137,10 @@ async def advance_paid_quote(
         draft, writer_count=int(writer_count is not None),
         art_count=int(art_count is not None),
     )
+    if stage == Stage.WAITING_MANUSCRIPT and writer_history is not None:
+        # Completed, failed or cancelled jobs must never be regenerated
+        # automatically. A parent or operator must inspect their results.
+        return AdvanceResult(quote_id, Stage.WAITING_PARENT_REVIEW)
     if stage in {
         Stage.WAITING_OUTLINE, Stage.WRITING, Stage.ILLUSTRATING,
         Stage.WAITING_PARENT_REVIEW,
