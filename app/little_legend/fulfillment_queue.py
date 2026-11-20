@@ -35,6 +35,7 @@ fulfillment_jobs = Table(
     Column("asset_key", String(128), nullable=True),
     Column("delivery_started_at", DateTime(timezone=True), nullable=True),
     Column("delivered_at", DateTime(timezone=True), nullable=True),
+    Column("telegram_message_id", BigInteger, nullable=True),
     Column("lease_token", String(36), nullable=True),
     Column("lease_expires_at", DateTime(timezone=True), nullable=True),
     Column("lease_attempts", Integer, nullable=False, server_default="0"),
