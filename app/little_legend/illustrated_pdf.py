@@ -5,8 +5,8 @@ URLs, uploads photos, stores files or calls an image generation provider.
 """
 from __future__ import annotations
 
-from io import BytesIO
 import re
+from io import BytesIO
 from xml.sax.saxutils import escape
 
 from PIL import Image as PILImage
