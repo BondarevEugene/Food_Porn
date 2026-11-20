@@ -54,6 +54,22 @@ button:disabled{opacity:.55;cursor:not-allowed}.secondary{background:#eceefa;col
 <div class="metric"><small>Глав обнаружено</small><strong id="chapters">—</strong></div>
 <div class="metric"><small>Обложка</small><strong id="cover">—</strong></div></div>
 <div id="issues" aria-live="polite"></div><p class="note">Проверка не подтверждает готовность к типографской печати. Повторная проверка не создаёт платёж и не запускает генерацию.</p></div>
+</section>
+<section class="panel" aria-label="Восстановление доставки">
+<div class="eyebrow">Recovery / Telegram</div>
+<h2>Безопасное восстановление доставки</h2>
+<p class="note">Этот раздел работает по номеру истории (story ID), а не номеру заказа. Проверяет журнал отправки и статус релиза. Не отправляет PDF повторно.</p>
+<label for="recoveryStory">Номер истории</label>
+<input id="recoveryStory" type="number" min="1" step="1" inputmode="numeric" placeholder="Номер истории">
+<div class="actions"><button id="diagnoseDelivery" type="button" class="secondary">Проверить доставку</button>
+<button id="repairProjection" type="button" disabled>Восстановить подтверждённый статус</button></div>
+<p id="recoveryMessage" class="note" role="status" aria-live="polite">Сначала проверьте доставку.</p>
+<div id="recoveryDetails" class="grid hidden">
+<div class="metric"><small>Рекомендация</small><strong id="recoveryAction">—</strong></div>
+<div class="metric"><small>Журнал Telegram</small><strong id="effectStatus">—</strong></div>
+<div class="metric"><small>Релиз</small><strong id="manifestStatus">—</strong></div>
+</div>
+<p class="note">Неопределённая отправка требует ручной проверки: повторная отправка может создать дубликат. Восстановление разрешено только при подтверждённом Telegram message ID.</p>
 </section></main>
 <script>
 'use strict';
@@ -100,6 +116,45 @@ $('explain').textContent=state==='ready'?'Цифровая книга прошл
 $('results').classList.remove('hidden');$('message').textContent='Проверка завершена. Новых платежей не создано.';
 }catch(e){$('message').textContent=e.message}
 finally{$('check').disabled=false;$('refresh').disabled=false}}
+const recoveryLabels={no_effect:'Отправка ещё не зарегистрирована',in_flight:'Отправка выполняется',manual_review:'Требуется ручная проверка',repair_projection:'Можно восстановить статус',consistent:'Доставка подтверждена',inconsistent:'Несоответствие данных'};
+let recoverableStory=null;
+async function diagnoseDelivery(){
+const id=Number($('recoveryStory').value);
+recoverableStory=null;$('repairProjection').disabled=true;
+$('recoveryDetails').classList.add('hidden');
+if(!Number.isSafeInteger(id)||id<=0){$('recoveryMessage').textContent='Укажите корректный номер истории';return}
+if(!auth){$('recoveryMessage').textContent='Откройте панель через Telegram';return}
+$('diagnoseDelivery').disabled=true;$('recoveryMessage').textContent='Проверяем журнал доставки…';
+try{
+const x=await get('/stories/'+id+'/delivery-diagnosis');
+$('recoveryAction').textContent=recoveryLabels[x.action]||x.action;
+$('effectStatus').textContent=x.effect_status||'Нет записи';
+$('manifestStatus').textContent=x.manifest_status||'Нет записи';
+$('recoveryDetails').classList.remove('hidden');
+if(x.action==='repair_projection'&&Number.isSafeInteger(x.telegram_message_id)&&x.telegram_message_id>0){
+recoverableStory=id;$('repairProjection').disabled=false;
+$('recoveryMessage').textContent='Telegram подтвердил отправку. Можно восстановить только статус в базе.'}
+else {$('recoveryMessage').textContent=x.action==='manual_review'?'Автоматический повтор запрещён: проверьте доставку вручную.':'Диагностика завершена. Повторная отправка не выполняется.'}
+}catch(e){$('recoveryMessage').textContent=e.message}
+finally{$('diagnoseDelivery').disabled=false}}
+async function repairProjection(){
+const id=Number($('recoveryStory').value);
+if(recoverableStory!==id||!auth)return;
+if(!window.confirm('Восстановить только подтверждённый статус доставки? PDF повторно отправлен не будет.'))return;
+recoverableStory=null;$('repairProjection').disabled=true;
+$('recoveryMessage').textContent='Восстанавливаем подтверждённый статус…';
+try{
+const r=await fetch('/little-legend/api/stories/'+id+'/delivery-reconcile',{
+method:'POST',headers:{Authorization:'tma '+auth,'Content-Type':'application/json'},
+body:'{}',cache:'no-store'});
+if(!r.ok)throw Error('Не удалось восстановить статус: HTTP '+r.status);
+const result=await r.json();
+$('recoveryMessage').textContent=result.action==='consistent'?'Статус синхронизирован с подтверждённой отправкой.':'Операция завершена; проверьте актуальный статус.';
+await diagnoseDelivery();
+}catch(e){$('recoveryMessage').textContent=e.message}}
+$('diagnoseDelivery').addEventListener('click',diagnoseDelivery);
+$('repairProjection').addEventListener('click',repairProjection);
+$('recoveryStory').addEventListener('input',()=>{recoverableStory=null;$('repairProjection').disabled=true});
 $('check').addEventListener('click',check);$('refresh').addEventListener('click',check);
 $('quote').addEventListener('keydown',e=>{if(e.key==='Enter')check()});
 </script></body></html>"""
