@@ -10,6 +10,7 @@ from sqlalchemy import select, update
 from app.database.session import async_session_maker
 from app.little_legend.router import StoryDraft, stories
 from app.little_legend.story_modes import StoryMode
+from app.little_legend.telegram_writer_readiness import chapter_readiness
 
 router = Router(name="little_legend_outline")
 
@@ -21,6 +22,10 @@ def _keyboard(story_id: int, *, approvable: bool) -> InlineKeyboardMarkup:
             text="✅ Утвердить план",
             callback_data=f"ll_outline_approve:{story_id}",
         )])
+    rows.append([InlineKeyboardButton(
+        text="🧩 Проверить готовность к написанию",
+        callback_data=f"ll_writer_ready:{story_id}",
+    )])
     rows.append([InlineKeyboardButton(
         text="⬅️ К книге", callback_data=f"ll_book:{story_id}",
     )])
@@ -127,5 +132,39 @@ async def approve_outline(callback: CallbackQuery) -> None:
         "✅ План утверждён. Это не запускает платную генерацию. "
         "Для написания глав ещё нужны профиль героя и согласие на AI.",
         reply_markup=_keyboard(story_id, approvable=False),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ll_writer_ready:"))
+async def show_writer_readiness(callback: CallbackQuery) -> None:
+    story_id = _story_id(callback)
+    if story_id is None or callback.message is None:
+        await callback.answer("Неверная книга", show_alert=True)
+        return
+    if callback.message.chat.type != "private":
+        await callback.answer("Только в личном чате", show_alert=True)
+        return
+    async with async_session_maker() as session:
+        raw = (await session.execute(select(stories.c.data).where(
+            stories.c.id == story_id,
+            stories.c.owner_id == callback.from_user.id,
+        ))).scalar_one_or_none()
+    if raw is None:
+        await callback.answer("Книга не найдена", show_alert=True)
+        return
+    report = chapter_readiness(StoryDraft.model_validate_json(raw))
+    if report["ready"]:
+        text = (
+            "✅ Основные условия написания глав выполнены. "
+            "Платная генерация не запущена. "
+            "Следующий шаг — отдельное подтверждение запуска."
+        )
+    else:
+        text = "🧩 Что осталось до написания книги:\n\n" + "\n".join(
+            f"• {reason}" for reason in report["blockers"]
+        )
+    await callback.message.answer(
+        text, reply_markup=_keyboard(story_id, approvable=False),
     )
     await callback.answer()
