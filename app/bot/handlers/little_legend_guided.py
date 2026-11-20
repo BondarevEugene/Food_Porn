@@ -13,6 +13,7 @@ from app.little_legend.story_modes import (
     StoryEntry,
     StoryMode,
     brief_outline,
+    brief_parent_sketch,
 )
 
 router = Router(name="little_legend_guided")
@@ -283,7 +284,7 @@ async def save_intake(callback: CallbackQuery, state: FSMContext) -> None:
                 photo_reference_ids=data.get("photo_reference_ids", []),
                 photo_consent_confirmed=data.get("photo_consent_confirmed", False),
             ),
-            parent_sketch=None,
+            parent_sketch=brief_parent_sketch(brief),
             graph=outline.graph,
             design=outline.design,
             setup="; ".join(brief.events),
