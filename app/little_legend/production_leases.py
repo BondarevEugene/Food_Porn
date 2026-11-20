@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from uuid import uuid4
 
-from sqlalchemy import and_, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.little_legend.fulfillment_queue import fulfillment_jobs
