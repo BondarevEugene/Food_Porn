@@ -70,7 +70,23 @@ button:disabled{opacity:.55;cursor:not-allowed}.secondary{background:#eceefa;col
 <div class="metric"><small>Релиз</small><strong id="manifestStatus">—</strong></div>
 </div>
 <p class="note">Неопределённая отправка требует ручной проверки: повторная отправка может создать дубликат. Восстановление разрешено только при подтверждённом Telegram message ID.</p>
-</section></main>
+</section><section class="panel" aria-label="Production Operations">
+<div class="eyebrow">Production / Resilience</div>
+<h2>Производство и AI-бюджет</h2>
+<p class="note">Проверка задания, активности воркера и неопределённых расходов. Только диагностика — повторных AI-запросов нет.</p>
+<div class="actions"><button id="inspectProduction" type="button">Проверить производство по номеру заказа</button></div>
+<p id="productionMessage" class="note" role="status" aria-live="polite">Введите номер заказа выше.</p>
+<div id="productionDetails" class="grid hidden">
+<div class="metric"><small>Рекомендация</small><strong id="productionAction">—</strong></div>
+<div class="metric"><small>Аренда / попытки</small><strong id="productionLease">—</strong></div>
+<div class="metric"><small>Неопределённые операции</small><strong id="productionEffects">—</strong></div>
+<div class="metric"><small>Бюджет AI (USD)</small><strong id="productionBudget">—</strong></div>
+<div class="metric"><small>Зарезервировано (USD)</small><strong id="productionHeld">—</strong></div>
+<div class="metric"><small>Израсходовано (USD)</small><strong id="productionSpent">—</strong></div>
+</div>
+<p class="note" id="productionNotes"></p>
+</section>
+</main>
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
@@ -155,6 +171,28 @@ await diagnoseDelivery();
 $('diagnoseDelivery').addEventListener('click',diagnoseDelivery);
 $('repairProjection').addEventListener('click',repairProjection);
 $('recoveryStory').addEventListener('input',()=>{recoverableStory=null;$('repairProjection').disabled=true});
+const productionActions={wait:'Воркер активен',ready:'Книга сформирована',manual_review:'Нужна ручная проверка',queued:'В очереди',blocked:'Производство заблокировано'};
+async function inspectProduction(){
+const id=Number($('quote').value);
+$('productionDetails').classList.add('hidden');
+if(!Number.isSafeInteger(id)||id<=0){$('productionMessage').textContent='Введите корректный номер заказа выше';return}
+if(!auth){$('productionMessage').textContent='Откройте панель через Telegram';return}
+$('inspectProduction').disabled=true;$('productionMessage').textContent='Проверяем производственный журнал…';
+try{
+const x=await get('/order-quotes/'+id+'/production-operations');
+const money=v=>v===null||v===undefined?'—':(v/1000000).toFixed(4);
+$('productionAction').textContent=productionActions[x.recovery_action]||x.recovery_action;
+$('productionLease').textContent=x.lease_diagnosis+' / '+x.lease_attempts;
+$('productionEffects').textContent=String(x.unresolved_effects)+' / резервов: '+x.held_reservations;
+$('productionBudget').textContent=money(x.budget_limit_micro_usd);
+$('productionHeld').textContent=money(x.budget_held_micro_usd);
+$('productionSpent').textContent=money(x.budget_spent_micro_usd);
+$('productionNotes').textContent=(x.notes||[]).join(' · ');
+$('productionDetails').classList.remove('hidden');
+$('productionMessage').textContent='Проверка завершена. Повторные списания и генерация не выполнялись.';
+}catch(e){$('productionMessage').textContent=e.message}
+finally{$('inspectProduction').disabled=false}}
+$('inspectProduction').addEventListener('click',inspectProduction);
 $('check').addEventListener('click',check);$('refresh').addEventListener('click',check);
 $('quote').addEventListener('keydown',e=>{if(e.key==='Enter')check()});
 </script></body></html>"""
