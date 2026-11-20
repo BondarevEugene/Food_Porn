@@ -10,7 +10,6 @@ from app.little_legend.production_watchdog import (
     classify_fulfillment,
 )
 
-
 NOW = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
 
 
