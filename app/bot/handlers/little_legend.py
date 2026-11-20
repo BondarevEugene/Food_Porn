@@ -6,6 +6,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from sqlalchemy import select
 
+from app.bot.handlers.little_legend_checkpoint import router as checkpoint_router
 from app.bot.handlers.little_legend_guided import router as guided_router
 from app.bot.handlers.little_legend_outline import router as outline_router
 from app.bot.handlers.little_legend_palettes import router as palette_router
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 router = Router(name="little_legend")
 router.include_router(palette_router)
+router.include_router(checkpoint_router)
 router.include_router(outline_router)
 router.include_router(guided_router)
 
@@ -262,6 +264,11 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
                 "⚠️ Status is temporarily unavailable.",
             )
     buttons = []
+    if callback.message.chat.type == "private":
+        buttons.append([InlineKeyboardButton(
+            text="📊 Производство книги",
+            callback_data=f"ll_checkpoint:{story_id}",
+        )])
     if status is None and callback.message.chat.type == "private":
         buttons.append([InlineKeyboardButton(
             text="📖 Посмотреть и утвердить план",
