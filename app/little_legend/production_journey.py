@@ -87,8 +87,17 @@ def stage_for(
         return JourneyStage.ILLUSTRATING, "wait"
     if any(status in {JobStatus.FAILED.value, JobStatus.CANCELLED.value} for status in illustrations):
         return JourneyStage.MANUAL_REVIEW, "contact_support"
-    if any(status != JobStatus.COMPLETED.value for status in illustrations):
+    if (any(status != JobStatus.COMPLETED.value for status in illustrations)
+            or len(illustrations) != len(draft.graph.nodes)):
         return JourneyStage.ILLUSTRATING, "wait"
+    decision = draft.editorial_decision
+    if all((
+        decision.hero_fidelity_reviewed,
+        decision.age_appropriateness_reviewed,
+        decision.narrative_continuity_reviewed,
+        decision.parent_final_approval,
+    )):
+        return JourneyStage.PRODUCING_PDF, "wait"
     return JourneyStage.FINAL_REVIEW, "approve_final_book"
 
 
