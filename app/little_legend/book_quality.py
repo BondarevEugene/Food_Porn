@@ -74,6 +74,17 @@ def inspect_illustrated_book(
         inspect_illustration(scene_id, raw)
         for scene_id, raw in sorted(illustrations.items())
     ]
+    if cover_scene_id is not None:
+        if cover_scene_id not in illustrations:
+            raise ValueError("Cover scene illustration is missing")
+        cover = inspect_illustration(
+            cover_scene_id, illustrations[cover_scene_id],
+            box_width_pt=COVER_WIDTH_PT,
+            box_height_pt=COVER_HEIGHT_PT,
+        )
+        images.append(cover.model_copy(update={
+            "scene_id": "cover:" + cover_scene_id,
+        }))
     issues = list(preflight.issues)
     if preflight.page_count < expected_min_pages:
         issues.append("insufficient_pages")
