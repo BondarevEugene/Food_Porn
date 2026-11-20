@@ -1355,6 +1355,17 @@ async def story_proof(story_id: int, owner: Annotated[int, Depends(_owner)]):
     )
 
 
+@router.get("/release-control", response_class=HTMLResponse)
+async def release_control_center():
+    """Public HTML shell; all book data requires signed Telegram auth."""
+    from app.little_legend.release_control_center import RELEASE_CONTROL_HTML
+
+    return HTMLResponse(
+        RELEASE_CONTROL_HTML,
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 @router.get("", response_class=HTMLResponse)
 async def studio():
     # The shell is public; all user data endpoints require signed Telegram initData.
