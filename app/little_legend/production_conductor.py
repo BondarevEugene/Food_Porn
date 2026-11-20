@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections import Counter
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -45,6 +46,7 @@ class Stage(StrEnum):
     WAITING_EDITORIAL = "waiting_editorial"
     RELEASE_QUEUE = "release_queue"
     MANUAL_REVIEW = "manual_review"
+    WAITING_ART_REVIEW = "waiting_art_review"
 
 
 @dataclass(frozen=True)
@@ -54,7 +56,10 @@ class AdvanceResult:
     enqueued: int = 0
 
 
-def classify(draft: StoryDraft, *, writer_count: int, art_count: int) -> Stage:
+def classify(
+    draft: StoryDraft, *, writer_count: int, art_count: int,
+    art_statuses: list[str] | None = None,
+) -> Stage:
     if draft.graph is None or draft.parent_sketch is None or not draft.outline_approved:
         return Stage.WAITING_OUTLINE
     if draft.manuscript is None or not draft.manuscript.parent_approved:
@@ -66,6 +71,23 @@ def classify(draft: StoryDraft, *, writer_count: int, art_count: int) -> Stage:
             return Stage.WAITING_TEXT_CONSENT
         return Stage.WAITING_MANUSCRIPT
     if art_count:
+        if art_statuses is None:
+            return Stage.ILLUSTRATING
+        statuses = Counter(art_statuses)
+        if (statuses[JobStatus.COMPLETED.value] == len(draft.graph.nodes)
+                and len(art_statuses) == len(draft.graph.nodes)):
+            return Stage.WAITING_EDITORIAL
+        if any(status in {
+            JobStatus.FAILED.value, JobStatus.CANCELLED.value,
+        } for status in art_statuses):
+            return Stage.MANUAL_REVIEW
+        if any(status not in {
+            JobStatus.QUEUED.value, JobStatus.RUNNING.value,
+            JobStatus.RETRY_WAIT.value, JobStatus.COMPLETED.value,
+        } for status in art_statuses):
+            return Stage.MANUAL_REVIEW
+        if len(art_statuses) != len(draft.graph.nodes):
+            return Stage.MANUAL_REVIEW
         return Stage.ILLUSTRATING
     if not draft.image_ai_consent.active:
         return Stage.WAITING_IMAGE_CONSENT
@@ -127,15 +149,15 @@ async def advance_paid_quote(
                 writer_jobs.c.owner_id == owner_id,
             ).limit(1)
         )
-        art_count = await session.scalar(
-            select(illustration_jobs.c.job_id).where(
+        art_statuses = (await session.execute(
+            select(illustration_jobs.c.status).where(
                 illustration_jobs.c.story_id == story_id,
                 illustration_jobs.c.owner_id == owner_id,
-            ).limit(1)
-        )
+            )
+        )).scalars().all()
     stage = classify(
         draft, writer_count=int(writer_count is not None),
-        art_count=int(art_count is not None),
+        art_count=len(art_statuses), art_statuses=list(art_statuses),
     )
     if stage == Stage.WAITING_MANUSCRIPT and writer_history is not None:
         # Completed, failed or cancelled jobs must never be regenerated
@@ -143,7 +165,7 @@ async def advance_paid_quote(
         return AdvanceResult(quote_id, Stage.WAITING_PARENT_REVIEW)
     if stage in {
         Stage.WAITING_OUTLINE, Stage.WRITING, Stage.ILLUSTRATING,
-        Stage.WAITING_PARENT_REVIEW,
+        Stage.WAITING_PARENT_REVIEW, Stage.MANUAL_REVIEW,
     }:
         return AdvanceResult(quote_id, stage)
     if stage == Stage.WAITING_EDITORIAL:
