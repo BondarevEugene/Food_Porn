@@ -2,7 +2,7 @@
 
 ## Neon PostgreSQL: журнал операций
 
-Миграция: `alembic upgrade head` (revision `20261120_0018`).
+Миграция: `alembic upgrade head` (revision `20261120_0027`).
 Создаётся таблица `little_legend_retention_runs` с агрегированными
 метриками: время проверки, режим dry-run/execute, статус, коды ошибок,
 количество просроченных, задержанных, исчерпавших повторы, физически
