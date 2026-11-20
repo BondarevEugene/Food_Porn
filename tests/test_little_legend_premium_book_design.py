@@ -68,4 +68,4 @@ def test_long_cover_title_and_chapter_art_survive_layout(edition):
     assert "Марта" in text
     assert "волшебный сад" in text
     assert len(reader.pages[0].images) >= 1
-    assert "ГЛАВА 01" in text
+    assert ("Глава 01" if edition == "digital" else "ГЛАВА 01") in text
