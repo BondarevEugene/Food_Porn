@@ -12,7 +12,7 @@ import logging
 import os
 from datetime import UTC, datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 
 from app.database.session import async_session_maker
 from app.little_legend.fulfillment_queue import fulfillment_jobs
@@ -39,51 +39,115 @@ def _illustration_store():
     ))
 
 
-async def _claim_one() -> dict | None:
-    """Select paid pending work with SKIP LOCKED, then atomically fence it.
+async def _release_ready(*, story_id: int, owner_id: int) -> bool:
+    """Check release approval without claiming a paid production lease.
 
-    No external work starts until the transaction commits.
+    Pending paid orders remain queued while their manuscripts, illustrations
+    or parental/editorial approvals are incomplete. No AI or PDF side effects.
     """
-    async with async_session_maker() as session:
-        row = (await session.execute(
-            select(
-                fulfillment_jobs.c.quote_id,
-                fulfillment_jobs.c.owner_id,
-                order_quotes.c.story_id,
-            )
-            .join(order_quotes, order_quotes.c.id == fulfillment_jobs.c.quote_id)
-            .where(
-                fulfillment_jobs.c.status == "pending",
-                fulfillment_jobs.c.lease_token.is_(None),
-                fulfillment_jobs.c.owner_id == order_quotes.c.owner_id,
-            )
-            .order_by(fulfillment_jobs.c.created_at)
-            .with_for_update(of=fulfillment_jobs, skip_locked=True)
-            .limit(1)
-        )).mappings().one_or_none()
-        if row is None:
-            return None
-        if not await has_verified_entitlement(
-            session, quote_id=row["quote_id"], owner_id=row["owner_id"],
-        ):
-            await session.execute(
-                update(fulfillment_jobs).where(
-                    fulfillment_jobs.c.quote_id == row["quote_id"],
-                    fulfillment_jobs.c.owner_id == row["owner_id"],
-                    fulfillment_jobs.c.status == "pending",
-                ).values(status="blocked", updated_at=datetime.now(UTC))
-            )
-            await session.commit()
-            return None
-        lease = await claim_pending(
-            session, quote_id=row["quote_id"], owner_id=row["owner_id"],
-        )
-        if lease is None:
-            await session.rollback()
-            return None
-        await session.commit()
-        return {**dict(row), "lease": lease}
+    from app.little_legend.illustration_queue_store import list_owner_illustration_jobs
+    from app.little_legend.production_readiness import assess_production
+    from app.little_legend.router import StoryDraft, stories
 
+    async with async_session_maker() as session:
+        raw = await session.scalar(select(stories.c.data).where(
+            stories.c.id == story_id,
+            stories.c.owner_id == owner_id,
+        ))
+    if raw is None:
+        return False
+    try:
+        draft = StoryDraft.model_validate_json(raw)
+        if draft.graph is None or draft.manuscript is None:
+            return False
+        decision = draft.editorial_decision
+        approved = all((
+            decision.hero_fidelity_reviewed,
+            decision.age_appropriateness_reviewed,
+            decision.narrative_continuity_reviewed,
+            decision.parent_final_approval,
+        ))
+        if not approved:
+            return False
+        jobs = await list_owner_illustration_jobs(
+            story_id=story_id, owner_id=owner_id,
+        )
+        return assess_production(
+            graph=draft.graph, manuscript=draft.manuscript,
+            jobs=jobs, editorial_approved=True,
+        ).ready_for_export
+    except (ValueError, TypeError):
+        logger.warning("Little Legend release data invalid for story %s", story_id)
+        return False
+
+
+async def _claim_one() -> dict | None:
+    """Claim the oldest *approved* paid book, skipping incomplete orders.
+
+    SKIP LOCKED avoids double claims. Approval is rechecked by _render after
+    claiming, so a concurrent editorial change cannot bypass release gates.
+    """
+    cursor = None
+    while True:
+        async with async_session_maker() as session:
+            query = (
+                select(
+                    fulfillment_jobs.c.quote_id,
+                    fulfillment_jobs.c.owner_id,
+                    fulfillment_jobs.c.created_at,
+                    order_quotes.c.story_id,
+                )
+                .join(order_quotes, order_quotes.c.id == fulfillment_jobs.c.quote_id)
+                .where(
+                    fulfillment_jobs.c.status == "pending",
+                    fulfillment_jobs.c.lease_token.is_(None),
+                    fulfillment_jobs.c.owner_id == order_quotes.c.owner_id,
+                )
+                .order_by(
+                    fulfillment_jobs.c.created_at,
+                    fulfillment_jobs.c.quote_id,
+                )
+                .with_for_update(of=fulfillment_jobs, skip_locked=True)
+                .limit(25)
+            )
+            if cursor is not None:
+                created_at, quote_id = cursor
+                query = query.where(or_(
+                    fulfillment_jobs.c.created_at > created_at,
+                    (fulfillment_jobs.c.created_at == created_at)
+                    & (fulfillment_jobs.c.quote_id > quote_id),
+                ))
+            candidates = (await session.execute(query)).mappings().all()
+            if not candidates:
+                return None
+            for candidate in candidates:
+                row = dict(candidate)
+                cursor = (row["created_at"], row["quote_id"])
+                if not await has_verified_entitlement(
+                    session, quote_id=row["quote_id"], owner_id=row["owner_id"],
+                ):
+                    await session.execute(
+                        update(fulfillment_jobs).where(
+                            fulfillment_jobs.c.quote_id == row["quote_id"],
+                            fulfillment_jobs.c.owner_id == row["owner_id"],
+                            fulfillment_jobs.c.status == "pending",
+                        ).values(status="blocked", updated_at=datetime.now(UTC))
+                    )
+                    continue
+                if not await _release_ready(
+                    story_id=row["story_id"], owner_id=row["owner_id"],
+                ):
+                    # Do not consume the lease or block an unfinished book.
+                    continue
+                lease = await claim_pending(
+                    session, quote_id=row["quote_id"], owner_id=row["owner_id"],
+                )
+                if lease is not None:
+                    await session.commit()
+                    return {**row, "lease": lease}
+            await session.commit()
+            if len(candidates) < 25:
+                return None
 
 async def _keep_lease_alive(lease: ProductionLease, stop: asyncio.Event) -> None:
     """Extend the lease during S3/PDF work; never revive an expired lease."""
