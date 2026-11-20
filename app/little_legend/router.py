@@ -92,6 +92,7 @@ from app.little_legend.sketch_writer_briefs import (
 )
 from app.little_legend.story_cost_summary import get_story_cost_summary
 from app.little_legend.story_graph import StoryGraph, build_graph, graph_report
+from app.little_legend.story_modes import StoryEntry, brief_outline, entry_preflight
 from app.little_legend.story_writer import (
     ChapterDraft,
     StoryManuscript,
@@ -143,6 +144,7 @@ DEFAULT_SCENES = [
 
 
 class StoryDraft(BaseModel):
+    entry: StoryEntry = Field(default_factory=StoryEntry)
     title: str = Field(default="Новая история", min_length=1, max_length=180)
     hero: str = Field(default="Оля", min_length=1, max_length=100)
     genre: str = Field(default="Научная фантастика", max_length=100)
@@ -190,6 +192,20 @@ async def initialize_schema() -> None:
 
 def _owner(user: Annotated[dict, Depends(current_user)]) -> int:
     return int(user["id"])
+
+
+@router.post("/api/story-modes/preflight")
+async def story_mode_preflight(entry: StoryEntry):
+    """Validate mode readiness without starting billable generation."""
+    return entry_preflight(entry)
+
+
+@router.post("/api/story-modes/brief/outline")
+async def story_mode_brief_outline(entry: StoryEntry):
+    """Build an editable, source-only outline; no AI charges."""
+    if entry.brief is None:
+        raise HTTPException(422, "Brief mode requires a brief")
+    return brief_outline(entry.brief)
 
 
 @router.get("/api/costs/overview")
