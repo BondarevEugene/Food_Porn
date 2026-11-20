@@ -97,18 +97,18 @@ def _book_paragraphs(text: str) -> list[str]:
     return result
 
 
-_PARAGRAPH_BREAK = re.compile(r"\\n[ \\t]*\\n+")
-_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?…])\\s+")
+_PARAGRAPH_BREAK = re.compile(r"\n[ \t]*\n+")
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?…])\s+")
 
 
 def _editorial_paragraphs(text: str, *, max_chars: int = 650) -> list[str]:
     """Break oversized blocks at sentence boundaries without dropping prose."""
     if max_chars < 100:
         raise ValueError("Paragraph limit must be at least 100 characters")
-    normalized = text.replace("\\r\\n", "\\n").replace("\\r", "\\n")
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     output: list[str] = []
     for block in _PARAGRAPH_BREAK.split(normalized):
-        for line in block.split("\\n"):
+        for line in block.split("\n"):
             line = line.strip()
             if not line:
                 continue
