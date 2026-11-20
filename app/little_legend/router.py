@@ -1337,6 +1337,23 @@ nav button{font-size:13px;padding:12px 8px}
 .hero-lead{color:var(--muted);line-height:1.6;max-width:520px}
 .graph-node{border-left:4px solid #8571ca;background:#f8f8ff}
 .note{line-height:1.55}
+.consent-kicker{font-size:11px;letter-spacing:.13em;font-weight:800;color:#6553a9;margin-bottom:12px}
+.consent-steps{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}
+.consent-steps span{border-radius:50px;background:#f0f1f9;padding:9px 11px;font-size:11px;color:#69738d}
+.consent-steps span.active{background:#6253b7;color:#fff}
+.consent-promise{padding:17px;border:1px solid #c9d9d1;background:#f2faf6;border-radius:16px;line-height:1.6}
+.consent-promise p{font-size:13px;margin-bottom:0}
+.consent-details{border-bottom:1px solid var(--line);padding:15px 0}
+.consent-details summary{cursor:pointer;font-weight:700}
+.consent-check{display:flex;align-items:flex-start;gap:11px;font-size:13px;line-height:1.6;padding:12px 0}
+.consent-check input{width:19px;height:19px;flex:none;margin:1px 0;accent-color:#6253b7}
+#consentContinue{width:100%;margin:14px 0}
+button:disabled{opacity:.5;cursor:not-allowed}
+.photo-slots{display:grid;gap:12px;margin:20px 0}
+.photo-slot{border:2px dashed #c9cde4;border-radius:16px;padding:21px;background:#fafaff}
+.photo-slot p{font-size:13px;color:#69738d}
+.photo-slot span{font-size:12px;color:#a04d5b;font-weight:700}
+@media(min-width:600px){.photo-slots{grid-template-columns:1fr 1fr}}
 @media(min-width:640px){nav{grid-template-columns:repeat(3,minmax(0,1fr))}}
 </style></head><body>
 <header><strong>✦ LITTLE LEGEND</strong><span>Story Director</span></header>
@@ -1344,7 +1361,7 @@ nav button{font-size:13px;padding:12px 8px}
 <p class="hero-lead">Придумайте приключение за пару минут или станьте режиссёром каждой сцены. Личные детали необязательны.</p>
 <div id="authError" class="error hidden">Откройте студию кнопкой из Telegram-бота.</div>
 <div id="workspace" class="hidden">
-<nav><button class="secondary" onclick="tab('idea')">01 · Идея</button><button class="secondary" onclick="tab('hero')">02 · Герой</button><button class="secondary" onclick="openDesign()">03 · Драматургия</button><button class="secondary" onclick="tab('scenes')">04 · Сцены</button><button class="secondary" onclick="openPrivacy()">Безопасность</button><button class="secondary" onclick="openPortrait()">Портрет</button><button class="secondary" onclick="openConsent()">05 · Согласие</button><button class="secondary" onclick="openIdentity()">06 · Внешность</button><button class="secondary" onclick="openDirector()">07 · Стиль</button><button class="secondary" onclick="tab('edition')">08 · Издание</button></nav>
+<nav><button class="secondary" onclick="tab('idea')">01 · Идея</button><button class="secondary" onclick="tab('hero')">02 · Герой</button><button class="secondary" onclick="openDesign()">03 · Драматургия</button><button class="secondary" onclick="tab('scenes')">04 · Сцены</button><button class="secondary" onclick="openPrivacy()">Безопасность</button><button class="secondary" onclick="openPortrait()">Портрет</button><button class="secondary" onclick="openConsent()">05 · Согласие и фото</button><button class="secondary" onclick="openIdentity()">06 · Внешность</button><button class="secondary" onclick="openDirector()">07 · Стиль</button><button class="secondary" onclick="tab('edition')">08 · Издание</button></nav>
 <section id="idea" class="card">
 <h2>Ваша история</h2>
 <label>Название</label><input id="title" maxlength="180">
@@ -1380,16 +1397,32 @@ nav button{font-size:13px;padding:12px 8px}
 <label><input id="portraitApproved" type="checkbox" style="width:auto"> Я проверил(а) текстовые настройки портрета</label>
 <button onclick="savePortrait()">Сохранить настройки</button><p id="portraitStatus" class="note" role="status"></p>
 </section>
-<section id="consent" class="card hidden"><h2>Безопасность и согласие</h2>
-<p class="note">Перед использованием фотографий ребёнка необходимо ознакомиться с условиями. Загрузка фотографий пока отключена.</p>
-<h3>Условия использования</h3><p class="note" id="consentTerms"></p>
-<h3>Фотографии ребёнка</h3><p class="note" id="consentPhotoNotice"></p>
-<label><input id="consentTermsCheck" type="checkbox" style="width:auto"> Я прочитал(а) и принимаю условия использования</label>
-<label><input id="consentParentCheck" type="checkbox" style="width:auto"> Я совершеннолетний родитель или законный представитель и вправе предоставлять материалы ребёнка</label>
-<label><input id="consentPhotoCheck" type="checkbox" disabled style="width:auto"> Отдельно соглашаюсь на будущую обработку фотографий ребёнка для создания книги</label>
-<button onclick="acceptConsent()">Сохранить согласия</button>
+<section id="consent" class="card hidden" aria-labelledby="consentHeading">
+<div class="consent-kicker">✦ LITTLE LEGEND / ЗАЩИТА ДЕТСКИХ ДАННЫХ</div>
+<h2 id="consentHeading">Фотографии ребёнка — только для вашей книги</h2>
+<p class="note">Прежде чем перейти к конструктору, ознакомьтесь с условиями. Это отдельный этап, а не разрешение на автоматическую загрузку.</p>
+<div class="consent-steps"><span class="active">01 · Условия</span><span>02 · Конструктор</span><span>03 · Проверка</span></div>
+<div class="consent-promise"><strong>Как мы обращаемся с фотографиями</strong><p>Не продаём, не публикуем и не используем для рекламы или других заказов. Для создания книги может потребоваться временное защищённое хранение и обработка у указанных технических подрядчиков. Условия и сроки удаления должны быть раскрыты до запуска функции.</p></div>
+<details class="consent-details"><summary>Полные условия использования</summary><p class="note" id="consentTerms"></p></details>
+<details class="consent-details"><summary>Отдельное уведомление о фотографиях</summary><p class="note" id="consentPhotoNotice"></p></details>
+<p class="note" id="consentVersion"></p>
+<label class="consent-check"><input id="consentParentCheck" type="checkbox"> Я совершеннолетний родитель или законный представитель ребёнка и вправе предоставлять материалы.</label>
+<label class="consent-check"><input id="consentTermsCheck" type="checkbox"> Я прочитал(а) и принимаю условия использования.</label>
+<label class="consent-check"><input id="consentPhotoCheck" type="checkbox" disabled> Я отдельно согласен(на) на обработку фотографий только для создания заказанной книги. Сейчас функция недоступна до публикации окончательной политики.</label>
+<button id="consentContinue" onclick="acceptConsent()" disabled>Подтвердить и продолжить →</button>
+<button class="secondary" onclick="openPhotoConstructor()">Конструктор загрузки фотографий</button>
 <button class="secondary" onclick="withdrawConsent()">Отозвать согласие на фотографии</button>
-<p id="consentStatus" class="note" role="status"></p>
+<p id="consentStatus" class="note" role="status" aria-live="polite"></p>
+</section>
+<section id="photoConstructor" class="card hidden" aria-labelledby="photoConstructorHeading">
+<div class="consent-kicker">✦ LITTLE LEGEND / ПОРТРЕТ ГЕРОЯ</div>
+<h2 id="photoConstructorHeading">Конструктор фотографий</h2>
+<div class="consent-steps"><span>01 · Условия</span><span class="active">02 · Конструктор</span><span>03 · Проверка</span></div>
+<p class="note">Этап подготовки фотографий. Реальная загрузка и AI-обработка ребёнка ещё недоступны: необходимо завершить юридическую и техническую проверку.</p>
+<div class="photo-slots"><div class="photo-slot"><strong>01 · Портрет</strong><p>Чёткое лицо, ровный свет, без других людей.</p><span>Загрузка заблокирована</span></div><div class="photo-slot"><strong>02 · Дополнительный ракурс</strong><p>Необязательно. Помогает сохранить внешность героя.</p><span>Загрузка заблокирована</span></div></div>
+<p id="photoConstructorStatus" class="note" role="status"></p>
+<button class="secondary" onclick="openConsent()">← К условиям</button>
+<button onclick="openIdentity()">Продолжить без фото →</button>
 </section>
 <section id="identity" class="card hidden"><h2>Визуальная библия героя</h2>
 <p class="note">Зафиксируйте внешность ребёнка. Фотографии пока не загружаются.</p>
@@ -1458,7 +1491,7 @@ const auth=tg?.initData;let storyId=null;let activeGraph=null;
 const fields=['title','genre','setup','mystery','ending','habits','phrases','dedication','city'];
 const defaults=['Знакомство с героем','Необычное событие','Первый союзник','Тайное послание','Первая загадка','Опасная находка','Неожиданный поворот','Испытание дружбы','Разгадка тайны','План спасения','Главное испытание','Развязка и новая тайна'];
 const $=id=>document.getElementById(id);
-function tab(id){['idea','hero','scenes','edition','graph','director','design','identity','consent','portrait','privacy'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
+function tab(id){['idea','hero','scenes','edition','graph','director','design','identity','consent','photoConstructor','portrait','privacy'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
 function drawScenes(items){$('sceneList').replaceChildren();items.forEach((value,i)=>{let row=document.createElement('div');row.className='scene';let n=document.createElement('span');n.textContent=i+1;let t=document.createElement('textarea');t.maxLength=4000;t.value=value;t.dataset.scene=i;row.append(n,t);$('sceneList').append(row)})}
 function collect(){let obj={};fields.forEach(k=>obj[k]=$(k).value);obj.hero=$('heroName').value;obj.scenes=[...document.querySelectorAll('[data-scene]')].map(x=>x.value);return obj}
 function fill(data){fields.forEach(k=>$(k).value=data[k]||'');$('heroName').value=data.hero||'Оля';drawScenes(data.scenes||defaults)}
@@ -1530,8 +1563,12 @@ let portraitDraft=null;
 function portraitModeChanged(){$('portraitAdvanced').classList.toggle('hidden',$('portraitMode').value!=='director')}
 async function openPortrait(){tab('portrait');if(!storyId){$('portraitStatus').textContent='Сначала сохраните книгу';return}try{const x=await api('/stories/'+storyId+'/portrait');portraitDraft=x.plan;const p=x.plan;$('portraitMode').value=p.mode;$('portraitStyle').value=p.style;$('portraitOutfit').value=p.preferred_outfit;$('portraitExpression').value=p.expression;$('portraitBackground').value=p.background;$('portraitFraming').value=p.framing;$('portraitLighting').value=p.lighting;$('portraitAvoid').value=p.avoid.join(String.fromCharCode(10));$('portraitApproved').checked=p.parent_description_approved;portraitModeChanged();$('portraitStatus').textContent=x.preflight.blockers.join(' · ')}catch(e){$('portraitStatus').textContent='Ошибка: '+e.message}}
 async function savePortrait(){try{if(!storyId)throw Error('Сначала сохраните книгу');const p={mode:$('portraitMode').value,style:$('portraitStyle').value,preferred_outfit:$('portraitOutfit').value,expression:$('portraitExpression').value,background:$('portraitBackground').value,framing:$('portraitFraming').value,lighting:$('portraitLighting').value,avoid:$('portraitAvoid').value.split(String.fromCharCode(10)).map(x=>x.trim()).filter(Boolean).slice(0,12),parent_description_approved:$('portraitApproved').checked,reference_photo_reviewed:false};const x=await api('/stories/'+storyId+'/portrait','PUT',p);$('portraitStatus').textContent='Настройки сохранены. '+x.preflight.blockers.join(' · ')}catch(e){$('portraitStatus').textContent='Ошибка: '+e.message}}
-async function openConsent(){tab('consent');if(!storyId){$('consentStatus').textContent='Сначала сохраните книгу';return}try{const x=await api('/stories/'+storyId+'/consent');$('consentTerms').textContent=x.terms;$('consentPhotoNotice').textContent=x.photo_notice;$('consentTermsCheck').checked=x.status.terms_accepted;$('consentParentCheck').checked=x.status.terms_accepted;$('consentPhotoCheck').checked=x.status.photo_consent_active;$('consentStatus').textContent=x.status.photo_consent_active?'Согласие на фотографии записано; загрузка пока недоступна':'Согласие на фотографии не предоставлено'}catch(e){$('consentStatus').textContent=e.message}}
-async function acceptConsent(){try{if(!storyId)throw Error('Сначала сохраните книгу');const decision={accept_terms:$('consentTermsCheck').checked,declare_parental_authority:$('consentParentCheck').checked,consent_to_child_photos:false};const x=await api('/stories/'+storyId+'/consent','POST',decision);$('consentStatus').textContent=x.status.photo_consent_active?'Согласие записано. Загрузка фотографий пока отключена.':'Условия приняты без согласия на фотографии.'}catch(e){$('consentStatus').textContent='Ошибка: '+e.message}}
+function consentChecksChanged(){$('consentContinue').disabled=!($('consentTermsCheck').checked&&$('consentParentCheck').checked)}
+$('consentTermsCheck').addEventListener('change',consentChecksChanged);
+$('consentParentCheck').addEventListener('change',consentChecksChanged);
+async function openConsent(){tab('consent');$('consentContinue').disabled=true;$('consentTermsCheck').checked=false;$('consentParentCheck').checked=false;$('consentPhotoCheck').checked=false;if(!storyId){$('consentStatus').textContent='Сначала сохраните книгу';return}try{const x=await api('/stories/'+storyId+'/consent');$('consentTerms').textContent=x.terms;$('consentPhotoNotice').textContent=x.photo_notice;$('consentVersion').textContent='Версия условий: '+x.status.version;$('consentStatus').textContent=x.status.terms_accepted?'Условия ранее приняты. Для перехода подтвердите их повторно.':'Прочитайте условия и подтвердите два обязательных пункта.'}catch(e){$('consentStatus').textContent='Ошибка: '+e.message}}
+async function openPhotoConstructor(){tab('photoConstructor');if(!storyId){$('photoConstructorStatus').textContent='Сначала сохраните книгу';return}try{const x=await api('/stories/'+storyId+'/consent');if(!x.status.terms_accepted){$('photoConstructorStatus').textContent='Сначала примите условия и подтвердите статус родителя.';tab('consent');return}const capability=await api('/stories/'+storyId+'/photo-vault');$('photoConstructorStatus').textContent='Условия подтверждены. Фотографии не загружаются: защищённая функция ожидает запуска.';if(capability.photo_upload_enabled===true){$('photoConstructorStatus').textContent='Загрузка будет доступна после отдельного подтверждения политики фотографий и проверки безопасности.'}}catch(e){$('photoConstructorStatus').textContent='Ошибка: '+e.message}}
+async function acceptConsent(){try{if(!storyId)throw Error('Сначала сохраните книгу');if(!$('consentTermsCheck').checked||!$('consentParentCheck').checked)throw Error('Подтвердите оба обязательных пункта');const decision={accept_terms:true,declare_parental_authority:true,consent_to_child_photos:false};const x=await api('/stories/'+storyId+'/consent','POST',decision);if(!x.status.terms_accepted)throw Error('Согласие не подтверждено сервером');$('consentStatus').textContent='Условия сохранены. Открываем безопасный конструктор.';await openPhotoConstructor()}catch(e){$('consentStatus').textContent='Ошибка: '+e.message}}
 async function withdrawConsent(){try{if(!storyId)throw Error('Сначала сохраните книгу');const result=await api('/stories/'+storyId+'/consent/withdraw','POST',{});$('consentPhotoCheck').checked=false;$('consentStatus').textContent='Согласие отозвано. Приватных файлов поставлено на удаление: '+result.private_assets_queued_for_erasure+'. Физическое удаление ещё не подтверждено.'}catch(e){$('consentStatus').textContent='Ошибка: '+e.message}}
 let activeIdentity=null;
 function identityMode(){$('identityAdvanced').classList.toggle('hidden',$('identityMode').value!=='director')}
