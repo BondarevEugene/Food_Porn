@@ -65,6 +65,8 @@ async def enqueue_sketch_chapters(
             )
         except (ValueError, PermissionError) as exc:
             raise HTTPException(409, str(exc)) from exc
+        if not briefs:
+            raise HTTPException(409, "No unwritten chapters remain")
         active = (await session.execute(select(writer_jobs.c.job_id).where(
             writer_jobs.c.story_id == story_id,
             writer_jobs.c.owner_id == owner_id,
