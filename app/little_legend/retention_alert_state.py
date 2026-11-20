@@ -129,3 +129,23 @@ async def clear_alert_after_recovery(
         )
     )
     await session.commit()
+
+
+async def alert_delivery_status(session: AsyncSession) -> dict[str, object]:
+    """Aggregate alert status for owner-only CRM. No tokens or fingerprints."""
+    row = (await session.execute(
+        select(
+            alert_state.c.last_sent_at,
+            alert_state.c.leased_until,
+        ).where(alert_state.c.scope == _SCOPE)
+    )).one_or_none()
+    now = datetime.now(UTC)
+    if row is None:
+        return {"configured": False, "in_progress": False, "last_sent_at": None}
+    return {
+        "configured": True,
+        "in_progress": bool(row.leased_until and row.leased_until > now),
+        "last_sent_at": (
+            row.last_sent_at.isoformat() if row.last_sent_at else None
+        ),
+    }
