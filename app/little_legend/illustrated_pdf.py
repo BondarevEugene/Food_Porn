@@ -18,6 +18,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
     BaseDocTemplate,
     Frame,
+    HRFlowable,
     Image,
     PageBreak,
     PageTemplate,
@@ -141,6 +142,8 @@ def render_illustrated_proof(
     if palette not in EDITION_PALETTES:
         raise ValueError("Unsupported book palette")
     paper, accent, secondary, ink, ornament = EDITION_PALETTES[palette]
+    accent_color = colors.HexColor(ornament)
+    is_dark = palette in PALETTE_GROUPS["dark"]
     if not title.strip() or not manuscript.hero_name.strip():
         raise ValueError("Title and hero are required")
     nodes = sorted(graph.nodes, key=lambda item: item.order)
@@ -181,6 +184,9 @@ def render_illustrated_proof(
             canvas.setStrokeColor(colors.HexColor(ornament))
             canvas.setLineWidth(1.4)
             canvas.line(52, height - 155, width - 52, height - 155)
+            canvas.setStrokeColor(colors.HexColor(ink))
+            canvas.setLineWidth(0.7)
+            canvas.roundRect(24, 23, width - 48, height - 46, 13, fill=0, stroke=1)
             # The approved first-scene artwork anchors the actual cover;
             # never substitute unapproved/generated media.
             with PILImage.open(BytesIO(cover_bytes)) as cover:
@@ -202,12 +208,12 @@ def render_illustrated_proof(
             canvas.circle(width - 22, height - 21, 31, fill=1, stroke=0)
             canvas.setFillColor(colors.HexColor(secondary))
             canvas.circle(18, 21, 27, fill=1, stroke=0)
-        canvas.setStrokeColor(colors.HexColor("#D6C6A3"))
+        canvas.setStrokeColor(accent_color)
         canvas.setLineWidth(0.55)
         canvas.line(48, height - 39, width - 46, height - 39)
         canvas.line(48, 40, width - 46, 40)
         canvas.setFont(font, 7)
-        canvas.setFillColor(colors.HexColor("#847A70"))
+        canvas.setFillColor(colors.HexColor("#AFA4C7" if is_dark and document.page == 1 else "#71677C"))
         canvas.drawString(48, height - 29, "L I T T L E   L E G E N D")
         if edition == "editorial_proof":
             canvas.drawRightString(width - 46, height - 29, "EDITORIAL PROOF")
@@ -215,14 +221,16 @@ def render_illustrated_proof(
         canvas.restoreState()
 
     doc.addPageTemplates(PageTemplate(id="book", frames=[frame], onPage=page))
+    cover_font_size = 25 if len(title) <= 38 else 20 if len(title) <= 65 else 16
     title_style = ParagraphStyle(
-        "Title", fontName=font, fontSize=25, leading=36,
+        "Title", fontName=font, fontSize=cover_font_size,
+        leading=cover_font_size * 1.4,
         textColor=colors.HexColor(ink),
         alignment=TA_CENTER, spaceAfter=18,
     )
     heading = ParagraphStyle(
         "Chapter", fontName=font, fontSize=16, leading=24,
-        textColor=colors.HexColor(ink),
+        textColor=colors.HexColor("#30394C"),
         alignment=TA_LEFT, spaceAfter=15, keepWithNext=True,
     )
     digital_heading = ParagraphStyle(
@@ -238,7 +246,7 @@ def render_illustrated_proof(
     )
     chapter_label = ParagraphStyle(
         "ChapterLabel", fontName=font, fontSize=8, leading=13,
-        textColor=colors.HexColor("#847A70"), spaceAfter=8,
+        textColor=colors.HexColor(ornament), spaceAfter=8,
     )
     note = ParagraphStyle(
         "Note", parent=body, fontSize=8, leading=13,
@@ -264,11 +272,15 @@ def render_illustrated_proof(
                 f"Глава {node.order:02d}  ·  LITTLE LEGEND", chapter_label,
             ))
             flow.append(Paragraph(escape(node.title), digital_heading))
-            flow.append(Spacer(1, 6))
+            flow.append(HRFlowable(width="28%", thickness=1.1, color=accent_color,
+                                   hAlign="LEFT", spaceAfter=12))
         else:
             flow.append(Paragraph(
-                f"Глава {node.order}. {escape(node.title)}", heading,
+                f"ГЛАВА {node.order:02d} · LITTLE LEGEND", chapter_label,
             ))
+            flow.append(Paragraph(escape(node.title), heading))
+            flow.append(HRFlowable(width="28%", thickness=1.1, color=accent_color,
+                                   hAlign="LEFT", spaceAfter=12))
         flow.append(images[node.id])
         flow.append(Spacer(1, 20))
         for paragraph in _editorial_paragraphs(chapters[node.id].text):
