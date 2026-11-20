@@ -7,7 +7,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, MetaData, String, Table, select
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    select,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +32,9 @@ fulfillment_jobs = Table(
     Column("status", String(24), nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("lease_token", String(36), nullable=True),
+    Column("lease_expires_at", DateTime(timezone=True), nullable=True),
+    Column("lease_attempts", Integer, nullable=False, server_default="0"),
 )
 
 
