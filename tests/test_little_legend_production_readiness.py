@@ -120,3 +120,37 @@ def test_duplicate_manuscript_chapters_are_rejected():
     )
     assert not report.ready_for_export
     assert "duplicate_chapters" in {issue.code for issue in report.issues}
+
+
+def test_stale_art_is_not_counted_as_completed():
+    graph, manuscript, jobs = _production()
+    manuscript.chapters[0].revision += 1
+    report = assess_production(
+        graph=graph, manuscript=manuscript, jobs=jobs,
+        editorial_approved=True,
+    )
+    assert report.completed_scenes == 1
+    assert report.total_scenes == 2
+    assert not report.ready_for_export
+
+
+def test_art_without_provider_dispatch_proof_is_not_counted():
+    graph, manuscript, jobs = _production()
+    jobs[0].provider_dispatched_at = None
+    report = assess_production(
+        graph=graph, manuscript=manuscript, jobs=jobs,
+        editorial_approved=True,
+    )
+    assert report.completed_scenes == 1
+    assert "illustration_incomplete" in {issue.code for issue in report.issues}
+
+
+def test_unapproved_chapter_art_is_not_counted():
+    graph, manuscript, jobs = _production()
+    manuscript.chapters[0].approved = False
+    report = assess_production(
+        graph=graph, manuscript=manuscript, jobs=jobs,
+        editorial_approved=True,
+    )
+    assert report.completed_scenes == 1
+    assert "chapter_unapproved" in {issue.code for issue in report.issues}

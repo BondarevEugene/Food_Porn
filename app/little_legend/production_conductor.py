@@ -46,7 +46,6 @@ class Stage(StrEnum):
     WAITING_EDITORIAL = "waiting_editorial"
     RELEASE_QUEUE = "release_queue"
     MANUAL_REVIEW = "manual_review"
-    WAITING_ART_REVIEW = "waiting_art_review"
 
 
 @dataclass(frozen=True)
@@ -169,7 +168,9 @@ async def advance_paid_quote(
     }:
         return AdvanceResult(quote_id, stage)
     if stage == Stage.WAITING_EDITORIAL:
-        return AdvanceResult(quote_id, Stage.RELEASE_QUEUE)
+        # The PDF worker is the sole authority for release; its preflight
+        # checks revisions, approvals and provider dispatch evidence.
+        return AdvanceResult(quote_id, Stage.WAITING_EDITORIAL)
     if stage in {Stage.WAITING_TEXT_CONSENT, Stage.WAITING_IMAGE_CONSENT}:
         return AdvanceResult(quote_id, stage)
     if has_budget is None:
