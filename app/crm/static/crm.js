@@ -83,7 +83,7 @@
       if(state.tab==='finance')data=await Promise.all([get('/dashboard?days='+state.days),get('/expenses?days='+state.days+'&page='+state.page),get('/ledger'),get('/finance/calendar?period='+state.financePeriod+'&year='+state.financeYear+'&index='+state.financeIndex)]);
       else if(state.tab==='ads')data=await get('/integrations');
       else if(state.tab==='storage')data=await get('/storage');
-      else if(state.tab==='legend'){const [delivery,production]=await Promise.all([get('/little-legend/delivery-queue'),get('/little-legend/paid-production?limit=100')]);data={...delivery,production};}
+      else if(state.tab==='legend'){const [delivery,production,retention]=await Promise.all([get('/little-legend/delivery-queue'),get('/little-legend/paid-production?limit=100'),get('/little-legend/retention-operations?limit=20')]);data={...delivery,production,retention};}
       else if(state.tab==='products')data=await get('/settings');
       else if(state.tab==='dashboard'){const [overview,calendar]=await Promise.all([get('/dashboard?days='+state.days),get('/finance/calendar?period=month&year='+now.getFullYear()+'&index='+(now.getMonth()+1))]);data={...overview,calendar};}
       else data=await get('/'+(state.tab==='audit'?'audit':state.tab)+'?'+query);
@@ -92,6 +92,10 @@
   }
   function legend(data){
     const items=data.items||[];
+    const retention=data.retention||{runs:[],latest:null};
+    const history=retention.runs||[];
+    const latest=retention.latest;
+    const retentionRows=history.map(run=>`<tr><td>${date(run.checked_at)}</td><td>${esc(run.mode)}</td><td>${badge(run.status)}</td><td>${num(run.expired_not_deleted)}</td><td>${num(run.pending_over_24h)}</td><td>${num(run.physically_deleted)}</td><td>${esc((run.codes||[]).join(', ')||'—')}</td></tr>`).join('');
     const production=data.production||{counts:{},orders:[]};
     const orders=production.orders||[];
     const counts=production.counts||{};
@@ -103,6 +107,7 @@
       `<div class="legend-metrics">${[['pending','Ожидают'],['processing','В работе'],['blocked','Блокировки'],['ready','PDF готовы'],['failed','Ошибки']].map(([key,label])=>`<article class="card legend-metric"><p class="label">${label}</p><strong>${num(counts[key]||0)}</strong></article>`).join('')}</div>
       <section class="panel"><div class="panel-head"><div><h2>Оплаченные книги · ${orders.length}</h2><p>Последние 100 заказов из Neon. Содержимое детских книг не загружается.</p></div></div><div class="legend-table-scroll"><table><thead><tr><th>Заказ</th><th>Производство</th><th>Файл</th><th>Диагностика</th><th>Обновлено</th></tr></thead><tbody>${orderRows||'<tr><td colspan="5">Оплаченных книг пока нет</td></tr>'}</tbody></table></div></section>
       <section class="panel"><div class="panel-head"><div><h2>Сверка Telegram · ${items.length}</h2><p>Неопределённые доставки. Повторная отправка запрещена.</p></div></div><div class="legend-table-scroll"><table><thead><tr><th>Книга</th><th>Telegram ID</th><th>Состояние</th><th>Обновлено</th><th>Действие</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6">Незавершённых доставок нет</td></tr>'}</tbody></table></div></section>
+      <section class="panel"><div class="panel-head"><div><h2>Приватное хранилище · Retention</h2><p>Только агрегированная история очистки из Neon. Просмотр без удаления файлов.</p></div><span class="badge">${latest?esc(latest.status):'Нет запусков'}</span></div><div class="legend-metrics">${[['expired_not_deleted','Просрочены'],['pending_over_24h','Очередь 24ч+'],['exhausted_retries','Лимит попыток'],['deletion_failed','Ошибки удаления'],['physically_deleted','Удалено за запуск']].map(([key,label])=>`<article class="card legend-metric"><p class="label">${label}</p><strong>${num(latest?latest[key]:0)}</strong></article>`).join('')}</div><div class="legend-table-scroll"><table><thead><tr><th>Время</th><th>Режим</th><th>Статус</th><th>Просрочено</th><th>24ч+</th><th>Удалено</th><th>Коды</th></tr></thead><tbody>${retentionRows||'<tr><td colspan="7">Запусков очистки пока нет</td></tr>'}</tbody></table></div></section>
       <p class="sub">Если отправка могла пройти, сначала сверьте историю Telegram. Повторное скачивание клиентом доступно через защищённый API книги.</p>`;
   }
   function showDialog(html){document.querySelector('#dialog-body').innerHTML=html;document.querySelector('#dialog').showModal();}
