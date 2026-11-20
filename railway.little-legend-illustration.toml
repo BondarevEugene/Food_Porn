@@ -1,0 +1,6 @@
+# Configure as the Railway config-as-code path for a separate worker service.
+# Do not replace the web/bot service. Set opt-in flags and credentials in Railway.
+[deploy]
+startCommand = "python -m app.little_legend.ai_production_runner --mode illustration"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
