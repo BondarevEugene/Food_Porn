@@ -1355,6 +1355,17 @@ async def story_proof(story_id: int, owner: Annotated[int, Depends(_owner)]):
     )
 
 
+@router.get("/release-control", response_class=HTMLResponse)
+async def release_control_center():
+    """Public HTML shell; all book data requires signed Telegram auth."""
+    from app.little_legend.release_control_center import RELEASE_CONTROL_HTML
+
+    return HTMLResponse(
+        RELEASE_CONTROL_HTML,
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 @router.get("", response_class=HTMLResponse)
 async def studio():
     # The shell is public; all user data endpoints require signed Telegram initData.
@@ -1421,7 +1432,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 <p class="hero-lead">Придумайте приключение за пару минут или станьте режиссёром каждой сцены. Личные детали необязательны.</p>
 <div id="authError" class="error hidden">Откройте студию кнопкой из Telegram-бота.</div>
 <div id="workspace" class="hidden">
-<nav><button class="secondary" onclick="tab('idea')">01 · Идея</button><button class="secondary" onclick="tab('hero')">02 · Герой</button><button class="secondary" onclick="openDesign()">03 · Драматургия</button><button class="secondary" onclick="tab('scenes')">04 · Сцены</button><button class="secondary" onclick="openPrivacy()">Безопасность</button><button class="secondary" onclick="openPortrait()">Портрет</button><button class="secondary" onclick="openConsent()">05 · Согласие и фото</button><button class="secondary" onclick="openManuscriptQuality()">✦ Качество книги</button><button class="secondary" onclick="openArtReadiness()">✦ Иллюстрации</button><button class="secondary" onclick="openIdentity()">06 · Внешность</button><button class="secondary" onclick="openDirector()">07 · Стиль</button><button class="secondary" onclick="tab('edition')">08 · Издание</button></nav>
+<nav><a href="/little-legend/release-control" style="display:inline-block;padding:12px 16px;background:#545ac7;color:white;border-radius:12px;text-decoration:none;font-weight:700">✦ Контроль выпуска</a><button class="secondary" onclick="tab('idea')">01 · Идея</button><button class="secondary" onclick="tab('hero')">02 · Герой</button><button class="secondary" onclick="openDesign()">03 · Драматургия</button><button class="secondary" onclick="tab('scenes')">04 · Сцены</button><button class="secondary" onclick="openPrivacy()">Безопасность</button><button class="secondary" onclick="openPortrait()">Портрет</button><button class="secondary" onclick="openConsent()">05 · Согласие и фото</button><button class="secondary" onclick="openManuscriptQuality()">✦ Качество книги</button><button class="secondary" onclick="openArtReadiness()">✦ Иллюстрации</button><button class="secondary" onclick="openIdentity()">06 · Внешность</button><button class="secondary" onclick="openDirector()">07 · Стиль</button><button class="secondary" onclick="tab('edition')">08 · Издание</button></nav>
 <section id="idea" class="card">
 <h2>Ваша история</h2>
 <label>Название</label><input id="title" maxlength="180">
