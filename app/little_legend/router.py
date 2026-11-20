@@ -330,6 +330,43 @@ async def read_book_payment_status(
     }
 
 
+@router.get("/api/order-quotes/{quote_id}/diagnostics")
+async def read_paid_book_diagnostics(
+    quote_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Read-only, owner-scoped PDF diagnosis; no payments or regeneration."""
+    import asyncio
+
+    from app.little_legend.fulfillment_queue import fulfillment_jobs
+    from app.little_legend.paid_book_storage import PaidBookStore
+    from app.little_legend.payment_entitlement import has_verified_entitlement
+    from app.little_legend.stored_paid_diagnostics import diagnose_stored_paid_pdf
+
+    if quote_id <= 0:
+        raise HTTPException(404, "Paid book not found")
+    async with async_session_maker() as session:
+        verified = await has_verified_entitlement(
+            session, quote_id=quote_id, owner_id=owner,
+        )
+        if not verified:
+            raise HTTPException(404, "Paid book not found")
+        row = (await session.execute(
+            select(fulfillment_jobs.c.asset_key, fulfillment_jobs.c.status)
+            .where(
+                fulfillment_jobs.c.quote_id == quote_id,
+                fulfillment_jobs.c.owner_id == owner,
+            )
+        )).mappings().one_or_none()
+    if row is None or row["status"] != "ready" or not row["asset_key"]:
+        return {"quote_id": quote_id, "status": "not_ready", "issue_codes": []}
+    try:
+        pdf = await asyncio.to_thread(PaidBookStore().get, key=row["asset_key"])
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(503, "Private book storage unavailable") from exc
+    result = diagnose_stored_paid_pdf(pdf)
+    return {"quote_id": quote_id, **result.model_dump(mode="json")}
+
+
 @router.get("/api/order-quotes/{quote_id}/book.pdf")
 async def download_paid_book(
     quote_id: int, owner: Annotated[int, Depends(_owner)],
