@@ -22,7 +22,10 @@ def test_approval_is_owner_scoped_and_never_enqueues():
     assert "with_for_update()" in SOURCE
     assert "draft.entry.plan_approved = True" in SOURCE
     assert "draft.outline_approved = True" in SOURCE
-    assert "enqueue_sketch_chapters" not in SOURCE
+    approval_handler = SOURCE.split("async def approve_outline(", 1)[1].split(
+        "@router.callback_query", 1,
+    )[0]
+    assert "enqueue_sketch_chapters" not in approval_handler
 
 
 def test_classic_cannot_be_approved_without_rights():

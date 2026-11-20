@@ -42,6 +42,11 @@ async def enqueue_sketch_chapters(
         if raw is None:
             raise HTTPException(404, "Story not found")
         draft = StoryDraft.model_validate_json(raw)
+        from app.little_legend.telegram_writer_readiness import chapter_readiness
+
+        readiness = chapter_readiness(draft)
+        if not readiness["ready"]:
+            raise HTTPException(409, "; ".join(readiness["blockers"]))
         disclosure = configured_text_ai_disclosure()
         if not consent_allows_provider(draft.text_ai_consent, disclosure):
             raise HTTPException(403, "AI text processing consent is missing or outdated")
@@ -60,6 +65,8 @@ async def enqueue_sketch_chapters(
             )
         except (ValueError, PermissionError) as exc:
             raise HTTPException(409, str(exc)) from exc
+        if not briefs:
+            raise HTTPException(409, "No unwritten chapters remain")
         active = (await session.execute(select(writer_jobs.c.job_id).where(
             writer_jobs.c.story_id == story_id,
             writer_jobs.c.owner_id == owner_id,
