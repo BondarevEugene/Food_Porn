@@ -58,10 +58,10 @@ def stage_for(
     illustrations: list[str],
 ) -> tuple[JourneyStage, str]:
     """Deterministic, fail-closed transition view; never triggers paid work."""
-    if delivered:
-        return JourneyStage.DELIVERED, "download_book"
     if not payment_verified:
         return JourneyStage.AWAITING_PAYMENT, "complete_payment"
+    if delivered:
+        return JourneyStage.DELIVERED, "download_book"
     if delivery_started or fulfillment_status in {"blocked", "failed"}:
         return JourneyStage.MANUAL_REVIEW, "contact_support"
     if fulfillment_status in {"processing", "ready"}:
