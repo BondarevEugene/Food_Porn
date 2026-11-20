@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from app.bot.handlers.little_legend_checkpoint import router as checkpoint_router
 from app.bot.handlers.little_legend_guided import router as guided_router
+from app.bot.handlers.little_legend_illustrations import router as illustrations_router
 from app.bot.handlers.little_legend_manuscript import router as manuscript_router
 from app.bot.handlers.little_legend_outline import router as outline_router
 from app.bot.handlers.little_legend_palettes import router as palette_router
@@ -31,6 +32,7 @@ router = Router(name="little_legend")
 router.include_router(palette_router)
 router.include_router(checkpoint_router)
 router.include_router(manuscript_router)
+router.include_router(illustrations_router)
 router.include_router(outline_router)
 router.include_router(guided_router)
 
@@ -270,6 +272,10 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
         buttons.append([InlineKeyboardButton(
             text="📖 Проверить рукопись",
             callback_data=f"ll_manuscript_review:{story_id}",
+        )])
+        buttons.append([InlineKeyboardButton(
+            text="🎨 Иллюстрации книги",
+            callback_data=f"ll_art_ready:{story_id}",
         )])
         buttons.append([InlineKeyboardButton(
             text="📊 Производство книги",
