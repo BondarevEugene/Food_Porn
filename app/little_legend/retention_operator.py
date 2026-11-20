@@ -16,6 +16,7 @@ from dataclasses import asdict
 from app.database.session import async_session_maker, engine
 from app.little_legend.privacy_lifecycle import PrivacyLaunchConfig
 from app.little_legend.retention_alert_policy import evaluate_retention
+from app.little_legend.retention_notifications import alert_message, notify_retention
 from app.little_legend.vault_operator_audit import audit_private_vault
 
 
@@ -27,6 +28,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch-size", type=int, default=25)
     parser.add_argument("--max-cycles", type=int, default=4)
     parser.add_argument("--fail-on-alert", action="store_true")
+    parser.add_argument("--notify-owner", action="store_true")
     parser.add_argument("--max-expired", type=int, default=0)
     parser.add_argument("--max-pending-24h", type=int, default=0)
     return parser
@@ -35,6 +37,7 @@ def _parser() -> argparse.ArgumentParser:
 async def run_operator(
     *, execute: bool, batch_size: int, max_expired: int = 0,
     max_pending_24h: int = 0, max_cycles: int = 4,
+    notify_owner: bool = False,
 ) -> dict[str, object]:
     if not 1 <= batch_size <= 100:
         raise ValueError("batch_size must be 1..100")
@@ -75,6 +78,15 @@ async def run_operator(
         max_expired=max_expired, max_pending_24h=max_pending_24h,
     )
     result["operations"] = asdict(decision)
+    result["notification"] = {
+        "eligible": alert_message(result["operations"]) is not None,
+        "requested": notify_owner,
+        "sent": False,
+    }
+    if notify_owner:
+        result["notification"]["sent"] = await notify_retention(
+            result["operations"],
+        )
     return result
 
 
@@ -87,6 +99,7 @@ def main() -> None:
                 max_expired=args.max_expired,
                 max_pending_24h=args.max_pending_24h,
                 max_cycles=args.max_cycles,
+                notify_owner=args.notify_owner,
             )
         )
     except (PermissionError, ValueError) as exc:
