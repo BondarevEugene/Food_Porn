@@ -35,7 +35,7 @@ button:disabled{opacity:.55;cursor:not-allowed}.secondary{background:#eceefa;col
 </style></head><body><main>
 <header><div><div class="eyebrow">Little Legend / Operations</div>
 <h1>Контроль выпуска</h1><p class="sub">Готовность цифровой книги, оплата и проверка PDF — в одном месте.</p></div>
-<a class="action secondary" href="/little-legend/studio">Вернуться в студию</a></header>
+<a class="action secondary" href="/little-legend">Вернуться в студию</a></header>
 <section class="panel"><h2>Найти оплаченный заказ</h2>
 <p class="note">Введите номер заказа (quote ID). Доступны только ваши книги с подтверждённой оплатой.</p>
 <label for="quote">Номер заказа</label><input id="quote" type="number" min="1" step="1" inputmode="numeric" placeholder="Например, 125">
