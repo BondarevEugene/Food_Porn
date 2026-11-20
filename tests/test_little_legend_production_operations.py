@@ -75,6 +75,7 @@ def test_retry_is_always_disabled_even_if_model_constructed():
         quote_id=1, story_id=2, fulfillment_status="pending",
         lease_diagnosis=LeaseDiagnosis.QUEUED, lease_attempts=0,
         recovery_action=RecoveryAction.QUEUED,
+        unresolved_effects=0, held_reservations=0,
     )
     assert view.automatic_retry_allowed is False
 
