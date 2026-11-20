@@ -184,6 +184,10 @@ async def _deliver(row: dict, key: str) -> None:
     # Claim delivery BEFORE the external Telegram side effect. If Railway
     # crashes after dispatch, an operator must reconcile; never send twice.
     async with async_session_maker() as session:
+        if not await has_verified_entitlement(
+            session, quote_id=row["quote_id"], owner_id=row["owner_id"],
+        ):
+            raise PermissionError("Verified payment required before delivery")
         result = await session.execute(
             update(fulfillment_jobs)
             .where(
