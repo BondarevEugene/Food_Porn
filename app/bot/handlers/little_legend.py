@@ -16,6 +16,7 @@ from app.bot.handlers.little_legend_photo import router as photo_router
 from app.bot.handlers.little_legend_release_preflight import router as release_preflight_router
 from app.bot.handlers.wallpaper import language_for, text_for
 from app.config import get_settings
+from app.database.models import Customer
 from app.database.session import async_session_maker
 from app.little_legend.aiogram_pdf_sender import AiogramPDFSender
 from app.little_legend.art_storage_config import configured_generated_art_store
@@ -63,9 +64,24 @@ def little_legend_studio_url(configured_url: str) -> str | None:
 
 
 
+async def little_legend_language(user: object) -> str:
+    """Use the persisted customer selection, not Telegram device language."""
+    user_id = getattr(user, "id", None)
+    if user_id is not None:
+        async with async_session_maker() as session:
+            saved = (await session.execute(
+                select(Customer.language).where(Customer.telegram_user_id == user_id)
+            )).scalar_one_or_none()
+        if saved is not None:
+            value = getattr(saved, "value", saved)
+            if value in {"uk", "ru", "en"}:
+                return value
+    return language_for(user)
+
+
 @router.callback_query(F.data == "prod_little_legend")
 async def open_little_legend(callback: CallbackQuery) -> None:
-    lang = language_for(callback.from_user)
+    lang = await little_legend_language(callback.from_user)
     studio_url = little_legend_studio_url(get_settings().miniapp_url)
     buttons = [[InlineKeyboardButton(
         text=text_for(lang, "✨ Створити книгу", "✨ Создать книгу", "✨ Create a book"),
@@ -79,6 +95,10 @@ async def open_little_legend(callback: CallbackQuery) -> None:
     buttons.append([InlineKeyboardButton(
         text=text_for(lang, "💎 Формати й ціни", "💎 Форматы и цены", "💎 Editions & prices"),
         callback_data="ll_catalog",
+    )])
+    buttons.append([InlineKeyboardButton(
+        text=text_for(lang, "❓ Як створити книгу", "❓ Как создать книгу", "❓ How to make a book"),
+        callback_data="ll_help",
     )])
     buttons.append([InlineKeyboardButton(
         text=text_for(lang, "📚 Мої книги", "📚 Мои книги", "📚 My books"),
@@ -104,13 +124,62 @@ async def open_little_legend(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data == "ll_help")
+async def show_little_legend_help(callback: CallbackQuery) -> None:
+    lang = await little_legend_language(callback.from_user)
+    message = text_for(
+        lang,
+        "❓ <b>Як працює Little Legend</b>\n\n"
+        "✨ <b>Створити книгу</b> — оберіть спосіб створення історії. "
+        "Режим «Моя історія» відкриває покрокову роботу над сюжетом.\n\n"
+        "🎨 <b>Редактор книги</b> — студія для роботи над героями, сценами, "
+        "ілюстраціями та перевіркою результату. Це не окремий платний формат.\n\n"
+        "💎 <b>Формати й ціни</b> — цифровий PDF або майбутня друкована версія.\n\n"
+        "📚 <b>Мої книги</b> — чернетки, перевірки, підготовка й отримання PDF.\n\n"
+        "<b>Порядок:</b> створіть історію → відредагуйте й затвердьте "
+        "сцени → перевірте ілюстрації → підготуйте PDF → отримайте книгу. "
+        "Оплата ще недоступна.",
+        "❓ <b>Как работает Little Legend</b>\n\n"
+        "✨ <b>Создать книгу</b> — выбрать способ создания истории. "
+        "Режим «Моя история» ведёт к пошаговой работе над сюжетом.\n\n"
+        "🎨 <b>Редактор книги</b> — студия для работы с героями, сценами, "
+        "иллюстрациями и проверки результата. Это не отдельный платный формат.\n\n"
+        "💎 <b>Форматы и цены</b> — цифровой PDF или будущая печатная версия.\n\n"
+        "📚 <b>Мои книги</b> — черновики, проверки, подготовка и получение PDF.\n\n"
+        "<b>Порядок:</b> создайте историю → отредактируйте и утвердите "
+        "сцены → проверьте иллюстрации → подготовьте PDF → получите книгу. "
+        "Оплата пока недоступна.",
+        "❓ <b>How Little Legend works</b>\n\n"
+        "✨ <b>Create a book</b> — choose a story creation path. "
+        "My Story leads to the guided story workflow.\n\n"
+        "🎨 <b>Book editor</b> — a studio for characters, scenes, illustrations "
+        "and reviewing the result. It is not a separate paid edition.\n\n"
+        "💎 <b>Editions & prices</b> — digital PDF or a future print edition.\n\n"
+        "📚 <b>My books</b> — drafts, reviews, preparation and PDF delivery.\n\n"
+        "<b>Order:</b> create a story → review and approve scenes → "
+        "review illustrations → prepare PDF → receive the book. "
+        "Checkout is not yet available.",
+    )
+    await callback.message.answer(
+        message,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text=text_for(lang, "⬅️ До книги", "⬅️ К книге", "⬅️ Back to book"),
+                callback_data="prod_little_legend",
+            ),
+        ]]),
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data == "ll_choose_mode")
 async def choose_little_legend_mode(callback: CallbackQuery) -> None:
     """One clear decision per screen; preserve the existing editor route."""
     if callback.message is None or callback.message.chat.type != "private":
         await callback.answer("Open this in a private chat", show_alert=True)
         return
-    lang = language_for(callback.from_user)
+    lang = await little_legend_language(callback.from_user)
     options = [
         ("director", ("✍️ Моя історія", "✍️ Моя история", "✍️ My story")),
         ("classic", ("🏰 Я — герой казки", "🏰 Я — герой сказки", "🏰 Classic hero")),
@@ -140,7 +209,7 @@ async def show_little_legend_mode(callback: CallbackQuery) -> None:
     if callback.message is None or callback.message.chat.type != "private":
         await callback.answer("Open this in a private chat", show_alert=True)
         return
-    lang = language_for(callback.from_user)
+    lang = await little_legend_language(callback.from_user)
     mode = (callback.data or "").removeprefix("ll_mode:")
     if mode not in {"director", "classic", "brief"}:
         await callback.answer("Unknown mode", show_alert=True)
@@ -193,7 +262,7 @@ async def list_my_little_legend_books(callback: CallbackQuery) -> None:
                 stories.c.owner_id == owner_id,
             ).order_by(stories.c.id.desc()).limit(10)
         )).all()
-    lang = language_for(callback.from_user)
+    lang = await little_legend_language(callback.from_user)
     buttons = [
         [InlineKeyboardButton(
             text=f"📖 #{story_id} · {title[:36]}",
@@ -219,7 +288,7 @@ async def list_my_little_legend_books(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("ll_book:"))
 async def show_little_legend_book(callback: CallbackQuery) -> None:
     """Never reveal whether a foreign story ID exists."""
-    lang = language_for(callback.from_user)
+    lang = await little_legend_language(callback.from_user)
     try:
         story_id = int((callback.data or "").split(":", 1)[1])
     except (IndexError, ValueError):
@@ -456,7 +525,7 @@ async def prepare_little_legend_book(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "ll_catalog")
 async def show_little_legend_catalog(callback: CallbackQuery) -> None:
     """Customer catalog, never an unverified checkout link."""
-    lang = language_for(callback.from_user)
+    lang = await little_legend_language(callback.from_user)
     try:
         catalog = await crm_book_catalog()
     except ValueError:
@@ -480,9 +549,17 @@ async def show_little_legend_catalog(callback: CallbackQuery) -> None:
                            "Printed book")
     note = text_for(
         lang,
-        "Ціни довідкові. Оплата ще недоступна. Друкована версія готується.",
-        "Цены справочные. Оплата пока недоступна. Печатная версия готовится.",
-        "Prices are informational. Checkout is not yet available. Print is coming later.",
+        "Цифровий формат — ілюстрований PDF для читання та збереження. "
+        "Друкований формат передбачає фізичну книгу й доставку, але ще не запущений. "
+        "Ціни встановлюються адміністратором у Mini CRM; відсутня ціна означає, "
+        "що тариф не налаштований. Оплата ще недоступна.",
+        "Цифровой формат — иллюстрированный PDF для чтения и сохранения. "
+        "Печатный формат предполагает физическую книгу и доставку, но ещё не запущен. "
+        "Цены задаёт администратор в Mini CRM; прочерк означает, что тариф не настроен. "
+        "Оплата пока недоступна.",
+        "Digital edition is an illustrated PDF. Print edition would include a physical "
+        "book and shipping, but is not launched yet. The administrator sets prices "
+        "in Mini CRM; a dash means no price is configured. Checkout is not available.",
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(
