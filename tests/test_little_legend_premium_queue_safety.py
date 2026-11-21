@@ -70,3 +70,26 @@ def test_stale_or_incomplete_premium_batch_fails_closed(change):
         data["manifest"].requests[1].requires_identity_review = False
     with pytest.raises(PermissionError):
         require_premium_batch_ready(**data)
+
+
+@pytest.mark.parametrize("change", [
+    "fingerprint", "cover_prompt", "cover_cost", "total_cost",
+    "moment_cost", "budget",
+])
+def test_manifest_integrity_rejects_tampering(change):
+    data = _data()
+    manifest = data["manifest"]
+    if change == "fingerprint":
+        manifest.fingerprint = "f" * 64
+    elif change == "cover_prompt":
+        manifest.requests[0].scene_description = "Forged cover prompt"
+    elif change == "cover_cost":
+        manifest.requests[0].estimated_micro_usd += 1
+    elif change == "total_cost":
+        manifest.total_estimated_micro_usd += 1
+    elif change == "moment_cost":
+        manifest.requests[1].estimated_micro_usd += 1
+    else:
+        manifest.max_budget_micro_usd = 1
+    with pytest.raises((PermissionError, ValueError)):
+        require_premium_batch_ready(**data)
