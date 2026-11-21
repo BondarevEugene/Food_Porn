@@ -32,6 +32,6 @@ def test_paid_dispatch_rechecks_live_approvals_and_identity():
 def test_paid_dispatch_fence_commits_before_returning_job():
     source = inspect.getsource(fence_premium_illustration_dispatch)
     assert source.index("await fence_worker_ai_effect(") < source.index(
-        "provider_dispatched_at"
+        "job = job.model_copy(update={\"provider_dispatched_at\": now})"
     ) < source.index("await session.commit()")
     assert source.index("await session.commit()") < source.index("return job")
