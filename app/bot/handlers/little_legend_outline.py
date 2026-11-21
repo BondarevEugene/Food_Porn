@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from html import escape
 
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
@@ -89,7 +90,7 @@ async def show_outline(callback: CallbackQuery) -> None:
     keyboard = _keyboard(story_id, approvable=approvable)
     keyboard.inline_keyboard.insert(-1, [help_button(lang, "outline", story_id)])
     await callback.message.answer(
-        _preview(draft) + note + status + "\n\n" + stage_message(lang, "outline"),
+        escape(_preview(draft) + note + status) + "\n\n" + stage_message(lang, "outline"),
         parse_mode="HTML",
         reply_markup=keyboard,
     )
