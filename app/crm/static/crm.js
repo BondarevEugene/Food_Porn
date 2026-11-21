@@ -70,12 +70,14 @@
     const bots = cloud.bots || [];
     const selected = state.storageBot || 'little_legend';
     const tabs = '<nav aria-label="Боты хранилища" style="display:flex;gap:8px;flex-wrap:wrap;margin:16px 0">'+
+      '<button class="'+(selected==='all'?'primary':'secondary')+
+      '" data-action="storage-bot" data-bot="all">◈ Все боты</button>'+
       bots.map(bot=>'<button class="'+(selected===bot.id?'primary':'secondary')+
         '" data-action="storage-bot" data-bot="'+esc(bot.id)+'">'+esc(bot.label)+'</button>').join('')+
       '</nav>';
     const status = p => p.status==='ok'?'✓ Подключено':
       p.status==='partial'?'⚠ Данные неполные':'⛔ Нет доступа';
-    const connections = providers.filter(p=>p.bot_id===selected);
+    const connections = providers.filter(p=>selected==='all'||p.bot_id===selected);
     const cards = connections.map(p=>'<section class="panel">'+
       '<h3>☁ '+esc(p.storage_provider)+' · '+esc(p.provider)+'</h3>'+
       '<p><strong>'+esc(status(p))+'</strong> · Бакет: '+esc(p.bucket)+'</p>'+ 
@@ -96,7 +98,9 @@
       book.files.map(f=>'<tr><td>🔒</td><td style="overflow-wrap:anywhere">'+
       esc(f.key)+'</td><td>'+esc(f.provider)+'</td><td>'+bytes(f.bytes)+
       '</td></tr>').join('')+'</tbody></table></div></details></td></tr>').join('');
-    const bookSection = selected!=='little_legend' ?
+    const bookSection = selected==='all' ?
+      '<p>Выберите вкладку конкретного бота для просмотра файлов заказов.</p>' :
+      selected!=='little_legend' ?
       '<p>Для этого бота подключение доступно в режиме просмотра. Связь с заказами появится после подключения его реестра.</p>' :
       cloud.book_index_status==='error' ?
       '<p role="alert">⚠ Список книг временно недоступен. Проверьте Neon и повторите запрос.</p>' :
@@ -105,6 +109,25 @@
       '<div style="overflow-x:auto"><table><thead><tr><th>Книга</th>'+
       '<th>Последнее изменение</th><th>Файлов</th><th>Объём</th>'+
       '<th>Состав</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+    const usage = cloud.bot_usage || [];
+    const bucketUsage = cloud.bucket_usage || [];
+    const usageRows = usage.map(b=>'<tr><td>'+esc(b.bot_id)+'</td>'+
+      '<td>'+num(b.connections)+'</td><td>'+num(b.healthy)+'</td>'+
+      '<td>'+bytes(b.used_bytes)+'</td><td>'+
+      (b.object_count==null?'Нет данных':num(b.object_count))+'</td></tr>').join('');
+    const bucketRows = bucketUsage.map(b=>'<tr><td>'+esc(b.provider)+'</td>'+
+      '<td>'+esc(b.bucket)+'</td><td>'+esc(b.bots.join(', '))+'</td>'+
+      '<td>'+bytes(b.used_bytes)+'</td></tr>').join('');
+    const overview = '<details class="panel" '+(selected==='all'?'open':'')+'>'+
+      '<summary>▤ Сводка по ботам и общим бакетам</summary>'+
+      '<div style="overflow-x:auto"><table><thead><tr><th>Бот</th><th>Подключений</th>'+
+      '<th>Доступно</th><th>Занято</th><th>Объектов</th></tr></thead><tbody>'+
+      usageRows+'</tbody></table></div>'+
+      '<div style="overflow-x:auto"><table><thead><tr><th>Провайдер</th>'+
+      '<th>Бакет</th><th>Боты</th><th>Занято</th></tr></thead><tbody>'+
+      bucketRows+'</tbody></table></div>'+
+      '<p class="sub">При недоступном подключении объём отмечается как «Нет данных».'+
+      ' Использование считается только в настроенных непересекающихся префиксах.</p></details>';
     const scratch = data.scratch || {};
     return heading('Подключения, использование и файлы по ботам.')+
       '<section class="panel"><h2>◈ Управление хранилищами</h2>'+
