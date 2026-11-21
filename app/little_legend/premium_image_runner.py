@@ -88,3 +88,22 @@ async def run_premium_image_job(
         provider_reference=receipt.provider_reference,
     )
     return key
+
+
+async def run_restored_premium_image_job(
+    *, job: IllustrationJob,
+    provider: PremiumImageProvider,
+    store: GeneratedArtStore,
+    policy: JobPolicy,
+    fence_dispatch: Callable[..., Awaitable[IllustrationJob]],
+    complete_job: Callable[..., Awaitable[IllustrationJob]],
+) -> str:
+    """Execute a claimed premium job using only its durable queue snapshot."""
+    from app.little_legend.premium_job_context import restore_premium_job_context
+
+    context = restore_premium_job_context(job)
+    return await run_premium_image_job(
+        job=job, manifest=context.manifest, plan=context.plan,
+        provider=provider, store=store, policy=policy,
+        fence_dispatch=fence_dispatch, complete_job=complete_job,
+    )
