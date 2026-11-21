@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from decimal import Decimal, InvalidOperation, ROUND_UP
+from decimal import ROUND_UP, Decimal, InvalidOperation
 
 from pydantic import BaseModel, Field, model_validator
 
