@@ -214,6 +214,27 @@ async def read_portfolio_costs(owner: Annotated[int, Depends(_owner)]):
     return await get_portfolio_cost_summary(owner_id=owner)
 
 
+@router.get("/api/stories/{story_id}/premium-production")
+async def premium_production_progress(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Owner-only premium production status; never expose photo or lease data."""
+    from app.little_legend.illustration_queue_store import list_owner_illustration_jobs
+    from app.little_legend.premium_production_control import audit_premium_batch
+
+    await _owned_draft(story_id, owner)
+    jobs = await list_owner_illustration_jobs(
+        story_id=story_id, owner_id=owner,
+    )
+    premium_jobs = [job for job in jobs if job.premium_manifest_fingerprint]
+    if not premium_jobs:
+        raise HTTPException(404, "Premium production batch not found")
+    try:
+        return audit_premium_batch(jobs=premium_jobs)
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(409, "Premium batch integrity validation failed") from exc
+
+
 @router.get("/api/stories")
 async def list_stories(owner: Annotated[int, Depends(_owner)]):
     async with async_session_maker() as session:
