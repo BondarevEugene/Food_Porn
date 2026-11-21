@@ -51,6 +51,8 @@ class IllustrationJob(WriterJob):
 
     premium_manifest_fingerprint: str | None = None
     premium_story_fingerprint: str | None = None
+    premium_manifest_snapshot: dict | None = None
+    premium_plan_snapshot: dict | None = None
 
 
 class IllustrationQueuePolicy(BaseModel):
@@ -185,6 +187,8 @@ async def enqueue_premium_illustration_jobs(
                 estimated_cost_usd=request.estimated_micro_usd / 1_000_000,
                 premium_manifest_fingerprint=manifest.fingerprint,
                 premium_story_fingerprint=fingerprint,
+                premium_manifest_snapshot=manifest.model_dump(mode="json"),
+                premium_plan_snapshot=plan.model_dump(mode="json"),
             )
             await session.execute(insert(illustration_jobs).values(
                 job_id=job.job_id, story_id=job.story_id, owner_id=job.owner_id,
