@@ -8,7 +8,10 @@ from __future__ import annotations
 import hashlib
 import json
 
-from app.little_legend.premium_batch_manifest import PremiumBatchManifest
+from app.little_legend.premium_batch_manifest import (
+    PremiumBatchManifest,
+    build_premium_batch_manifest,
+)
 from app.little_legend.premium_visual_contract import BookVisualPlan
 from app.little_legend.story_graph import StoryGraph
 from app.little_legend.story_writer import StoryManuscript
@@ -75,6 +78,25 @@ def require_premium_batch_ready(
                 or request.background_direction != slot.background_direction
                 or request.expected_revision != chapters[node.id].revision):
             raise PermissionError("Premium illustration moment is stale or mismatched")
+    # A Pydantic model is mutable after construction. Rebuild the canonical
+    # manifest from the approved visual plan, current revisions and stored
+    # budget to detect modified cover prompts, prices, slots or fingerprints.
+    unit_cost = manifest.requests[0].estimated_micro_usd
+    if any(request.estimated_micro_usd != unit_cost for request in manifest.requests):
+        raise PermissionError("Premium image unit costs are inconsistent")
+    canonical = build_premium_batch_manifest(
+        owner_id=owner_id,
+        story_id=story_id,
+        plan=plan,
+        chapter_revisions=[chapters[node.id].revision for node in nodes],
+        image_unit_cost_usd=str(unit_cost / 1_000_000),
+        max_budget_usd=str(manifest.max_budget_micro_usd / 1_000_000),
+    )
+    if (manifest.fingerprint != canonical.fingerprint
+            or manifest.requests != canonical.requests
+            or manifest.total_estimated_micro_usd
+            != canonical.total_estimated_micro_usd):
+        raise PermissionError("Premium batch manifest integrity check failed")
     if any(
         not request.requires_identity_review or not request.requires_face_safe_margin
         for request in manifest.requests
