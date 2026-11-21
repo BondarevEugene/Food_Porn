@@ -5,6 +5,7 @@ Explicit opt-in only. No public image links, no photo bytes in FSM or Neon.
 from __future__ import annotations
 
 import logging
+import os
 from io import BytesIO
 
 from aiogram import F, Router
@@ -174,8 +175,6 @@ async def receive_photo(message: Message, state: FSMContext) -> None:
 
 
 def store_settings_from_environment() -> GeneratedArtS3Settings:
-    import os
-
     keys = (
         "LITTLE_LEGEND_S3_ENDPOINT_URL",
         "LITTLE_LEGEND_S3_BUCKET",
