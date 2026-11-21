@@ -67,9 +67,10 @@ async def photo_notice(callback: CallbackQuery) -> None:
     if not disclosure.ready:
         await callback.answer("Photo personalization is not available yet", show_alert=True)
         return
+    from sqlalchemy import select
+
     from app.database.session import async_session_maker
     from app.little_legend.vault_registry import stories_table
-    from sqlalchemy import select
 
     async with async_session_maker() as session:
         owned = (await session.execute(select(stories_table.c.id).where(
@@ -155,7 +156,7 @@ async def receive_photo(message: Message, state: FSMContext) -> None:
         raw = buffer.getvalue()
         if len(raw) > MAX_UPLOAD_BYTES:
             raise ValueError("Image too large")
-        asset = await upload_consented_child_photo(
+        await upload_consented_child_photo(
             owner_id=message.from_user.id, story_id=story_id,
             data=raw, vault=vault,
             consents=NeonPremiumPhotoConsentRepository(),
