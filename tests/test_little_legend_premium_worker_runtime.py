@@ -5,6 +5,11 @@ import pytest
 
 from app.little_legend.illustration_queue_store import IllustrationJob
 from app.little_legend.premium_batch_manifest import build_premium_batch_manifest
+from app.little_legend.premium_photo_consent import (
+    PremiumPhotoConsent,
+    PremiumPhotoDisclosure,
+    accept_premium_photo_consent,
+)
 from app.little_legend.premium_visual_contract import BookGenre, build_visual_plan
 from app.little_legend.premium_worker_runtime import (
     PremiumWorkerDependencies,
@@ -47,10 +52,37 @@ def _job():
     )
 
 
+class PhotoConsents:
+    async def get_photo_consent(self, *, owner_id, story_id):
+        disclosure = PremiumPhotoDisclosure(
+            provider="OpenAI", legal_entity="OpenAI",
+            processing_countries="US", retention_policy="7 days",
+            privacy_url="https://example.com/privacy", enabled=True,
+        )
+        return accept_premium_photo_consent(
+            provider=disclosure.provider, notice=disclosure.notice(),
+            parent_authorized=True, disclosure=disclosure,
+        )
+
+
+@pytest.fixture(autouse=True)
+def photo_disclosure(monkeypatch):
+    import app.little_legend.premium_worker_runtime as runtime
+
+    monkeypatch.setattr(
+        runtime, "configured_premium_photo_disclosure",
+        lambda: PremiumPhotoDisclosure(
+            provider="OpenAI", legal_entity="OpenAI",
+            processing_countries="US", retention_policy="7 days",
+            privacy_url="https://example.com/privacy", enabled=True,
+        ),
+    )
+
+
 def _deps(references, *, ready=True):
     return PremiumWorkerDependencies(
         provider=object(), store=object(), references=references,
-        reference_reader=object(),
+        reference_reader=object(), photo_consents=PhotoConsents(),
         policy=JobPolicy(), provider_configured=ready,
         private_storage_configured=ready, price_configured=ready,
     )
