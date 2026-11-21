@@ -26,10 +26,21 @@ from app.little_legend.premium_image_runner import (
     PremiumImageProvider,
     run_restored_premium_image_job,
 )
+from app.little_legend.premium_photo_consent import (
+    PremiumPhotoConsent,
+    configured_premium_photo_disclosure,
+    premium_photo_consent_allows_transfer,
+)
 from app.little_legend.premium_private_reference import PrivateReferenceReader
 from app.little_legend.writer_queue import JobPolicy
 
 logger = logging.getLogger(__name__)
+
+
+class PremiumPhotoConsentResolver(Protocol):
+    async def get_photo_consent(
+        self, *, owner_id: int, story_id: int,
+    ) -> PremiumPhotoConsent: ...
 
 
 class PremiumReferenceResolver(Protocol):
@@ -48,6 +59,7 @@ class PremiumWorkerDependencies:
     provider_configured: bool
     private_storage_configured: bool
     price_configured: bool
+    photo_consents: PremiumPhotoConsentResolver | None = None
 
     def require_ready(self) -> None:
         if not all((
@@ -74,11 +86,20 @@ async def run_premium_worker_once(
 ) -> bool:
     """Process at most one job; no implicit retry of dispatched paid calls."""
     dependencies.require_ready()
+    if dependencies.photo_consents is None or not configured_premium_photo_disclosure().ready:
+        raise PermissionError("Premium child-photo AI consent is not configured")
     job = await claim(policy=dependencies.policy)
     if job is None:
         return False
     from app.little_legend.premium_job_context import restore_premium_job_context
 
+    consent = await dependencies.photo_consents.get_photo_consent(
+        owner_id=job.owner_id, story_id=job.story_id,
+    )
+    if not premium_photo_consent_allows_transfer(
+        consent, configured_premium_photo_disclosure(),
+    ):
+        raise PermissionError("Parent has not authorized AI photo transfer")
     context = restore_premium_job_context(job)
     reference_ids = {
         request.reference_id for request in context.manifest.requests
