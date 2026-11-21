@@ -85,6 +85,16 @@ def assemble_stored_premium_book(
         validate_generated_art(raw)
         return raw
 
+    from app.little_legend.premium_production_control import audit_premium_batch
+
+    batch = audit_premium_batch(
+        jobs=jobs, approved_moment_ids=approved_moment_ids,
+        cover_approved=cover_approved,
+    )
+    if not batch.ready_for_pdf:
+        raise PermissionError(
+            "Premium batch is not ready: " + ", ".join(batch.blocked_reasons)
+        )
     # Validate all metadata before fetching private art.
     cover = read_art(cover_job)
     images = {slot.moment_id: read_art(moment_jobs[slot.moment_id])
