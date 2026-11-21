@@ -140,7 +140,7 @@
       ' / '+bytes(data.total_bytes)+'</p><span class="sub">Свободно: '+
       bytes(data.free_bytes)+'</span></div></div>'+
       (data.cloud_error?'<p role="alert">⚠ Не удалось загрузить данные облака. Попробуйте обновить.</p>':'')+
-      '</section>'+
+      '</section>'+overview+
       (cards||'<section class="panel"><p>Нет настроенных подключений для выбранного бота.</p></section>')+
       '<section class="panel"><h2>📚 Книги и файлы</h2>'+
       '<p class="sub">Файлы защищены от удаления. Дата — последнее изменение книги.</p>'+
