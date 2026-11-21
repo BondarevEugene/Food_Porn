@@ -85,16 +85,6 @@ def assemble_stored_premium_book(
         validate_generated_art(raw)
         return raw
 
-    from app.little_legend.premium_production_control import audit_premium_batch
-
-    batch = audit_premium_batch(
-        jobs=jobs, approved_moment_ids=approved_moment_ids,
-        cover_approved=cover_approved,
-    )
-    if not batch.ready_for_pdf:
-        raise PermissionError(
-            "Premium batch is not ready: " + ", ".join(batch.blocked_reasons)
-        )
     # Validate all metadata before fetching private art.
     cover = read_art(cover_job)
     images = {slot.moment_id: read_art(moment_jobs[slot.moment_id])
@@ -103,5 +93,43 @@ def assemble_stored_premium_book(
         title=title, dedication=dedication, graph=graph,
         manuscript=manuscript, plan=plan, cover=cover,
         illustrations=images, approved_moment_ids=approved_moment_ids,
+        cover_approved=cover_approved,
+    )
+
+
+def assemble_reviewed_premium_book(
+    *,
+    store: GeneratedArtStore,
+    owner_id: int,
+    story_id: int,
+    title: str,
+    dedication: str,
+    graph: StoryGraph,
+    manuscript: StoryManuscript,
+    plan: BookVisualPlan,
+    cover_job: IllustrationJob,
+    moment_jobs: dict[str, IllustrationJob],
+    approved_moment_ids: set[str],
+    cover_approved: bool,
+) -> bytes:
+    """Production entry point: verify durable batch integrity before R2 reads."""
+    from app.little_legend.premium_production_control import audit_premium_batch
+
+    status = audit_premium_batch(
+        jobs=[cover_job, *moment_jobs.values()],
+        approved_moment_ids=approved_moment_ids,
+        cover_approved=cover_approved,
+    )
+    if not status.ready_for_pdf:
+        raise PermissionError(
+            "Premium batch not approved: " + ", ".join(status.blocked_reasons)
+        )
+    if status.owner_id != owner_id or status.story_id != story_id:
+        raise PermissionError("Premium batch owner or story differs")
+    return assemble_stored_premium_book(
+        store=store, owner_id=owner_id, story_id=story_id,
+        title=title, dedication=dedication, graph=graph,
+        manuscript=manuscript, plan=plan, cover_job=cover_job,
+        moment_jobs=moment_jobs, approved_moment_ids=approved_moment_ids,
         cover_approved=cover_approved,
     )
