@@ -116,11 +116,26 @@
         (b.used_bytes==null?0:Math.max(0,Math.min(100,b.used_bytes/max*100))).toFixed(1)+'%"></div></div></div>').join(''))+
       '<p class="sub">Показан объём объектов в зарегистрированных префиксах, не полная ёмкость бакетов.</p></section>';
     const books = selected==='little_legend'?(cloud.books||[]):[];
-    const bookRows = books.map(b=>'<tr><td>'+esc(b.story_id==null?'⚠ Без привязки':'📖 #'+b.story_id)+'</td>'+
+    const fileQuery=(state.storageFileSearch||'').trim().toLowerCase();
+    const order=state.storageDateOrder||'desc';
+    const visibleBooks=books.filter(b=>!fileQuery ||
+      String(b.story_id??'').includes(fileQuery) ||
+      (b.files||[]).some(f=>String(f.key||'').toLowerCase().includes(fileQuery)))
+      .sort((a,b)=>order==='asc'?
+        String(a.created_at||'').localeCompare(String(b.created_at||'')):
+        String(b.created_at||'').localeCompare(String(a.created_at||'')));
+    const filterBar='<div class="storage-file-tools">'+
+      '<label>⌕ Поиск по книге или файлу <input id="storage-file-search" type="search" value="'+
+      esc(state.storageFileSearch||'')+'" placeholder="Номер книги или имя файла"></label>'+
+      '<button class="secondary" data-action="storage-filter">Найти</button>'+
+      '<button class="secondary" data-action="storage-date-sort">↕ Дата: '+
+      (order==='desc'?'новые сначала':'старые сначала')+'</button></div>';
+
+    const bookRows = visibleBooks.map(b=>'<tr><td>'+esc(b.story_id==null?'⚠ Без привязки':'📖 #'+b.story_id)+'</td>'+
       '<td>'+esc(b.created_at?date(b.created_at):'—')+'</td>'+
       '<td class="number">'+num(b.file_count)+'</td><td class="number">'+bytes(b.used_bytes)+'</td>'+
       '<td><details><summary>Файлы</summary><div class="storage-table-wrap"><table class="storage-table"><tbody>'+
-      (b.files||[]).map(f=>'<tr><td>🔒</td><td>'+esc(f.key)+'</td><td>'+esc(f.provider)+'</td><td>'+bytes(f.bytes)+'</td></tr>').join('')+
+      (b.files||[]).filter(f=>!fileQuery || String(f.key||'').toLowerCase().includes(fileQuery) || String(b.story_id??'').includes(fileQuery)).map(f=>'<tr><td><input class="r2-object" type="checkbox" data-provider="'+esc(f.provider)+'" value="'+esc(f.key)+'" aria-label="Выбрать файл для проверки"></td><td>🔒 '+esc(f.key)+'</td><td>'+esc(f.provider)+'</td><td>'+bytes(f.bytes)+'</td></tr>').join('')+
       '</tbody></table></div></details></td></tr>').join('');
     const booksMessage = selected==='all'?'Выберите конкретного бота для просмотра заказов.':
       selected!=='little_legend'?'Реестр заказов этого бота ещё не подключён.':
@@ -129,10 +144,14 @@
       !books.length?'Файлов, связанных с книгами, пока нет.':'';
     const bookSection = '<section class="panel storage-panel"><div class="storage-section-head"><h2>▤ Заказы и файлы</h2>'+
       '<span class="sub">🔒 Удаление заблокировано</span></div>'+
+      (selected==='little_legend'?filterBar:'')+
       (booksMessage?'<p role="status">'+esc(booksMessage)+'</p>':'')+
       (bookRows?'<div class="storage-table-wrap"><table class="storage-table"><thead><tr>'+
       '<th>Книга / заказ</th><th>Изменено</th><th>Файлов</th><th>Объём</th><th>Состав</th>'+
       '</tr></thead><tbody>'+bookRows+'</tbody></table></div>':'')+
+      (selected==='little_legend'&&books.length?
+        '<div class="storage-file-actions"><button class="secondary" data-action="r2-preflight">🔍 Проверить выбранные файлы</button>'+
+        '<span class="sub">Только проверка. Удаление недоступно.</span></div>':'')+
       '</section>';
     const buckets = (cloud.bucket_usage||[]).filter(b=>selected==='all'||b.bots.includes(selected));
     const bucketRows = buckets.map(b=>'<tr><td>'+esc(b.provider)+'</td><td>'+esc(b.bucket)+'</td>'+
@@ -203,16 +222,31 @@
       if(action==='storage-bot'){
         state.storageBot=el.dataset.bot;await render();return;
       }
-      if(action==='r2-delete'){
-        const provider=el.dataset.provider;
-        const keys=[...document.querySelectorAll('.r2-object:checked')].filter(x=>x.dataset.provider===provider).map(x=>x.value);
-        if(!keys.length){toast('Выберите файлы в таблице',true);return;}
-        if(keys.length>100){toast('Не более 100 файлов за раз',true);return;}
-        if(!window.confirm('⛔ Безвозвратно удалить '+keys.length+' объектов из '+provider+'? Это может повредить существующие заказы.'))return;
-        const phrase=window.prompt('Для подтверждения введите DELETE SELECTED R2 OBJECTS');
-        if(phrase!=='DELETE SELECTED R2 OBJECTS'){toast('Удаление отменено');return;}
-        const result=await write('/storage/r2/delete','POST',{provider,keys,confirmation:phrase});
-        toast('Удалено объектов: '+result.deleted);await render();return;
+      if(action==='storage-filter'){
+        state.storageFileSearch=document.querySelector('#storage-file-search')?.value||'';
+        await render();return;
+      }
+      if(action==='storage-date-sort'){
+        state.storageDateOrder=state.storageDateOrder==='asc'?'desc':'asc';
+        state.storageFileSearch=document.querySelector('#storage-file-search')?.value||'';
+        await render();return;
+      }
+      if(action==='r2-preflight'){
+        const checked=[...document.querySelectorAll('.r2-object:checked')];
+        if(!checked.length){toast('Выберите хотя бы один файл',true);return;}
+        if(checked.length>100){toast('Максимум 100 файлов',true);return;}
+        const providers=[...new Set(checked.map(x=>x.dataset.provider))];
+        if(providers.length!==1){toast('Проверяйте файлы одного подключения за раз',true);return;}
+        const result=await write('/storage/r2/preflight','POST',{
+          bot_id:state.storageBot||'little_legend',provider:providers[0],
+          keys:checked.map(x=>x.value)
+        });
+        showDialog('<h2>🔍 Проверка файлов</h2><p>'+esc(result.message)+'</p>'+
+          '<p>Объектов: '+num(result.files.length)+' · Удаление: 🔒 запрещено</p>'+
+          '<div class="storage-table-wrap"><table class="storage-table"><thead><tr><th>Файл</th><th>Причина защиты</th></tr></thead><tbody>'+
+          result.files.map(f=>'<tr><td>'+esc(f.key)+'</td><td>'+esc(f.reason)+'</td></tr>').join('')+
+          '</tbody></table></div><button class="secondary" data-action="close-dialog">Закрыть</button>');
+        return;
       }
       if(action==='storage-cleanup'){if(!window.confirm('Удалить только временные файлы gift_scratch старше 24 часов?'))return;const result=await write('/storage/cleanup','POST',{});toast('Удалено временных файлов: '+result.deleted);await render();return;}
       if(action==='prev'||action==='next'){state.page+=action==='next'?1:-1;await render();return;}
