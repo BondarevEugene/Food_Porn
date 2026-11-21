@@ -370,6 +370,36 @@ async def sync_openai_costs(request: Request, identity: Identity, days: Days = 3
     return {"ok": True, "imported": imported, "synced_at": synchronizer.last_synced_at}
 
 
+@router.get("/api/product-scope")
+async def product_scope(identity: Identity):
+    """Declare actual data coverage without pretending legacy tables are three bot ledgers."""
+    return {
+        "mode": "three_product_operations",
+        "products": [
+            {
+                "id": "food_porn", "name": "Food_Porn",
+                "order_source": "wallpaper_orders", "order_filter": "gift",
+                "orders_in_common_feed": True,
+                "note": "Карта желаний и связанные заказы из действующей таблицы.",
+            },
+            {
+                "id": "menu_for_loved_one", "name": "Меню для любимого",
+                "order_source": "menus", "order_filter": "menu",
+                "orders_in_common_feed": True,
+                "note": "Заказы меню из действующей таблицы.",
+            },
+            {
+                "id": "little_legend", "name": "Little Legend",
+                "order_source": "little_legend_paid_production",
+                "order_filter": None, "orders_in_common_feed": False,
+                "note": "Производство книг в отдельном разделе; общая финансовая сводка не включает книги.",
+            },
+        ],
+        "consolidated_finance": False,
+        "note": "Общая лента заказов и финансы пока не являются сводкой всех трёх ботов.",
+    }
+
+
 @router.get("/api/orders")
 async def orders(
     identity: Identity,
