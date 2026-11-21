@@ -49,44 +49,72 @@ def client_for(target: dict[str, str]):
 
 
 def inventory(*, env: dict[str, str] | None = None) -> dict[str, Any]:
-    providers = []
-    for target in configured_targets(env):
-        client = client_for(target)
-        objects = []
-        cursor = None
-        truncated = False
-        while True:
-            args = {"Bucket": target["bucket"], "Prefix": PREFIX, "MaxKeys": 1000}
-            if cursor:
-                args["ContinuationToken"] = cursor
-            response = client.list_objects_v2(**args)
-            for item in response.get("Contents", []):
-                key = item["Key"]
-                if key.startswith("little-legend/diagnostics/"):
-                    continue
-                modified = item["LastModified"]
-                objects.append({
-                    "key": key, "bytes": int(item["Size"]),
-                    "created_at": modified.astimezone(UTC).isoformat(),
-                    "etag": str(item.get("ETag", "")).strip('"'),
-                })
-                if len(objects) >= MAX_OBJECTS:
-                    truncated = True
-                    break
-            if truncated or not response.get("IsTruncated"):
-                break
-            cursor = response.get("NextContinuationToken")
-            if not cursor:
-                break
-        providers.append({
+    """Return explicit per-connection status, never silently label failure as zero."""
+    providers: list[dict[str, Any]] = []
+    targets = configured_targets(env)
+    for target in targets:
+        base = {
             "provider": target["provider"], "bucket": target["bucket"],
-            "objects": objects, "used_bytes": sum(x["bytes"] for x in objects),
-            "object_count": len(objects), "truncated": truncated,
+            "bot_id": "little_legend", "storage_provider": "Cloudflare R2",
             "capacity_bytes": None, "free_bytes": None,
-        })
-    return {"providers": providers, "total_used_bytes": sum(
-        p["used_bytes"] for p in providers
-    ), "note": "R2 does not report a fixed bucket capacity; totals cover Little Legend keys only."}
+        }
+        try:
+            client = client_for(target)
+            objects: list[dict[str, Any]] = []
+            cursor = None
+            truncated = False
+            while True:
+                args = {
+                    "Bucket": target["bucket"], "Prefix": PREFIX, "MaxKeys": 1000,
+                }
+                if cursor:
+                    args["ContinuationToken"] = cursor
+                response = client.list_objects_v2(**args)
+                for item in response.get("Contents", []):
+                    key = item["Key"]
+                    if key.startswith("little-legend/diagnostics/"):
+                        continue
+                    modified = item["LastModified"]
+                    objects.append({
+                        "key": key, "bytes": int(item["Size"]),
+                        "created_at": modified.astimezone(UTC).isoformat(),
+                        "etag": str(item.get("ETag", "")).strip('"'),
+                    })
+                    if len(objects) >= MAX_OBJECTS:
+                        truncated = True
+                        break
+                if truncated or not response.get("IsTruncated"):
+                    break
+                cursor = response.get("NextContinuationToken")
+                if not cursor:
+                    raise RuntimeError("Missing inventory pagination cursor")
+            providers.append({
+                **base, "status": "partial" if truncated else "ok",
+                "objects": objects, "used_bytes": sum(x["bytes"] for x in objects),
+                "object_count": len(objects), "truncated": truncated,
+            })
+        except Exception:
+            # Never expose endpoint URLs, tokens or exception details in CRM.
+            providers.append({
+                **base, "status": "error", "objects": [],
+                "used_bytes": None, "object_count": None,
+                "truncated": False,
+                "error": "Не удалось прочитать бакет. Проверьте подключение и права R2.",
+            })
+    healthy = [p for p in providers if p["status"] == "ok"]
+    complete = len(healthy) == len(providers) and bool(providers)
+    return {
+        "providers": providers,
+        "bots": [{"id": "little_legend", "label": "Little Legend"}],
+        "total_used_bytes": (
+            sum(p["used_bytes"] for p in healthy) if complete else None
+        ),
+        "status": "ok" if complete else "not_configured" if not providers else "partial",
+        "note": (
+            "R2 не сообщает физически свободный объём бакета. "
+            "Подсчёт ограничен объектами Little Legend."
+        ),
+    }
 
 
 def delete_selected(*, provider: str, keys: list[str],
