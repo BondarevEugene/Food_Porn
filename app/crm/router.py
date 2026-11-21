@@ -23,6 +23,7 @@ from app.crm import (
     r2_book_inventory,
     r2_storage,
     service,
+    storage_audit,
     storage_connections,
     storage_preflight,
 )
@@ -234,7 +235,9 @@ class R2PreflightRequest(BaseModel):
 async def r2_storage_preflight(payload: R2PreflightRequest, identity: Identity):
     """Owner-only read-only check. Never authorizes deletion."""
     require_owner(identity)
-    inventory = r2_storage.inventory()
+    async with async_session_maker() as session:
+        entries = await storage_connections.load(session)
+    inventory = r2_storage.inventory(stored_connections=entries)
     if inventory["status"] != "ok":
         raise HTTPException(409, "Инвентаризация облака неполная")
     if payload.bot_id == "little_legend":
@@ -245,12 +248,29 @@ async def r2_storage_preflight(payload: R2PreflightRequest, identity: Identity):
         except Exception as exc:
             raise HTTPException(503, "Связь файлов с книгами недоступна") from exc
     try:
-        return storage_preflight.inspect_selection(
+        result = storage_preflight.inspect_selection(
             inventory, bot_id=payload.bot_id,
             provider=payload.provider, keys=payload.keys,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    details = storage_audit.summarize_check(
+        bot_id=payload.bot_id, provider=payload.provider, keys=payload.keys,
+        outcome="protected", total_bytes=result["total_bytes"],
+        secret=get_settings().crm_encryption_key.get_secret_value(),
+    )
+    async with async_session_maker() as session:
+        service.audit(session, identity["actor"], storage_audit.ACTION, details)
+        await session.commit()
+    return result
+
+
+@router.get("/api/storage/r2/preflight/history")
+async def r2_preflight_history(identity: Identity, limit: int = Query(30, ge=1, le=100)):
+    """Owner-only history of completed non-destructive storage checks."""
+    require_owner(identity)
+    async with async_session_maker() as session:
+        return {"items": await storage_audit.history(session, limit=limit)}
 
 
 @router.post("/api/storage/r2/delete")
