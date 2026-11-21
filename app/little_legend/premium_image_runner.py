@@ -19,13 +19,13 @@ from app.little_legend.premium_batch_manifest import (
     PremiumArtRequest,
     PremiumBatchManifest,
 )
-from app.little_legend.premium_visual_contract import BookVisualPlan
+from app.little_legend.premium_private_reference import (\n    PrivatePremiumReference,\n    PrivateReferenceReader,\n    load_private_premium_reference,\n)\nfrom app.little_legend.premium_visual_contract import BookVisualPlan
 from app.little_legend.writer_queue import JobPolicy, JobStatus
 
 
 class PremiumImageProvider(Protocol):
     async def generate_premium_image(
-        self, *, request: PremiumArtRequest, plan: BookVisualPlan,
+        self, *, request: PremiumArtRequest, plan: BookVisualPlan,\n        reference: PrivatePremiumReference,
     ) -> IllustrationProviderResult: ...
 
 
@@ -64,7 +64,7 @@ async def run_premium_image_job(
             or request.estimated_micro_usd
             != round(job.estimated_cost_usd * 1_000_000)):
         raise PermissionError("Premium request revision or cost changed")
-    # The durable dispatch fence rechecks the live story, parental consent,
+    reference = await load_private_premium_reference(\n        reader=reference_reader, owner_id=job.owner_id,\n        story_id=job.story_id, request=request,\n    )\n    # The durable dispatch fence rechecks the live story, parental consent,
     # identity, budget and lease under database locks before this paid call.
     fenced = await fence_dispatch(
         job_id=job.job_id, owner_id=job.owner_id, token=job.lease_token,
@@ -73,7 +73,7 @@ async def run_premium_image_job(
     if (fenced.job_id != job.job_id or fenced.lease_token != job.lease_token
             or fenced.provider_dispatched_at is None):
         raise PermissionError("Premium dispatch fence did not commit")
-    receipt = await provider.generate_premium_image(request=request, plan=plan)
+    receipt = await provider.generate_premium_image(\n        request=request, plan=plan, reference=reference,\n    )
     if not isinstance(receipt, IllustrationProviderResult):
         raise ValueError("Premium provider returned an invalid receipt")
     image = sanitize_image(receipt.image)
