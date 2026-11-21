@@ -76,7 +76,11 @@ def manuscript_review(manuscript: StoryManuscript, graph: StoryGraph) -> dict:
         not (expected - actual) and not (actual - expected)
         and not unapproved and manuscript.parent_approved
     )
+    from app.little_legend.editorial_quality import audit_manuscript
+
+    editorial = audit_manuscript(graph, manuscript)
     return {
+        "editorial_quality": editorial.model_dump(mode="json"),
         "missing_scenes": sorted(expected - actual),
         "unexpected_scenes": sorted(actual - expected),
         "unapproved_scenes": unapproved,
