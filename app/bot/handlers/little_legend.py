@@ -288,7 +288,6 @@ async def list_my_little_legend_books(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("ll_book:"))
 async def show_little_legend_book(callback: CallbackQuery) -> None:
     """Never reveal whether a foreign story ID exists."""
-    lang = await little_legend_language(callback.from_user)
     try:
         story_id = int((callback.data or "").split(":", 1)[1])
     except (IndexError, ValueError):
@@ -305,6 +304,7 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
     if owned is None:
         await callback.answer("Book not found", show_alert=True)
         return
+    lang = await little_legend_language(callback.from_user)
     manifest = await get_release_manifest(owner_id=owner_id, story_id=story_id)
     status = manifest.status if manifest else None
     status_labels = {
