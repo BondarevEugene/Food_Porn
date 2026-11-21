@@ -18,7 +18,7 @@ from sqlalchemy import func, inspect, select
 from sqlalchemy.exc import IntegrityError
 
 from app.config import get_settings
-from app.crm import integrations, r2_storage, service
+from app.crm import integrations, r2_book_inventory, r2_storage, service
 from app.crm.login_tickets import consume_crm_login_ticket
 from app.crm.models import Audit, CustomerNote, Expense, Integration
 from app.crm.security import crm_identity, decrypt_credentials, encrypt_credentials, require_owner
@@ -154,22 +154,20 @@ class R2DeleteRequest(BaseModel):
 async def r2_storage_inventory(identity: Identity):
     require_owner(identity)
     try:
-        return r2_storage.inventory()
+        result = r2_storage.inventory()
+        result.update(await r2_book_inventory.associate_books(result['providers']))
+        return result
     except Exception as exc:
         raise HTTPException(503, "Cloud storage inventory unavailable") from exc
 
 
 @router.post("/api/storage/r2/delete")
 async def r2_storage_delete(payload: R2DeleteRequest, identity: Identity):
+    """Fail closed: no destructive operation without durable order protection."""
     require_owner(identity)
-    try:
-        return r2_storage.delete_selected(
-            provider=payload.provider, keys=payload.keys,
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(503, "Cloud storage deletion failed") from exc
+    raise HTTPException(
+        423, "Удаление временно заблокировано: нужна проверка связей с заказами",
+    )
 
 
 @router.post("/api/storage/cleanup")
