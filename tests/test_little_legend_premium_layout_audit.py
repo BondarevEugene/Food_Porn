@@ -3,7 +3,7 @@ from io import BytesIO
 
 import pytest
 from pypdf import PdfReader, PdfWriter
-from reportlab.lib.pagesizes import A5, A4
+from reportlab.lib.pagesizes import A4, A5
 from reportlab.pdfgen.canvas import Canvas
 
 from app.little_legend.premium_layout_audit import audit_pdf_layout
