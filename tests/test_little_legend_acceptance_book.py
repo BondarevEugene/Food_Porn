@@ -23,7 +23,7 @@ def test_acceptance_book_contains_chapters_and_real_images():
     assert report["page_count"] == len(reader.pages)
     assert report["pdf_sha256"] == hashlib.sha256(pdf).hexdigest()
     assert "Марта" in text
-    assert "волшебный сад" in text
+    assert "волшебный сад" in " ".join(text.split())
     assert sum(bool(page.images) for page in reader.pages[2:]) >= 3
     assert report["network_used"] is False
     assert report["customer_data_used"] is False
