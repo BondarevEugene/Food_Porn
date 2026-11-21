@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.crm.storage_registry import extra_connections
+from app.crm.storage_usage import summarize
 
 PREFIX = "little-legend/"
 MAX_OBJECTS = 5000
@@ -128,6 +129,7 @@ def inventory(*, env: dict[str, str] | None = None) -> dict[str, Any]:
     healthy = [p for p in providers if p["status"] == "ok"]
     complete = len(healthy) == len(providers) and bool(providers)
     return {
+        **summarize(providers),
         "providers": providers,
         "bots": [
             {"id": bot, "label": "Little Legend" if bot == "little_legend" else bot.replace("_", " ").title()}
