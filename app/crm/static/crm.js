@@ -160,6 +160,16 @@
       '<div class="storage-table-wrap"><table class="storage-table"><thead><tr><th>Провайдер</th>'+
       '<th>Бакет</th><th>Боты</th><th>Занято</th></tr></thead><tbody>'+
       (bucketRows||'<tr><td colspan="4">Нет данных</td></tr>')+'</tbody></table></div></details>';
+    const historyRows=(data.preflightHistory||[]).map(item=>
+      '<tr><td>'+esc(date(item.created_at))+'</td><td>'+esc(item.actor)+'</td>'+
+      '<td>'+esc(item.bot_id)+'</td><td>'+esc(item.provider)+'</td>'+
+      '<td class="number">'+num(item.count)+'</td><td>🔒 Проверено, удаление запрещено</td></tr>').join('');
+    const historySection='<details class="panel storage-panel"><summary>▤ Журнал проверок файлов</summary>'+
+      (data.historyError?'<p role="alert">Журнал временно недоступен.</p>':'')+
+      '<div class="storage-table-wrap"><table class="storage-table"><thead><tr>'+
+      '<th>Дата</th><th>Кто</th><th>Бот</th><th>Подключение</th><th>Файлов</th><th>Результат</th>'+
+      '</tr></thead><tbody>'+(historyRows||'<tr><td colspan="6">Проверок пока нет.</td></tr>')+
+      '</tbody></table></div></details>';
     const connectionRows = (data.connectionList||[]).map((c,i)=>
       '<tr><td>'+esc(c.bot_id)+'</td><td>'+esc(c.name)+'</td>'+
       '<td>'+esc(c.prefix)+'</td><td><button class="secondary" data-action="storage-remove-connection" data-index="'+i+'">✕ Убрать</button></td></tr>').join('');
@@ -184,7 +194,7 @@
     return heading('Контроль подключений, объёма и файлов по ботам.')+
       '<div class="storage-dashboard">'+tabs+metrics+
       (data.cloud_error?'<p role="alert">⚠ Не удалось получить инвентаризацию облака.</p>':'')+
-      table+chart+bookSection+bucketSection+connectionEditor+disk+'</div>';
+      table+chart+bookSection+historySection+bucketSection+connectionEditor+disk+'</div>';
   }
   async function render(){
     const version=++state.version;content.innerHTML='<div class="loading">Загружаем данные…</div>';
@@ -194,7 +204,7 @@
       let data;
       if(state.tab==='finance')data=await Promise.all([get('/dashboard?days='+state.days),get('/expenses?days='+state.days+'&page='+state.page),get('/ledger'),get('/finance/calendar?period='+state.financePeriod+'&year='+state.financeYear+'&index='+state.financeIndex)]);
       else if(state.tab==='ads')data=await get('/integrations');
-      else if(state.tab==='storage'){const [local,cloud,connections]=await Promise.allSettled([get('/storage'),get('/storage/r2'),get('/storage/connections')]);if(local.status!=='fulfilled')throw local.reason;data={...local.value,cloud:cloud.status==='fulfilled'?cloud.value:{providers:[],total_used_bytes:0},cloud_error:cloud.status==='rejected'?cloud.reason.message:'',connectionList:connections.status==='fulfilled'?connections.value.connections:[],connectionError:connections.status==='rejected'};}
+      else if(state.tab==='storage'){const [local,cloud,connections,checks]=await Promise.allSettled([get('/storage'),get('/storage/r2'),get('/storage/connections'),get('/storage/r2/preflight/history')]);if(local.status!=='fulfilled')throw local.reason;data={...local.value,cloud:cloud.status==='fulfilled'?cloud.value:{providers:[],total_used_bytes:0},cloud_error:cloud.status==='rejected'?cloud.reason.message:'',connectionList:connections.status==='fulfilled'?connections.value.connections:[],connectionError:connections.status==='rejected',preflightHistory:checks.status==='fulfilled'?checks.value.items:[],historyError:checks.status==='rejected'};}
       else if(state.tab==='legend'){const [delivery,production,retention]=await Promise.all([get('/little-legend/delivery-queue'),get('/little-legend/paid-production?limit=100'),get('/little-legend/retention-operations?limit=20')]);data={...delivery,production,retention};}
       else if(state.tab==='products')data=await get('/settings');
       else if(state.tab==='dashboard'){const [overview,calendar]=await Promise.all([get('/dashboard?days='+state.days),get('/finance/calendar?period=month&year='+now.getFullYear()+'&index='+(now.getMonth()+1))]);data={...overview,calendar};}
