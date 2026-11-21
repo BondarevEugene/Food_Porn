@@ -49,7 +49,8 @@ def _job():
 
 def _deps(references, *, ready=True):
     return PremiumWorkerDependencies(
-        provider=object(), store=object(), references=references,\n        reference_reader=object(),
+        provider=object(), store=object(), references=references,
+        reference_reader=object(),
         policy=JobPolicy(), provider_configured=ready,
         private_storage_configured=ready, price_configured=ready,
     )
