@@ -30,9 +30,16 @@ def test_failed_erasure_is_bounded_and_due_only_after_expiry():
     now = datetime.now(UTC)
     assert _due(_row(AssetState.DELETE_FAILED, attempts=MAX_ATTEMPTS - 1), now)
     assert not _due(_row(AssetState.DELETE_FAILED, attempts=MAX_ATTEMPTS), now)
-    assert not _due(
+    assert _due(
         _row(
             AssetState.DELETE_FAILED, attempts=1,
             expires=now + timedelta(days=1),
         ), now,
     )
+
+
+def test_withdrawn_photo_is_erased_before_normal_retention_deadline():
+    now = datetime.now(UTC)
+    future = now + timedelta(days=7)
+    assert _due(_row(AssetState.DELETION_PENDING, expires=future), now)
+    assert not _due(_row(AssetState.STORED, expires=future), now)
