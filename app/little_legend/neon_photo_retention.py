@@ -57,6 +57,8 @@ async def erase_expired_photo_assets(
                 select(photo_assets).where(
                     photo_assets.c.asset_id.not_in(seen),
                     photo_assets.c.state != AssetState.DELETED.value,
+                    photo_assets.c.expires_at <= instant,
+                    photo_assets.c.deletion_attempts < MAX_ATTEMPTS,
                 ).order_by(
                     photo_assets.c.expires_at, photo_assets.c.asset_id,
                 ).limit(batch_size).with_for_update(skip_locked=True)
