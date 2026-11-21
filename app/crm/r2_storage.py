@@ -18,7 +18,10 @@ PREFIX = "little-legend/"
 MAX_OBJECTS = 5000
 
 
-def configured_targets(env: dict[str, str] | None = None) -> list[dict[str, str]]:
+def configured_targets(
+    env: dict[str, str] | None = None,
+    *, stored_connections: list[dict[str, Any]] | None = None,
+) -> list[dict[str, str]]:
     values = os.environ if env is None else env
     specs = (
         ("release", "LITTLE_LEGEND_S3_ENDPOINT_URL", "LITTLE_LEGEND_S3_BUCKET",
@@ -42,7 +45,23 @@ def configured_targets(env: dict[str, str] | None = None) -> list[dict[str, str]
             "bot_id": "little_legend", "prefix": PREFIX,
             "storage_provider": "Cloudflare R2", "configured": True,
         })
-    extras = extra_connections(values)
+    if stored_connections is None:
+        extras = extra_connections(values)
+    else:
+        from app.crm.storage_connections import resolve
+
+        extras = extra_connections(values) + resolve(stored_connections, dict(values))
+    for index, extra in enumerate(extras):
+        for other in extras[index + 1:]:
+            if (
+                extra.get("endpoint") == other.get("endpoint")
+                and extra["bucket"] == other["bucket"]
+                and (
+                    extra["prefix"].startswith(other["prefix"])
+                    or other["prefix"].startswith(extra["prefix"])
+                )
+            ):
+                raise ValueError("Overlapping registered storage prefixes")
     for extra in extras:
         for legacy in result:
             if (
@@ -69,10 +88,13 @@ def client_for(target: dict[str, str]):
     )
 
 
-def inventory(*, env: dict[str, str] | None = None) -> dict[str, Any]:
+def inventory(
+    *, env: dict[str, str] | None = None,
+    stored_connections: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Return explicit per-connection status, never silently label failure as zero."""
     providers: list[dict[str, Any]] = []
-    targets = configured_targets(env)
+    targets = configured_targets(env, stored_connections=stored_connections)
     for target in targets:
         base = {
             "provider": target["provider"], "bucket": target["bucket"],

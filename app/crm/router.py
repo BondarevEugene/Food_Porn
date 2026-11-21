@@ -18,7 +18,14 @@ from sqlalchemy import func, inspect, select
 from sqlalchemy.exc import IntegrityError
 
 from app.config import get_settings
-from app.crm import integrations, r2_book_inventory, r2_storage, service, storage_preflight
+from app.crm import (
+    integrations,
+    r2_book_inventory,
+    r2_storage,
+    service,
+    storage_connections,
+    storage_preflight,
+)
 from app.crm.login_tickets import consume_crm_login_ticket
 from app.crm.models import Audit, CustomerNote, Expense, Integration
 from app.crm.security import crm_identity, decrypt_credentials, encrypt_credentials, require_owner
@@ -150,10 +157,57 @@ class R2DeleteRequest(BaseModel):
     confirmation: Literal["DELETE SELECTED R2 OBJECTS"]
 
 
+class StorageConnection(Payload):
+    bot_id: str = Field(pattern=r"^[a-z][a-z0-9_]{1,39}$")
+    name: str = Field(min_length=1, max_length=60)
+    prefix: str = Field(min_length=2, max_length=100)
+    endpoint_env: str = Field(pattern=r"^[A-Z][A-Z0-9_]{2,99}$")
+    bucket_env: str = Field(pattern=r"^[A-Z][A-Z0-9_]{2,99}$")
+    region_env: str = Field(pattern=r"^[A-Z][A-Z0-9_]{2,99}$")
+    access_env: str = Field(pattern=r"^[A-Z][A-Z0-9_]{2,99}$")
+    secret_env: str = Field(pattern=r"^[A-Z][A-Z0-9_]{2,99}$")
+
+
+class StorageConnectionsUpdate(Payload):
+    connections: list[StorageConnection] = Field(max_length=30)
+
+
+@router.get("/api/storage/connections")
+async def storage_connections_list(identity: Identity):
+    require_owner(identity)
+    async with async_session_maker() as session:
+        entries = await storage_connections.load(session)
+    return {"connections": entries, "source": "Neon", "secrets_stored": False}
+
+
+@router.put("/api/storage/connections")
+async def storage_connections_update(
+    payload: StorageConnectionsUpdate, identity: Identity,
+):
+    require_owner(identity)
+    entries = [entry.model_dump() for entry in payload.connections]
+    try:
+        storage_connections.validate(entries)
+        # Validate the combined live configuration before committing.
+        r2_storage.configured_targets(stored_connections=entries)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    async with async_session_maker() as session:
+        await storage_connections.save(session, entries)
+        service.audit(session, identity["actor"], "storage.connections.update", {
+            "count": len(entries),
+            "bots": sorted({entry["bot_id"] for entry in entries}),
+        })
+        await session.commit()
+    return {"ok": True, "connections": entries}
+
+
 @router.get("/api/storage/r2")
 async def r2_storage_inventory(identity: Identity):
     require_owner(identity)
-    result = r2_storage.inventory()
+    async with async_session_maker() as session:
+        entries = await storage_connections.load(session)
+    result = r2_storage.inventory(stored_connections=entries)
     readable = [
         provider for provider in result["providers"]
         if provider["status"] in {"ok", "partial"} and provider["bot_id"] == "little_legend"
