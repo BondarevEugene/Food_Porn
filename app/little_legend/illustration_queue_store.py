@@ -49,6 +49,9 @@ illustration_jobs = Table(
 class IllustrationJob(WriterJob):
     """Reuses the proven lease and dispatch state machine for paid image jobs."""
 
+    premium_manifest_fingerprint: str | None = None
+    premium_story_fingerprint: str | None = None
+
 
 class IllustrationQueuePolicy(BaseModel):
     max_scene_jobs: int = Field(default=40, ge=1, le=40)
@@ -125,7 +128,7 @@ async def enqueue_illustration_jobs(
     return ids
 
 
-async def claim_next_illustration_job(
+async def enqueue_premium_illustration_jobs(\n    *, manifest, plan,\n) -> list[str]:\n    """Atomically stage a complete premium batch without dispatching paid AI.\n\n    Premium jobs remain unclaimable until a premium-aware worker and\n    transactional dispatch fence are deployed.\n    """\n    from app.little_legend.art_preflight import require_book_art_ready\n    from app.little_legend.image_ai_consent import (\n        configured_image_ai_disclosure,\n        consent_allows_image_ai,\n    )\n    from app.little_legend.premium_batch_manifest import PremiumBatchManifest\n    from app.little_legend.premium_queue_safety import require_premium_batch_ready\n    from app.little_legend.premium_visual_contract import BookVisualPlan\n    from app.little_legend.router import StoryDraft, stories\n\n    if not isinstance(manifest, PremiumBatchManifest) or not isinstance(plan, BookVisualPlan):\n        raise TypeError("Validated premium manifest and plan are required")\n    now = datetime.now(UTC)\n    async with async_session_maker() as session:\n        raw = (await session.execute(select(stories.c.data).where(\n            stories.c.id == manifest.story_id,\n            stories.c.owner_id == manifest.owner_id,\n        ).with_for_update())).scalar_one_or_none()\n        if raw is None:\n            raise ValueError("Story not found")\n        draft = StoryDraft.model_validate_json(raw)\n        if not consent_allows_image_ai(\n            draft.image_ai_consent, configured_image_ai_disclosure(),\n        ):\n            raise PermissionError("Image AI consent is missing or outdated")\n        require_book_art_ready(draft)\n        if draft.graph is None or draft.manuscript is None:\n            raise PermissionError("Approved manuscript and graph required")\n        fingerprint = require_premium_batch_ready(\n            manifest=manifest, plan=plan, graph=draft.graph,\n            manuscript=draft.manuscript, owner_id=manifest.owner_id,\n            story_id=manifest.story_id,\n        )\n        existing = (await session.execute(select(illustration_jobs.c.job_id).where(\n            illustration_jobs.c.story_id == manifest.story_id,\n            illustration_jobs.c.owner_id == manifest.owner_id,\n        ))).scalars().first()\n        if existing is not None:\n            raise PermissionError("Illustration batch already exists")\n        ids = []\n        for request in manifest.requests:\n            job = IllustrationJob(\n                job_id="lli_" + secrets.token_urlsafe(24),\n                story_id=manifest.story_id, owner_id=manifest.owner_id,\n                scene_id=request.moment_id,\n                expected_revision=request.expected_revision,\n                estimated_cost_usd=request.estimated_micro_usd / 1_000_000,\n                premium_manifest_fingerprint=manifest.fingerprint,\n                premium_story_fingerprint=fingerprint,\n            )\n            await session.execute(insert(illustration_jobs).values(\n                job_id=job.job_id, story_id=job.story_id, owner_id=job.owner_id,\n                scene_id=job.scene_id, status=job.status.value,\n                payload=job.model_dump_json(), created_at=now, updated_at=now,\n            ))\n            ids.append(job.job_id)\n        await session.commit()\n    return ids\n\n\nasync def claim_next_illustration_job(
     policy: JobPolicy,
 ) -> IllustrationJob | None:
     now = datetime.now(UTC)
@@ -139,7 +142,7 @@ async def claim_next_illustration_job(
         )).mappings().all()
         for row in rows:
             job = IllustrationJob.model_validate_json(row["payload"])
-            try:
+            if job.premium_manifest_fingerprint is not None:\n                # The legacy worker cannot safely dispatch per-moment premium art.\n                continue\n            try:
                 claimed = claim_job(
                     job, token=secrets.token_urlsafe(32), policy=policy, now=now,
                 )
@@ -173,7 +176,7 @@ async def fence_illustration_dispatch(
         if raw is None:
             raise ValueError("Illustration job not found")
         job = IllustrationJob.model_validate_json(raw)
-        if (job.status != JobStatus.RUNNING or job.lease_token != token
+        if job.premium_manifest_fingerprint is not None:\n            raise PermissionError("Premium dispatch requires a premium-aware fence")\n        if (job.status != JobStatus.RUNNING or job.lease_token != token
                 or job.lease_expires_at is None or job.lease_expires_at <= now
                 or job.provider_dispatched_at is not None):
             raise PermissionError("Invalid or already dispatched illustration lease")
