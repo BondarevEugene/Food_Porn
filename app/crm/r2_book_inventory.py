@@ -30,9 +30,9 @@ async def associate_books(providers: list[dict]) -> dict:
             release_manifests.c.pdf_sha256, release_manifests.c.status,
         ))).all()
         books = (await session.execute(select(
-            stories.c.id, stories.c.owner_id, stories.c.created_at,
+            stories.c.id, stories.c.owner_id, stories.c.updated_at,
         ))).all()
-    created = {(int(x.owner_id), int(x.id)): x.created_at for x in books}
+    created = {(int(x.owner_id), int(x.id)): x.updated_at for x in books}
     for job in jobs:
         key = illustration_key(
             owner_id=int(job.owner_id), story_id=int(job.story_id),
