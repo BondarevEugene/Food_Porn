@@ -23,6 +23,7 @@ from app.crm import (
     r2_book_inventory,
     r2_storage,
     service,
+    storage_artifacts,
     storage_audit,
     storage_connections,
     storage_preflight,
@@ -263,6 +264,32 @@ async def r2_storage_preflight(payload: R2PreflightRequest, identity: Identity):
         service.audit(session, identity["actor"], storage_audit.ACTION, details)
         await session.commit()
     return result
+
+
+@router.get("/api/storage/artifacts")
+async def storage_order_artifacts(
+    identity: Identity,
+    bot_id: str = Query(min_length=2, max_length=40),
+    order_type: str = Query(min_length=1, max_length=40),
+    order_id: str = Query(min_length=1, max_length=100),
+):
+    """Owner-only metadata registry. Never exposes presigned object URLs."""
+    require_owner(identity)
+    async with async_session_maker() as session:
+        rows = await storage_artifacts.order_artifacts(
+            session, bot_id=bot_id, order_type=order_type, order_id=order_id,
+        )
+    return {"items": [
+        {
+            "id": row["id"], "bot_id": row["bot_id"],
+            "connection": row["connection"], "bucket": row["bucket"],
+            "object_key": row["object_key"], "kind": row["kind"],
+            "bytes": row["bytes"], "state": row["state"],
+            "retention_hold": row["retention_hold"],
+            "registered_at": row["registered_at"].isoformat(),
+        }
+        for row in rows
+    ]}
 
 
 @router.get("/api/storage/r2/preflight/history")
