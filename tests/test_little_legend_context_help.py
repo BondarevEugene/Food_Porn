@@ -2,6 +2,7 @@
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from aiogram.types import InlineKeyboardButton
 
 from app.bot.handlers.little_legend_context_help import (
     help_button,
@@ -30,9 +31,9 @@ async def test_context_toggle_preserves_existing_action_buttons():
     callback.message.chat.id = 77
     callback.message.html_text = "Ready\n\n" + stage_message("ru", "release")
     callback.message.reply_markup.inline_keyboard = [
-        [Mock(callback_data="ll_prepare:23")],
+        [InlineKeyboardButton(text="Prepare", callback_data="ll_prepare:23")],
         [help_button("ru", "release", 23)],
-        [Mock(callback_data="ll_book:23")],
+        [InlineKeyboardButton(text="Book", callback_data="ll_book:23")],
     ]
     callback.message.edit_text = AsyncMock()
     callback.answer = AsyncMock()
