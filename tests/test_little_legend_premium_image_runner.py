@@ -90,8 +90,8 @@ async def test_runner_fences_before_paid_call_and_stores_private_jpeg():
         return job.model_copy(update={"status": JobStatus.COMPLETED})
 
     key = await run_premium_image_job(
-        job=job, manifest=manifest, plan=plan, provider=Provider(events), reference_reader=ReferenceReader(),
-        store=store, policy=JobPolicy(),
+        job=job, manifest=manifest, plan=plan, provider=Provider(events),
+        reference_reader=ReferenceReader(), store=store, policy=JobPolicy(),
         fence_dispatch=fence_dispatch, complete_job=complete_job,
     )
     assert events == ["fence", "provider", "store", "complete"]
@@ -115,7 +115,8 @@ async def test_ambiguous_provider_failure_never_marks_completed_or_retries():
     with pytest.raises(RuntimeError, match="ambiguous"):
         await run_premium_image_job(
             job=job, manifest=manifest, plan=plan,
-            provider=Provider(events, fail=True), reference_reader=ReferenceReader(), store=Store(events),
+            provider=Provider(events, fail=True),
+            reference_reader=ReferenceReader(), store=Store(events),
             policy=JobPolicy(), fence_dispatch=fence_dispatch,
             complete_job=complete_job,
         )
@@ -134,7 +135,8 @@ async def test_invalid_lease_never_dispatches_paid_provider():
 
     with pytest.raises(PermissionError):
         await run_premium_image_job(
-            job=job, manifest=manifest, plan=plan, provider=Provider(events), reference_reader=ReferenceReader(),
+            job=job, manifest=manifest, plan=plan, provider=Provider(events),
+            reference_reader=ReferenceReader(),
             store=Store(events), policy=JobPolicy(),
             fence_dispatch=forbidden, complete_job=forbidden,
         )
