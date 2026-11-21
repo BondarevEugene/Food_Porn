@@ -20,7 +20,7 @@ class PaidBookStore:
     def __init__(self) -> None:
         import boto3
 
-        endpoint = os.environ.get("LITTLE_LEGEND_S3_ENDPOINT", "")
+        endpoint = os.environ.get("LITTLE_LEGEND_S3_ENDPOINT_URL", "")
         bucket = os.environ.get("LITTLE_LEGEND_S3_BUCKET", "")
         region = os.environ.get("LITTLE_LEGEND_S3_REGION", "")
         access = os.environ.get("LITTLE_LEGEND_S3_ACCESS_KEY_ID", "")
