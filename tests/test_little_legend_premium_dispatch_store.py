@@ -35,3 +35,18 @@ def test_paid_dispatch_fence_commits_before_returning_job():
         "job = job.model_copy(update={\"provider_dispatched_at\": now})"
     ) < source.index("await session.commit()")
     assert source.index("await session.commit()") < source.index("return job")
+
+
+def test_paid_dispatch_locks_current_parental_consent_before_provider_fence():
+    source = inspect.getsource(fence_premium_illustration_dispatch)
+    assert "select(premium_photo_consents)" in source
+    assert "premium_photo_consents.c.owner_id == owner_id" in source
+    assert "premium_photo_consents.c.story_id == job.story_id" in source
+    assert "premium_photo_consent_allows_transfer(" in source
+    assert "configured_premium_photo_disclosure()" in source
+    assert source.index("select(premium_photo_consents)") < source.index(
+        "await fence_worker_ai_effect("
+    )
+    assert source.index("premium_photo_consent_allows_transfer(") < source.index(
+        "await fence_worker_ai_effect("
+    )

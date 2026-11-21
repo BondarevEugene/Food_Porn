@@ -72,6 +72,12 @@ async def fence_premium_illustration_dispatch(
         configured_image_ai_disclosure,
         consent_allows_image_ai,
     )
+    from app.little_legend.neon_premium_photo_consent import premium_photo_consents
+    from app.little_legend.premium_photo_consent import (
+        PremiumPhotoConsent,
+        configured_premium_photo_disclosure,
+        premium_photo_consent_allows_transfer,
+    )
     from app.little_legend.production_effect_ledger import EffectKind
     from app.little_legend.router import StoryDraft, stories
     from app.little_legend.worker_ai_fence import fence_worker_ai_effect
@@ -114,6 +120,26 @@ async def fence_premium_illustration_dispatch(
             draft.image_ai_consent, configured_image_ai_disclosure(),
         ):
             raise PermissionError("Image AI consent is revoked or outdated")
+        # Serialize against parental withdrawal using the SAME consent row lock.
+        # Never authorize a paid photo transfer based only on the earlier
+        # worker-side consent check: withdrawal can happen after job claim.
+        consent_row = (await session.execute(
+            select(premium_photo_consents).where(
+                premium_photo_consents.c.owner_id == owner_id,
+                premium_photo_consents.c.story_id == job.story_id,
+            ).with_for_update()
+        )).mappings().one_or_none()
+        if consent_row is None or not premium_photo_consent_allows_transfer(
+            PremiumPhotoConsent(
+                active=consent_row["withdrawn_at"] is None,
+                provider=consent_row["provider"],
+                notice_snapshot=consent_row["notice_snapshot"],
+                accepted_at=consent_row["accepted_at"],
+                withdrawn_at=consent_row["withdrawn_at"],
+            ),
+            configured_premium_photo_disclosure(),
+        ):
+            raise PermissionError("Premium parental photo consent is revoked or outdated")
         require_book_art_ready(draft)
         if draft.graph is None or draft.manuscript is None:
             raise PermissionError("Approved premium manuscript is missing")
