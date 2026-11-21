@@ -160,6 +160,21 @@
       '<div class="storage-table-wrap"><table class="storage-table"><thead><tr><th>Провайдер</th>'+
       '<th>Бакет</th><th>Боты</th><th>Занято</th></tr></thead><tbody>'+
       (bucketRows||'<tr><td colspan="4">Нет данных</td></tr>')+'</tbody></table></div></details>';
+    const connectionRows = (data.connectionList||[]).map((c,i)=>
+      '<tr><td>'+esc(c.bot_id)+'</td><td>'+esc(c.name)+'</td>'+
+      '<td>'+esc(c.prefix)+'</td><td><button class="secondary" data-action="storage-remove-connection" data-index="'+i+'">✕ Убрать</button></td></tr>').join('');
+    const connectionEditor = '<details class="panel"><summary>⚙ Управление подключениями · Neon</summary>'+
+      '<p class="sub">Добавляйте подключения по именам переменных Railway. Секретные ключи здесь вводить нельзя.</p>'+
+      (data.connectionError?'<p role="alert">Не удалось загрузить настройки подключений.</p>':'')+
+      '<div style="overflow-x:auto"><table><thead><tr><th>Бот</th><th>Подключение</th><th>Префикс</th><th></th></tr></thead><tbody>'+
+      connectionRows+'</tbody></table></div>'+
+      '<form id="storage-connection-form"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">'+
+      [['bot_id','Код бота (food_porn)'],['name','Название подключения'],['prefix','Префикс (food-porn/)'],
+      ['endpoint_env','ENV адреса S3'],['bucket_env','ENV бакета'],['region_env','ENV региона'],
+      ['access_env','ENV ключа доступа'],['secret_env','ENV секретного ключа']].map(([key,label])=>
+      '<label>'+esc(label)+'<input name="'+key+'" required autocomplete="off" placeholder="'+esc(label)+'"></label>').join('')+
+      '</div><button type="submit">＋ Добавить подключение</button></form>'+
+      '<p class="sub">Сохранение обновляет только реестр в Neon. Подключения Railway и Little Legend сохраняются.</p></details>';
     const scratch = data.scratch||{};
     const disk = '<details class="panel storage-panel"><summary>⚙ Локальный диск и очистка</summary>'+
       '<p>Свободно: '+bytes(data.free_bytes)+' · Проверено файлов: '+num(scratch.examined)+
@@ -169,7 +184,7 @@
     return heading('Контроль подключений, объёма и файлов по ботам.')+
       '<div class="storage-dashboard">'+tabs+metrics+
       (data.cloud_error?'<p role="alert">⚠ Не удалось получить инвентаризацию облака.</p>':'')+
-      table+chart+bookSection+bucketSection+disk+'</div>';
+      table+chart+bookSection+bucketSection+connectionEditor+disk+'</div>';
   }
   async function render(){
     const version=++state.version;content.innerHTML='<div class="loading">Загружаем данные…</div>';
@@ -179,7 +194,7 @@
       let data;
       if(state.tab==='finance')data=await Promise.all([get('/dashboard?days='+state.days),get('/expenses?days='+state.days+'&page='+state.page),get('/ledger'),get('/finance/calendar?period='+state.financePeriod+'&year='+state.financeYear+'&index='+state.financeIndex)]);
       else if(state.tab==='ads')data=await get('/integrations');
-      else if(state.tab==='storage'){const [local,cloud]=await Promise.allSettled([get('/storage'),get('/storage/r2')]);if(local.status!=='fulfilled')throw local.reason;data={...local.value,cloud:cloud.status==='fulfilled'?cloud.value:{providers:[],total_used_bytes:0},cloud_error:cloud.status==='rejected'?cloud.reason.message:''};}
+      else if(state.tab==='storage'){const [local,cloud,connections]=await Promise.allSettled([get('/storage'),get('/storage/r2'),get('/storage/connections')]);if(local.status!=='fulfilled')throw local.reason;data={...local.value,cloud:cloud.status==='fulfilled'?cloud.value:{providers:[],total_used_bytes:0},cloud_error:cloud.status==='rejected'?cloud.reason.message:'',connectionList:connections.status==='fulfilled'?connections.value.connections:[],connectionError:connections.status==='rejected'};}
       else if(state.tab==='legend'){const [delivery,production,retention]=await Promise.all([get('/little-legend/delivery-queue'),get('/little-legend/paid-production?limit=100'),get('/little-legend/retention-operations?limit=20')]);data={...delivery,production,retention};}
       else if(state.tab==='products')data=await get('/settings');
       else if(state.tab==='dashboard'){const [overview,calendar]=await Promise.all([get('/dashboard?days='+state.days),get('/finance/calendar?period=month&year='+now.getFullYear()+'&index='+(now.getMonth()+1))]);data={...overview,calendar};}
@@ -219,6 +234,15 @@
       if(action==='refresh'){await render();return;}
       if(action==='legend-detail'){const owner=el.dataset.owner,story=el.dataset.story;const result=await get('/little-legend/delivery-queue/'+owner+'/'+story);showDialog(`<h2>Диагностика книги #${esc(story)}</h2><p>Состояние журнала: ${esc(result.effect_status||'нет')}</p><p>Состояние книги: ${esc(result.manifest_status||'нет')}</p><p>Решение: ${esc(result.action)}</p><p>Telegram message ID: ${esc(result.telegram_message_id||'нет')}</p><p class="sub">Восстановление не отправляет PDF повторно. Для неопределённых операций требуется ручная проверка.</p><div class="form-footer"><button class="primary" data-action="legend-repair" data-owner="${esc(owner)}" data-story="${esc(story)}" ${result.action==='repair_projection'?'':'disabled'}>Восстановить подтверждённый статус</button></div>`);return;}
       if(action==='legend-repair'){if(!window.confirm('Восстановить только подтверждённый статус? PDF не будет отправлен повторно.'))return;const result=await write('/little-legend/delivery-queue/'+el.dataset.owner+'/'+el.dataset.story+'/repair','POST',{});closeDialog();toast('Результат сверки: '+result.action);await render();return;}
+      if(action==='storage-remove-connection'){
+        const index=Number(el.dataset.index);
+        const entries=[...(state.data?.connectionList||[])];
+        if(!Number.isInteger(index)||index<0||index>=entries.length)return;
+        if(!window.confirm('Убрать подключение '+entries[index].name+' из реестра? Файлы в S3 не удаляются.'))return;
+        entries.splice(index,1);
+        await write('/storage/connections','PUT',{connections:entries});
+        toast('Подключение убрано из реестра');await render();return;
+      }
       if(action==='storage-bot'){
         state.storageBot=el.dataset.bot;await render();return;
       }
@@ -266,6 +290,11 @@
     const data=Object.fromEntries(new FormData(form));const submit=form.querySelector('[type="submit"],button.primary');if(submit)submit.disabled=true;
     try{
       const type=form.dataset.form;
+      if(form.id==='storage-connection-form'){
+        const entries=[...(state.data?.connectionList||[]),data];
+        await write('/storage/connections','PUT',{connections:entries});
+        toast('Подключение сохранено');await render();return;
+      }
       if(type==='settings')await write('/settings','PATCH',{values:data});
       else if(type==='vip')await write('/vip','PUT',{names:data.names.split(',').map(s=>s.trim()).filter(Boolean)});
       else if(type==='note')await write('/customers/'+form.dataset.id+'/note','PUT',{note:data.note});
