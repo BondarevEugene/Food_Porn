@@ -78,14 +78,15 @@
     const connections = providers.filter(p=>p.bot_id===selected);
     const cards = connections.map(p=>'<section class="panel">'+
       '<h3>☁ '+esc(p.storage_provider)+' · '+esc(p.provider)+'</h3>'+
-      '<p><strong>'+esc(status(p))+'</strong> · Бакет: '+esc(p.bucket)+'</p>'+
+      '<p><strong>'+esc(status(p))+'</strong> · Бакет: '+esc(p.bucket)+'</p>'+ 
+      '<p class="sub">Префикс: '+esc(p.prefix || '—')+'</p>'+
       '<p>Занято: <strong>'+bytes(p.used_bytes)+'</strong> · Файлов: '+
         (p.object_count==null?'Нет данных':num(p.object_count))+'</p>'+
       '<p class="sub">Доступный объём: не определяется API R2</p>'+
       (p.error?'<p role="alert">⚠ '+esc(p.error)+'</p>':'')+
       (p.truncated?'<p role="status">⚠ Показаны не все файлы. Объём неполный.</p>':'')+
       '</section>').join('');
-    const books = cloud.books || [];
+    const books = selected==='little_legend' ? (cloud.books || []) : [];
     const rows = books.map(book=>'<tr><td>'+
       esc(book.story_id===null?'⚠ Без привязки':'📖 Книга #'+book.story_id)+
       '</td><td>'+esc(book.created_at?date(book.created_at):'—')+'</td>'+
@@ -95,7 +96,9 @@
       book.files.map(f=>'<tr><td>🔒</td><td style="overflow-wrap:anywhere">'+
       esc(f.key)+'</td><td>'+esc(f.provider)+'</td><td>'+bytes(f.bytes)+
       '</td></tr>').join('')+'</tbody></table></div></details></td></tr>').join('');
-    const bookSection = cloud.book_index_status==='error' ?
+    const bookSection = selected!=='little_legend' ?
+      '<p>Для этого бота подключение доступно в режиме просмотра. Связь с заказами появится после подключения его реестра.</p>' :
+      cloud.book_index_status==='error' ?
       '<p role="alert">⚠ Список книг временно недоступен. Проверьте Neon и повторите запрос.</p>' :
       !connections.length ? '<p>Для этого бота ещё нет подключений.</p>' :
       !books.length ? '<p>Привязанных файлов пока нет или инвентаризация недоступна.</p>' :

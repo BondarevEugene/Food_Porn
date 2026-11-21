@@ -11,6 +11,8 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.crm.storage_registry import extra_connections
+
 PREFIX = "little-legend/"
 MAX_OBJECTS = 5000
 
@@ -34,6 +36,24 @@ def configured_targets(env: dict[str, str] | None = None) -> list[dict[str, str]
             result.append(dict(zip(
                 ("endpoint", "bucket", "region", "access", "secret"), fields, strict=True,
             ), provider=label))
+    for target in result:
+        target.update({
+            "bot_id": "little_legend", "prefix": PREFIX,
+            "storage_provider": "Cloudflare R2", "configured": True,
+        })
+    extras = extra_connections(values)
+    for extra in extras:
+        for legacy in result:
+            if (
+                extra.get("endpoint") == legacy.get("endpoint")
+                and extra["bucket"] == legacy["bucket"]
+                and (
+                    extra["prefix"].startswith(legacy["prefix"])
+                    or legacy["prefix"].startswith(extra["prefix"])
+                )
+            ):
+                raise ValueError("Storage registry overlaps a legacy Little Legend bucket")
+    result.extend(extras)
     return result
 
 
@@ -55,24 +75,28 @@ def inventory(*, env: dict[str, str] | None = None) -> dict[str, Any]:
     for target in targets:
         base = {
             "provider": target["provider"], "bucket": target["bucket"],
-            "bot_id": "little_legend", "storage_provider": "Cloudflare R2",
+            "bot_id": target.get("bot_id", "little_legend"),
+            "prefix": target.get("prefix", PREFIX),
+            "storage_provider": target.get("storage_provider", "Cloudflare R2"),
             "capacity_bytes": None, "free_bytes": None,
         }
         try:
+            if not target.get("configured", True):
+                raise ValueError("Storage connection is not configured")
             client = client_for(target)
             objects: list[dict[str, Any]] = []
             cursor = None
             truncated = False
             while True:
                 args = {
-                    "Bucket": target["bucket"], "Prefix": PREFIX, "MaxKeys": 1000,
+                    "Bucket": target["bucket"], "Prefix": target.get("prefix", PREFIX), "MaxKeys": 1000,
                 }
                 if cursor:
                     args["ContinuationToken"] = cursor
                 response = client.list_objects_v2(**args)
                 for item in response.get("Contents", []):
                     key = item["Key"]
-                    if key.startswith("little-legend/diagnostics/"):
+                    if key.startswith(target.get("prefix", PREFIX) + "diagnostics/"):
                         continue
                     modified = item["LastModified"]
                     objects.append({
@@ -105,14 +129,17 @@ def inventory(*, env: dict[str, str] | None = None) -> dict[str, Any]:
     complete = len(healthy) == len(providers) and bool(providers)
     return {
         "providers": providers,
-        "bots": [{"id": "little_legend", "label": "Little Legend"}],
+        "bots": [
+            {"id": bot, "label": "Little Legend" if bot == "little_legend" else bot.replace("_", " ").title()}
+            for bot in dict.fromkeys(p["bot_id"] for p in providers)
+        ],
         "total_used_bytes": (
             sum(p["used_bytes"] for p in healthy) if complete else None
         ),
         "status": "ok" if complete else "not_configured" if not providers else "partial",
         "note": (
             "R2 не сообщает физически свободный объём бакета. "
-            "Подсчёт ограничен объектами Little Legend."
+            "Подсчёт ограничен префиксами настроенных подключений."
         ),
     }
 

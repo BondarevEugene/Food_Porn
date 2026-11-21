@@ -156,7 +156,7 @@ async def r2_storage_inventory(identity: Identity):
     result = r2_storage.inventory()
     readable = [
         provider for provider in result["providers"]
-        if provider["status"] in {"ok", "partial"}
+        if provider["status"] in {"ok", "partial"} and provider["bot_id"] == "little_legend"
     ]
     try:
         result.update(await r2_book_inventory.associate_books(readable))
