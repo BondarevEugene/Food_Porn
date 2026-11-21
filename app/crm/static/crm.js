@@ -61,32 +61,71 @@
   function settings(data){const labels={menu_price_uah:'Меню · UAH',menu_price_stars:'Меню · Telegram Stars',gift_price_stars:'Подарок · Telegram Stars',video_economy_price_uah:'Видео Эконом · UAH',video_cinematic_price_uah:'Видео Кино · UAH',video_premium_price_uah:'Видео Премиум · UAH',usd_exchange_rate:'Курс USD → UAH',price_electronic_uah:'Электронный подарок · базовая цена UAH',price_print_uah:'Печать · базовая цена UAH'};const names={portmone:'Portmone',smtp:'Email / SMTP',openai:'OpenAI',openai_costs:'OpenAI Costs',encryption:'Шифрование'};return heading('Рабочие цены, доступ и состояние сервисов.')+`<div class="cards">${Object.entries(data.services).map(([key,ready])=>card(names[key]||key,ready?'✓':'—',ready?'Настройки присутствуют':'Не настроено')).join('')}</div><div class="panels"><section class="panel"><div class="panel-head"><div><h2>Цены и расчёт</h2><p>Изменения применяются к новым счетам</p></div></div><div class="panel-body"><form data-form="settings"><div class="form-grid">${Object.entries(labels).map(([key,label])=>`<div><label>${label}</label><input name="${key}" type="number" min="${key.includes('stars')?0:key==='usd_exchange_rate'||key.startsWith('video_')?.01:1}" max="${key==='usd_exchange_rate'?10000:100000}" step="${key.includes('stars')||key.startsWith('price_')?1:.01}" value="${esc(data.values[key])}" required></div>`).join('')}</div><div class="note" style="margin-top:18px">В Mini App цена карты желаний в UAH рассчитывается по измеренной стоимости API + 5%. Базовые цены относятся к традиционному сценарию подарка. Stars = 0 отключает коммерческую выдачу новых счетов данного продукта.</div><button class="primary" type="submit">Сохранить цены</button></form></div></section><section class="panel"><div class="panel-head"><div><h2>VIP и доступ к CRM</h2><p>Telegram usernames · регистр не важен</p></div></div><div class="panel-body"><div class="note warning">Пользователи этого списка получают бесплатную генерацию и доступ к CRM. Управление списком и рекламными ключами доступно владельцам по числовому ID.</div><form data-form="vip"><label>Логины через запятую</label><textarea name="names" ${!state.owner?'disabled':''}>${esc(data.vip.join(', '))}</textarea>${state.owner?'<div class="form-footer"><button class="primary">Сохранить VIP</button></div>':''}</form><p class="field-help" style="margin-top:18px">Владельцы ADMIN_TELEGRAM_IDS: ${esc(data.owner_ids.join(', ')||'не заданы')}. Изменяются в .env.</p></div></section></div>`;}
   function audit(data){return heading('Кто и когда изменил настройки, расходы и доступ.')+`<section class="panel">${table(['Время','Пользователь','Действие','Детали'],data.items.map(row=>`<tr><td>${esc(new Date(row.date).toLocaleString('ru-RU'))}</td><td>${esc(row.actor)}</td><td>${esc(row.action)}</td><td class="details">${esc(JSON.stringify(row.details))}</td></tr>`))}${pager(data)}</section>`;}
   function storage(data){
-    const gb = value => (Number(value || 0) / 1073741824).toFixed(2) + ' ГБ';
-    const scratch = data.scratch || {};
-    const cloud = data.cloud || {providers:[]};
+    const bytes = value => value == null ? 'Нет данных' :
+      value < 1048576 ? (value / 1024).toFixed(1) + ' КБ' :
+      value < 1073741824 ? (value / 1048576).toFixed(1) + ' МБ' :
+      (value / 1073741824).toFixed(2) + ' ГБ';
+    const cloud = data.cloud || {providers:[],bots:[],status:'error'};
+    const providers = cloud.providers || [];
+    const bots = cloud.bots || [];
+    const selected = state.storageBot || 'little_legend';
+    const tabs = '<nav aria-label="Боты хранилища" style="display:flex;gap:8px;flex-wrap:wrap;margin:16px 0">'+
+      bots.map(bot=>'<button class="'+(selected===bot.id?'primary':'secondary')+
+        '" data-action="storage-bot" data-bot="'+esc(bot.id)+'">'+esc(bot.label)+'</button>').join('')+
+      '</nav>';
+    const status = p => p.status==='ok'?'✓ Подключено':
+      p.status==='partial'?'⚠ Данные неполные':'⛔ Нет доступа';
+    const connections = providers.filter(p=>p.bot_id===selected);
+    const cards = connections.map(p=>'<section class="panel">'+
+      '<h3>☁ '+esc(p.storage_provider)+' · '+esc(p.provider)+'</h3>'+
+      '<p><strong>'+esc(status(p))+'</strong> · Бакет: '+esc(p.bucket)+'</p>'+
+      '<p>Занято: <strong>'+bytes(p.used_bytes)+'</strong> · Файлов: '+
+        (p.object_count==null?'Нет данных':num(p.object_count))+'</p>'+
+      '<p class="sub">Доступный объём: не определяется API R2</p>'+
+      (p.error?'<p role="alert">⚠ '+esc(p.error)+'</p>':'')+
+      (p.truncated?'<p role="status">⚠ Показаны не все файлы. Объём неполный.</p>':'')+
+      '</section>').join('');
     const books = cloud.books || [];
-    const panels = '<section class="panel"><h2>📚 Файлы по книгам</h2>'+
-      '<p class="sub">Сортировка по последнему изменению книги. Непривязанные объекты выделены отдельно. Все файлы пока защищены от удаления.</p>'+
-      '<div style="overflow-x:auto"><table><thead><tr><th>Книга / заказ</th><th>Дата ↕</th><th>Файлов</th><th>Занято</th><th>Состав</th></tr></thead><tbody>'+
-      books.map(book=>'<tr><td>'+esc(book.story_id===null?'⚠ Не привязано':'📖 #'+book.story_id)+'</td>'+
-        '<td>'+esc(date(book.created_at))+'</td><td>'+num(book.file_count)+'</td><td>'+gb(book.used_bytes)+'</td>'+
-        '<td><details><summary>👁 Показать файлы</summary><table><tbody>'+
-        book.files.map(f=>'<tr><td><input type="checkbox" disabled aria-label="Защищённый файл"></td><td style="overflow-wrap:anywhere">'+esc(f.key)+'</td><td>'+esc(f.provider)+'</td><td>'+gb(f.bytes)+'</td><td>🔒 '+esc(f.status)+'</td></tr>').join('')+
-        '</tbody></table></details></td></tr>').join('')+'</tbody></table></div>'+
-      '<p class="sub">⛔ '+esc(cloud.deletion_notice||'Удаление защищённых файлов недоступно')+'</p>'+
-      '<button class="secondary" disabled>⛔ Удалить выбранные файлы</button></section>';
-    return heading('Локальный диск и приватные хранилища Cloudflare R2.') +
-      '<section class="panel"><h2>▣ Локальный диск Railway</h2>' +
-      '<p><strong>' + esc(data.percent) + '%</strong> занято · ' + gb(data.used_bytes) + ' из ' + gb(data.total_bytes) + '</p>' +
-      '<p>Свободно: ' + gb(data.free_bytes) + '</p>' +
-      '<p class="sub">' + esc(data.note) + '</p></section>' +
-      '<section class="panel"><h2>🧹 Временные файлы генерации</h2>' +
-      '<p>Проверено: ' + num(scratch.examined) + ' · Доступно для очистки: ' + num(scratch.eligible) + '</p>' +
-      '<p>Можно освободить: <strong>' + gb(scratch.reclaimable_bytes) + '</strong></p>' +
-      '<button class="secondary" data-action="storage-cleanup" ' + (!scratch.eligible ? 'disabled' : '') + '>Очистить временные файлы</button></section>' +
-      '<section class="panel"><h2>☁ Cloudflare R2 · '+gb(cloud.total_used_bytes)+'</h2>'+
-      '<p class="sub">Учёт только объектов Little Legend. У R2 нет показателя физически свободного места. Удаление необратимо и может повредить книгу, если файл используется в заказе.</p>'+
-      (data.cloud_error?'<p>'+esc(data.cloud_error)+'</p>':'')+'</section>'+panels;
+    const rows = books.map(book=>'<tr><td>'+
+      esc(book.story_id===null?'⚠ Без привязки':'📖 Книга #'+book.story_id)+
+      '</td><td>'+esc(book.created_at?date(book.created_at):'—')+'</td>'+
+      '<td>'+num(book.file_count)+'</td><td>'+bytes(book.used_bytes)+'</td>'+
+      '<td><details><summary>👁 Файлы</summary>'+
+      '<div style="overflow-x:auto"><table><tbody>'+
+      book.files.map(f=>'<tr><td>🔒</td><td style="overflow-wrap:anywhere">'+
+      esc(f.key)+'</td><td>'+esc(f.provider)+'</td><td>'+bytes(f.bytes)+
+      '</td></tr>').join('')+'</tbody></table></div></details></td></tr>').join('');
+    const bookSection = cloud.book_index_status==='error' ?
+      '<p role="alert">⚠ Список книг временно недоступен. Проверьте Neon и повторите запрос.</p>' :
+      !connections.length ? '<p>Для этого бота ещё нет подключений.</p>' :
+      !books.length ? '<p>Привязанных файлов пока нет или инвентаризация недоступна.</p>' :
+      '<div style="overflow-x:auto"><table><thead><tr><th>Книга</th>'+
+      '<th>Последнее изменение</th><th>Файлов</th><th>Объём</th>'+
+      '<th>Состав</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+    const scratch = data.scratch || {};
+    return heading('Подключения, использование и файлы по ботам.')+
+      '<section class="panel"><h2>◈ Управление хранилищами</h2>'+
+      '<p class="sub">Выберите бота, чтобы увидеть его подключения и файлы.</p>'+
+      tabs+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px">'+
+      '<div><strong>☁ Облако</strong><p>'+bytes(cloud.total_used_bytes)+'</p>'+
+      '<span class="sub">'+esc(cloud.status==='ok'?'Данные актуальны':'Требуется проверка подключений')+'</span></div>'+
+      '<div><strong>▣ Локальный диск Railway</strong><p>'+bytes(data.used_bytes)+
+      ' / '+bytes(data.total_bytes)+'</p><span class="sub">Свободно: '+
+      bytes(data.free_bytes)+'</span></div></div>'+
+      (data.cloud_error?'<p role="alert">⚠ Не удалось загрузить данные облака. Попробуйте обновить.</p>':'')+
+      '</section>'+
+      (cards||'<section class="panel"><p>Нет настроенных подключений для выбранного бота.</p></section>')+
+      '<section class="panel"><h2>📚 Книги и файлы</h2>'+
+      '<p class="sub">Файлы защищены от удаления. Дата — последнее изменение книги.</p>'+
+      bookSection+
+      '<p>🔒 Ручное удаление будет доступно после проверки связей с заказами.</p></section>'+
+      '<details class="panel"><summary>⚙ Локальный диск и временные файлы</summary>'+
+      '<p>Занято: '+esc(data.percent)+'% · Свободно: '+bytes(data.free_bytes)+'</p>'+
+      '<p>Проверено: '+num(scratch.examined)+' · Можно очистить: '+
+      bytes(scratch.reclaimable_bytes)+'</p>'+
+      '<button class="secondary" data-action="storage-cleanup" '+
+      (!scratch.eligible?'disabled':'')+'>🧹 Очистить временные файлы</button></details>';
   }
   async function render(){
     const version=++state.version;content.innerHTML='<div class="loading">Загружаем данные…</div>';
@@ -136,6 +175,9 @@
       if(action==='refresh'){await render();return;}
       if(action==='legend-detail'){const owner=el.dataset.owner,story=el.dataset.story;const result=await get('/little-legend/delivery-queue/'+owner+'/'+story);showDialog(`<h2>Диагностика книги #${esc(story)}</h2><p>Состояние журнала: ${esc(result.effect_status||'нет')}</p><p>Состояние книги: ${esc(result.manifest_status||'нет')}</p><p>Решение: ${esc(result.action)}</p><p>Telegram message ID: ${esc(result.telegram_message_id||'нет')}</p><p class="sub">Восстановление не отправляет PDF повторно. Для неопределённых операций требуется ручная проверка.</p><div class="form-footer"><button class="primary" data-action="legend-repair" data-owner="${esc(owner)}" data-story="${esc(story)}" ${result.action==='repair_projection'?'':'disabled'}>Восстановить подтверждённый статус</button></div>`);return;}
       if(action==='legend-repair'){if(!window.confirm('Восстановить только подтверждённый статус? PDF не будет отправлен повторно.'))return;const result=await write('/little-legend/delivery-queue/'+el.dataset.owner+'/'+el.dataset.story+'/repair','POST',{});closeDialog();toast('Результат сверки: '+result.action);await render();return;}
+      if(action==='storage-bot'){
+        state.storageBot=el.dataset.bot;await render();return;
+      }
       if(action==='r2-delete'){
         const provider=el.dataset.provider;
         const keys=[...document.querySelectorAll('.r2-object:checked')].filter(x=>x.dataset.provider===provider).map(x=>x.value);

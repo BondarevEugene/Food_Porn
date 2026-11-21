@@ -153,12 +153,21 @@ class R2DeleteRequest(BaseModel):
 @router.get("/api/storage/r2")
 async def r2_storage_inventory(identity: Identity):
     require_owner(identity)
+    result = r2_storage.inventory()
+    readable = [
+        provider for provider in result["providers"]
+        if provider["status"] in {"ok", "partial"}
+    ]
     try:
-        result = r2_storage.inventory()
-        result.update(await r2_book_inventory.associate_books(result['providers']))
-        return result
-    except Exception as exc:
-        raise HTTPException(503, "Cloud storage inventory unavailable") from exc
+        result.update(await r2_book_inventory.associate_books(readable))
+        result["book_index_status"] = "ok"
+    except Exception:
+        # Keep cloud connection diagnostics available when Neon is unavailable.
+        result["books"] = []
+        result["book_index_status"] = "error"
+        result["deletion_enabled"] = False
+        result["deletion_notice"] = "Связь файлов с книгами временно недоступна."
+    return result
 
 
 @router.post("/api/storage/r2/delete")
