@@ -32,7 +32,7 @@ def configured_targets(env: dict[str, str] | None = None) -> list[dict[str, str]
                   values.get(secret, ""))
         if all(fields) and fields[0].startswith("https://"):
             result.append(dict(zip(
-                ("endpoint", "bucket", "region", "access", "secret"), fields,
+                ("endpoint", "bucket", "region", "access", "secret"), fields, strict=True,
             ), provider=label))
     return result
 
