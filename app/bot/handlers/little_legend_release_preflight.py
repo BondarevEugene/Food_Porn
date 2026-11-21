@@ -4,7 +4,11 @@ from __future__ import annotations
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
-from app.bot.handlers.little_legend_context_help import help_button, selected_language, stage_message
+from app.bot.handlers.little_legend_context_help import (
+    help_button,
+    selected_language,
+    stage_message,
+)
 from app.little_legend.book_delivery import DeliveryStatus
 from app.little_legend.owned_production import load_owned_production
 from app.little_legend.release_manifest_store import get_release_manifest
