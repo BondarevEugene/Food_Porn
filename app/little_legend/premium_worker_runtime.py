@@ -22,7 +22,7 @@ from app.little_legend.premium_dispatch_store import (
     claim_next_premium_illustration_job,
     fence_premium_illustration_dispatch,
 )
-from app.little_legend.premium_image_runner import (
+from app.little_legend.premium_private_reference import PrivateReferenceReader\nfrom app.little_legend.premium_image_runner import (
     PremiumImageProvider,
     run_restored_premium_image_job,
 )
