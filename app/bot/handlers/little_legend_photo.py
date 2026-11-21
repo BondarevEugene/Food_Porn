@@ -32,6 +32,7 @@ router = Router(name="little_legend_photo")
 
 
 class PhotoUpload(StatesGroup):
+    consent_notice = State()
     waiting = State()
 
 
@@ -54,7 +55,7 @@ def _private_chat(callback: CallbackQuery) -> bool:
 
 
 @router.callback_query(F.data.startswith("ll_photo_notice:"))
-async def photo_notice(callback: CallbackQuery) -> None:
+async def photo_notice(callback: CallbackQuery, state: FSMContext) -> None:
     if not _private_chat(callback):
         await callback.answer("Open your private chat", show_alert=True)
         return
@@ -80,6 +81,10 @@ async def photo_notice(callback: CallbackQuery) -> None:
     if owned is None:
         await callback.answer("Book not found", show_alert=True)
         return
+    await state.set_state(PhotoUpload.consent_notice)
+    await state.update_data(
+        ll_photo_story_id=story_id, ll_photo_notice=disclosure.notice(),
+    )
     await callback.message.answer(
         disclosure.notice() + "\n\nПодтверждаю, что являюсь родителем "
         "или законным представителем ребёнка.",
@@ -103,7 +108,13 @@ async def photo_accept(callback: CallbackQuery, state: FSMContext) -> None:
         return
     try:
         story_id = _story_id(callback.data)
+        if await state.get_state() != PhotoUpload.consent_notice.state:
+            raise PermissionError("Consent notice was not presented")
+        notice_data = await state.get_data()
         disclosure = configured_premium_photo_disclosure()
+        if (notice_data.get("ll_photo_story_id") != story_id
+                or notice_data.get("ll_photo_notice") != disclosure.notice()):
+            raise PermissionError("Consent notice is stale or belongs to another book")
         consent = accept_premium_photo_consent(
             provider=disclosure.provider, notice=disclosure.notice(),
             parent_authorized=True, disclosure=disclosure,
@@ -156,7 +167,7 @@ async def receive_photo(message: Message, state: FSMContext) -> None:
         raw = buffer.getvalue()
         if len(raw) > MAX_UPLOAD_BYTES:
             raise ValueError("Image too large")
-        await upload_consented_child_photo(
+        asset = await upload_consented_child_photo(
             owner_id=message.from_user.id, story_id=story_id,
             data=raw, vault=vault,
             consents=NeonPremiumPhotoConsentRepository(),
@@ -171,7 +182,9 @@ async def receive_photo(message: Message, state: FSMContext) -> None:
     await state.clear()
     await message.answer(
         f"✅ Фото сохранено приватно для книги #{story_id}. "
-        "Его можно удалить, отозвав согласие в карточке книги."
+        f"Код фотографии: {asset.asset_id}. "
+        "Фотография доступна для персонализации иллюстраций; "
+        "её можно удалить, отозвав согласие в карточке книги."
     )
 
 
