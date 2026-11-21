@@ -65,93 +65,92 @@
       value < 1048576 ? (value / 1024).toFixed(1) + ' КБ' :
       value < 1073741824 ? (value / 1048576).toFixed(1) + ' МБ' :
       (value / 1073741824).toFixed(2) + ' ГБ';
-    const cloud = data.cloud || {providers:[],bots:[],status:'error'};
+    const cloud = data.cloud || {};
     const providers = cloud.providers || [];
     const bots = cloud.bots || [];
-    const selected = state.storageBot || 'little_legend';
-    const tabs = '<nav aria-label="Боты хранилища" style="display:flex;gap:8px;flex-wrap:wrap;margin:16px 0">'+
-      '<button class="'+(selected==='all'?'primary':'secondary')+
-      '" data-action="storage-bot" data-bot="all">◈ Все боты</button>'+
-      bots.map(bot=>'<button class="'+(selected===bot.id?'primary':'secondary')+
-        '" data-action="storage-bot" data-bot="'+esc(bot.id)+'">'+esc(bot.label)+'</button>').join('')+
-      '</nav>';
-    const status = p => p.status==='ok'?'✓ Подключено':
-      p.status==='partial'?'⚠ Данные неполные':'⛔ Нет доступа';
-    const connections = providers.filter(p=>selected==='all'||p.bot_id===selected);
-    const cards = connections.map(p=>'<section class="panel">'+
-      '<h3>☁ '+esc(p.storage_provider)+' · '+esc(p.provider)+'</h3>'+
-      '<p><strong>'+esc(status(p))+'</strong> · Бакет: '+esc(p.bucket)+'</p>'+ 
-      '<p class="sub">Префикс: '+esc(p.prefix || '—')+'</p>'+
-      '<p>Занято: <strong>'+bytes(p.used_bytes)+'</strong> · Файлов: '+
-        (p.object_count==null?'Нет данных':num(p.object_count))+'</p>'+
-      '<p class="sub">Доступный объём: не определяется API R2</p>'+
-      (p.error?'<p role="alert">⚠ '+esc(p.error)+'</p>':'')+
-      (p.truncated?'<p role="status">⚠ Показаны не все файлы. Объём неполный.</p>':'')+
-      '</section>').join('');
-    const books = selected==='little_legend' ? (cloud.books || []) : [];
-    const rows = books.map(book=>'<tr><td>'+
-      esc(book.story_id===null?'⚠ Без привязки':'📖 Книга #'+book.story_id)+
-      '</td><td>'+esc(book.created_at?date(book.created_at):'—')+'</td>'+
-      '<td>'+num(book.file_count)+'</td><td>'+bytes(book.used_bytes)+'</td>'+
-      '<td><details><summary>👁 Файлы</summary>'+
-      '<div style="overflow-x:auto"><table><tbody>'+
-      book.files.map(f=>'<tr><td>🔒</td><td style="overflow-wrap:anywhere">'+
-      esc(f.key)+'</td><td>'+esc(f.provider)+'</td><td>'+bytes(f.bytes)+
-      '</td></tr>').join('')+'</tbody></table></div></details></td></tr>').join('');
-    const bookSection = selected==='all' ?
-      '<p>Выберите вкладку конкретного бота для просмотра файлов заказов.</p>' :
-      selected!=='little_legend' ?
-      '<p>Для этого бота подключение доступно в режиме просмотра. Связь с заказами появится после подключения его реестра.</p>' :
-      cloud.book_index_status==='error' ?
-      '<p role="alert">⚠ Список книг временно недоступен. Проверьте Neon и повторите запрос.</p>' :
-      !connections.length ? '<p>Для этого бота ещё нет подключений.</p>' :
-      !books.length ? '<p>Привязанных файлов пока нет или инвентаризация недоступна.</p>' :
-      '<div style="overflow-x:auto"><table><thead><tr><th>Книга</th>'+
-      '<th>Последнее изменение</th><th>Файлов</th><th>Объём</th>'+
-      '<th>Состав</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
-    const usage = cloud.bot_usage || [];
-    const bucketUsage = cloud.bucket_usage || [];
-    const usageRows = usage.map(b=>'<tr><td>'+esc(b.bot_id)+'</td>'+
-      '<td>'+num(b.connections)+'</td><td>'+num(b.healthy)+'</td>'+
-      '<td>'+bytes(b.used_bytes)+'</td><td>'+
-      (b.object_count==null?'Нет данных':num(b.object_count))+'</td></tr>').join('');
-    const bucketRows = bucketUsage.map(b=>'<tr><td>'+esc(b.provider)+'</td>'+
-      '<td>'+esc(b.bucket)+'</td><td>'+esc(b.bots.join(', '))+'</td>'+
-      '<td>'+bytes(b.used_bytes)+'</td></tr>').join('');
-    const overview = '<details class="panel" '+(selected==='all'?'open':'')+'>'+
-      '<summary>▤ Сводка по ботам и общим бакетам</summary>'+
-      '<div style="overflow-x:auto"><table><thead><tr><th>Бот</th><th>Подключений</th>'+
-      '<th>Доступно</th><th>Занято</th><th>Объектов</th></tr></thead><tbody>'+
-      usageRows+'</tbody></table></div>'+
-      '<div style="overflow-x:auto"><table><thead><tr><th>Провайдер</th>'+
+    const selected = state.storageBot || 'all';
+    const scoped = providers.filter(p=>selected==='all'||p.bot_id===selected);
+    const isComplete = !data.cloud_error && cloud.status==='ok';
+    const status = p=>p.status==='ok'?'✓ Подключено':p.status==='partial'?'⚠ Частично':'⛔ Недоступно';
+    const tabs = '<nav aria-label="Выбор бота" class="storage-tabs">'+
+      '<button class="'+(selected==='all'?'primary':'secondary')+'" data-action="storage-bot" data-bot="all">◈ Все боты</button>'+
+      bots.map(b=>'<button class="'+(selected===b.id?'primary':'secondary')+'" data-action="storage-bot" data-bot="'+esc(b.id)+'">'+esc(b.label)+'</button>').join('')+'</nav>';
+    const total = scoped.reduce((n,p)=>n+(p.used_bytes||0),0);
+    const totalFiles = scoped.reduce((n,p)=>n+(p.object_count||0),0);
+    const complete = isComplete && scoped.every(p=>p.status==='ok' && !p.truncated);
+    const stats = [
+      ['☁ Облако',complete?bytes(total):'Нет данных','Объекты в выбранных подключениях'],
+      ['▤ Файлы',complete?num(totalFiles):'Нет данных','В облачных подключениях'],
+      ['⇄ Подключения',num(scoped.filter(p=>p.status==='ok').length)+' / '+num(scoped.length),'Работают / всего'],
+      ['▣ Диск Railway',esc(data.percent)+'%',bytes(data.used_bytes)+' из '+bytes(data.total_bytes)]
+    ];
+    const metrics = '<div class="storage-kpis">'+stats.map(x=>
+      '<div class="storage-kpi"><span>'+x[0]+'</span><strong>'+x[1]+'</strong><small>'+x[2]+'</small></div>').join('')+'</div>';
+    const connectionRows = scoped.map(p=>'<tr>'+
+      '<td><strong>'+esc(p.bot_id)+'</strong></td>'+
+      '<td>'+esc(p.storage_provider)+' <small>'+esc(p.provider)+'</small></td>'+
+      '<td>'+esc(p.bucket)+'<small>'+esc(p.prefix||'—')+'</small></td>'+
+      '<td><span class="storage-status '+(p.status==='ok'?'ok':'warn')+'">'+esc(status(p))+'</span></td>'+
+      '<td class="number">'+(p.object_count==null?'—':num(p.object_count))+'</td>'+
+      '<td class="number">'+bytes(p.used_bytes)+'</td>'+
+      '<td><details><summary aria-label="Детали подключения">Подробнее</summary>'+
+      '<p class="sub">Доступная ёмкость не предоставляется API S3/R2.</p>'+
+      (p.error?'<p role="alert">'+esc(p.error)+'</p>':'')+
+      (p.truncated?'<p role="status">⚠ Инвентаризация неполная.</p>':'')+
+      '</details></td></tr>').join('');
+    const table = '<section class="panel storage-panel"><div class="storage-section-head"><h2>⇄ Подключения</h2>'+
+      '<span class="sub">'+num(scoped.length)+' подключений</span></div>'+
+      '<div class="storage-table-wrap"><table class="storage-table"><thead><tr>'+
+      '<th>Бот</th><th>Провайдер</th><th>Бакет / каталог</th><th>Состояние</th>'+
+      '<th>Файлов</th><th>Занято</th><th></th></tr></thead><tbody>'+
+      (connectionRows||'<tr><td colspan="7">Подключения отсутствуют</td></tr>')+
+      '</tbody></table></div></section>';
+    const usage = (cloud.bot_usage||[]).filter(b=>selected==='all'||b.bot_id===selected);
+    const validUsage = usage.filter(b=>b.used_bytes!=null&&b.used_bytes>0);
+    const max = Math.max(1,...validUsage.map(b=>b.used_bytes));
+    const chart = '<section class="panel storage-panel"><h2>▥ Использование по ботам</h2>'+
+      (!usage.length?'<p class="sub">Нет подключённых ботов.</p>':
+      usage.map(b=>'<div class="storage-bar-row"><div><strong>'+esc(b.bot_id)+'</strong>'+
+        '<span>'+bytes(b.used_bytes)+'</span></div>'+
+        '<div class="storage-track"><div class="storage-fill" style="width:'+
+        (b.used_bytes==null?0:Math.max(0,Math.min(100,b.used_bytes/max*100))).toFixed(1)+'%"></div></div></div>').join(''))+
+      '<p class="sub">Показан объём объектов в зарегистрированных префиксах, не полная ёмкость бакетов.</p></section>';
+    const books = selected==='little_legend'?(cloud.books||[]):[];
+    const bookRows = books.map(b=>'<tr><td>'+esc(b.story_id==null?'⚠ Без привязки':'📖 #'+b.story_id)+'</td>'+
+      '<td>'+esc(b.created_at?date(b.created_at):'—')+'</td>'+
+      '<td class="number">'+num(b.file_count)+'</td><td class="number">'+bytes(b.used_bytes)+'</td>'+
+      '<td><details><summary>Файлы</summary><div class="storage-table-wrap"><table class="storage-table"><tbody>'+
+      (b.files||[]).map(f=>'<tr><td>🔒</td><td>'+esc(f.key)+'</td><td>'+esc(f.provider)+'</td><td>'+bytes(f.bytes)+'</td></tr>').join('')+
+      '</tbody></table></div></details></td></tr>').join('');
+    const booksMessage = selected==='all'?'Выберите конкретного бота для просмотра заказов.':
+      selected!=='little_legend'?'Реестр заказов этого бота ещё не подключён.':
+      cloud.book_index_status==='error'?'⚠ Neon недоступен: список заказов не загружен.':
+      !complete?'⚠ Инвентаризация неполная. Список файлов может быть неполным.':
+      !books.length?'Файлов, связанных с книгами, пока нет.':'';
+    const bookSection = '<section class="panel storage-panel"><div class="storage-section-head"><h2>▤ Заказы и файлы</h2>'+
+      '<span class="sub">🔒 Удаление заблокировано</span></div>'+
+      (booksMessage?'<p role="status">'+esc(booksMessage)+'</p>':'')+
+      (bookRows?'<div class="storage-table-wrap"><table class="storage-table"><thead><tr>'+
+      '<th>Книга / заказ</th><th>Изменено</th><th>Файлов</th><th>Объём</th><th>Состав</th>'+
+      '</tr></thead><tbody>'+bookRows+'</tbody></table></div>':'')+
+      '</section>';
+    const buckets = (cloud.bucket_usage||[]).filter(b=>selected==='all'||b.bots.includes(selected));
+    const bucketRows = buckets.map(b=>'<tr><td>'+esc(b.provider)+'</td><td>'+esc(b.bucket)+'</td>'+
+      '<td>'+esc(b.bots.join(', '))+'</td><td class="number">'+bytes(b.used_bytes)+'</td></tr>').join('');
+    const bucketSection = '<details class="panel storage-panel"><summary>▤ Общие бакеты · '+num(buckets.length)+'</summary>'+
+      '<div class="storage-table-wrap"><table class="storage-table"><thead><tr><th>Провайдер</th>'+
       '<th>Бакет</th><th>Боты</th><th>Занято</th></tr></thead><tbody>'+
-      bucketRows+'</tbody></table></div>'+
-      '<p class="sub">При недоступном подключении объём отмечается как «Нет данных».'+
-      ' Использование считается только в настроенных непересекающихся префиксах.</p></details>';
-    const scratch = data.scratch || {};
-    return heading('Подключения, использование и файлы по ботам.')+
-      '<section class="panel"><h2>◈ Управление хранилищами</h2>'+
-      '<p class="sub">Выберите бота, чтобы увидеть его подключения и файлы.</p>'+
-      tabs+
-      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px">'+
-      '<div><strong>☁ Облако</strong><p>'+bytes(cloud.total_used_bytes)+'</p>'+
-      '<span class="sub">'+esc(cloud.status==='ok'?'Данные актуальны':'Требуется проверка подключений')+'</span></div>'+
-      '<div><strong>▣ Локальный диск Railway</strong><p>'+bytes(data.used_bytes)+
-      ' / '+bytes(data.total_bytes)+'</p><span class="sub">Свободно: '+
-      bytes(data.free_bytes)+'</span></div></div>'+
-      (data.cloud_error?'<p role="alert">⚠ Не удалось загрузить данные облака. Попробуйте обновить.</p>':'')+
-      '</section>'+overview+
-      (cards||'<section class="panel"><p>Нет настроенных подключений для выбранного бота.</p></section>')+
-      '<section class="panel"><h2>📚 Книги и файлы</h2>'+
-      '<p class="sub">Файлы защищены от удаления. Дата — последнее изменение книги.</p>'+
-      bookSection+
-      '<p>🔒 Ручное удаление будет доступно после проверки связей с заказами.</p></section>'+
-      '<details class="panel"><summary>⚙ Локальный диск и временные файлы</summary>'+
-      '<p>Занято: '+esc(data.percent)+'% · Свободно: '+bytes(data.free_bytes)+'</p>'+
-      '<p>Проверено: '+num(scratch.examined)+' · Можно очистить: '+
-      bytes(scratch.reclaimable_bytes)+'</p>'+
-      '<button class="secondary" data-action="storage-cleanup" '+
-      (!scratch.eligible?'disabled':'')+'>🧹 Очистить временные файлы</button></details>';
+      (bucketRows||'<tr><td colspan="4">Нет данных</td></tr>')+'</tbody></table></div></details>';
+    const scratch = data.scratch||{};
+    const disk = '<details class="panel storage-panel"><summary>⚙ Локальный диск и очистка</summary>'+
+      '<p>Свободно: '+bytes(data.free_bytes)+' · Проверено файлов: '+num(scratch.examined)+
+      ' · Можно освободить: '+bytes(scratch.reclaimable_bytes)+'</p>'+
+      '<button class="secondary" data-action="storage-cleanup" '+(!scratch.eligible?'disabled':'')+
+      '>🧹 Очистить временные файлы</button></details>';
+    return heading('Контроль подключений, объёма и файлов по ботам.')+
+      '<div class="storage-dashboard">'+tabs+metrics+
+      (data.cloud_error?'<p role="alert">⚠ Не удалось получить инвентаризацию облака.</p>':'')+
+      table+chart+bookSection+bucketSection+disk+'</div>';
   }
   async function render(){
     const version=++state.version;content.innerHTML='<div class="loading">Загружаем данные…</div>';
