@@ -8,7 +8,11 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select, update
 
-from app.bot.handlers.little_legend_context_help import help_button, selected_language, stage_message
+from app.bot.handlers.little_legend_context_help import (
+    help_button,
+    selected_language,
+    stage_message,
+)
 from app.database.session import async_session_maker
 from app.little_legend.router import StoryDraft, stories
 from app.little_legend.story_modes import StoryMode
