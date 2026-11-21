@@ -30,22 +30,37 @@
   function table(headers,rows){return rows.length?`<div class="table-wrap"><table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`:`<div class="empty"><strong>Пока нет записей</strong>Здесь появятся реальные данные из вашей базы.</div>`;}
   function pager(data){return `<div class="pagination"><span>Всего: ${num(data.total)} · страница ${data.page}</span><div class="actions"><button class="button small" data-action="prev" ${data.page<=1?'disabled':''}>←</button><button class="button small" data-action="next" ${data.page*data.limit>=data.total?'disabled':''}>→</button></div></div>`;}
   function orderTable(rows){return table(['Заказ','Клиент','Статус / оплата','Цена счёта','Дата'],rows.map(row=>`<tr><td><span class="id-label">${row.product==='menu'?'M':'G'}-${row.id}</span><small>${row.product==='menu'?'Меню':'Карта желаний'}</small></td><td>${esc(row.name)}<small>Telegram ${row.telegram_id}</small></td><td>${badge(row.payment_kind)}<small>${esc(row.status)}${row.error?' · '+esc(row.error.slice(0,90)):''}</small></td><td>${row.payment_kind==='vip'?'Бесплатно':(row.provider==='telegram_stars'||(!row.paid&&Number(row.stars)>0))?num(row.stars)+' Stars':num(row.amount)+' UAH'}${row.provider?'<small>'+esc(row.provider)+'</small>':''}</td><td>${date(row.created_at)}</td></tr>`));}
-  function scopeNotice(scope){
+  function scopeNotice(scope, metrics, production){
     const products=scope?.products||[];
+    const byId=Object.fromEntries((metrics?.products||[]).map(p=>[p.id,p]));
+    const counts=production?.counts||{};
     return '<section class="panel"><div class="panel-body">'+
-      '<h2>Три продукта · источники данных</h2>'+
-      '<div class="storage-kpis">'+products.map(p=>
-        '<div class="storage-kpi"><strong>'+esc(p.name)+'</strong><small>'+
-        esc(p.note)+'</small><small>'+
-        (p.orders_in_common_feed?'В общей ленте заказов':'Отдельный производственный раздел')+
-        '</small></div>').join('')+'</div>'+
-      '<p class="note">Общая финансовая сводка пока не объединяет все три бота. '+
-      'Не используйте её как консолидированную прибыль.</p></div></section>';
+      '<h2>Три продукта · операционная сводка</h2>'+
+      '<div class="storage-kpis">'+products.map(p=>{
+        const m=byId[p.id];
+        const details=m
+          ? '<small>Заказов: '+num(m.orders)+' · Оплачено: '+num(m.paid_orders)+
+            ' · Клиентов: '+num(m.customers)+'</small>'+
+            '<small>Выручка: '+num(m.revenue_uah)+' UAH · '+
+            num(m.revenue_stars)+' Stars</small>'
+          : p.id==='little_legend' && production
+          ? '<small>Книги: в очереди '+num(counts.pending||0)+
+            ' · в работе '+num(counts.processing||0)+
+            ' · готовы '+num(counts.ready||0)+
+            ' · ошибки '+num(counts.failed||0)+'</small>'+
+            '<small>Финансовые данные не подключены</small>'
+          : '<small>Метрики временно недоступны</small>';
+        return '<div class="storage-kpi"><strong>'+esc(p.name)+'</strong>'+
+          details+'</div>';
+      }).join('')+'</div>'+
+      '<p class="note">UAH и Stars учитываются раздельно. Выручка по дате оплаты, '+
+      'заказы по дате создания. Little Legend пока не включён в общую выручку. '+
+      'Не используйте эту сводку как консолидированную прибыль.</p></div></section>';
   }
   function dashboard(data){
     const month=data.calendar||{};
     const chart=data.daily.slice(-30);const max=Math.max(1,...chart.map(row=>row.orders));
-    return heading('Текущий месяц: поступления и расходы по подключённым источникам.')+scopeNotice(data.productScope)+`<div class="cards">${card('Поступления за месяц',num(month.revenue_uah||0)+'<span class="unit">UAH</span>','По фактической дате оплаты',true)}${card('Расходы за месяц',num(month.expenses_total_uah||0)+'<span class="unit">UAH</span>','Ручные расходы и AI')}${card('Заказы за период',num(data.qualified_orders),`${num(data.orders)} попыток · ${num(data.draft_orders)} черновиков`)}${card('Активные клиенты',num(data.customers),`${num(data.customers_total)} всего в базе`)}</div>
+    return heading('Текущий месяц: поступления и расходы по подключённым источникам.')+scopeNotice(data.productScope,data.productMetrics,data.legendProduction)+`<div class="cards">${card('Поступления за месяц',num(month.revenue_uah||0)+'<span class="unit">UAH</span>','По фактической дате оплаты',true)}${card('Расходы за месяц',num(month.expenses_total_uah||0)+'<span class="unit">UAH</span>','Ручные расходы и AI')}${card('Заказы за период',num(data.qualified_orders),`${num(data.orders)} попыток · ${num(data.draft_orders)} черновиков`)}${card('Активные клиенты',num(data.customers),`${num(data.customers_total)} всего в базе`)}</div>
     <div class="panels"><section class="panel"><div class="panel-head"><div><h2>Динамика заказов</h2><p>Последние ${chart.length} дней выбранного периода</p></div><span class="badge">${data.days} дней</span></div><div class="panel-body"><div class="chart">${chart.map(row=>`<div class="chart-col" title="${esc(row.day)}: ${row.orders} заказов, ${row.paid} коммерческих оплат"><div class="bar" style="height:${row.orders/max*100}%"><div class="bar-paid" style="height:${row.orders?row.paid/row.orders*100:0}%"></div></div></div>`).join('')}</div><div class="chart-labels"><span>${esc(chart[0]?.day)}</span><span>${esc(chart.at(-1)?.day)}</span></div><div class="legend"><span><i></i>Все заказы</span><span><i class="paid"></i>Коммерческие оплаты</span></div></div></section>
     <section class="panel"><div class="panel-head"><div><h2>Оплаты и воронка</h2><p>VIP и черновики исключены из коммерческого знаменателя</p></div><span class="badge green">${data.conversion}%</span></div><div class="panel-body">${[['Коммерчески оплачено',data.paid_orders],['Коммерческих возможностей',data.commercial_opportunities],['Бесплатный VIP-доступ',data.vip_orders],['Черновики',data.draft_orders],['Провайдер не определён',data.unclassified_orders]].map(([name,value])=>`<div class="funnel-row"><span>${name}</span><strong>${num(value)}</strong><div class="progress"><span style="width:${value/Math.max(1,data.orders)*100}%"></span></div></div>`).join('')}</div></section></div>
     <div class="note">Заказы считаются по дате создания, выручка — по дате подтверждения оплаты. Бесплатные VIP-заказы и черновики не уменьшают коммерческую конверсию.</div>
@@ -256,7 +271,7 @@
       else if(state.tab==='storage'){const [local,cloud,connections,checks,reconciliation]=await Promise.allSettled([get('/storage'),get('/storage/r2'),get('/storage/connections'),get('/storage/r2/preflight/history'),get('/storage/r2/reconcile')]);if(local.status!=='fulfilled')throw local.reason;data={...local.value,cloud:cloud.status==='fulfilled'?cloud.value:{providers:[],total_used_bytes:0},cloud_error:cloud.status==='rejected'?cloud.reason.message:'',connectionList:connections.status==='fulfilled'?connections.value.connections:[],connectionError:connections.status==='rejected',preflightHistory:checks.status==='fulfilled'?checks.value.items:[],historyError:checks.status==='rejected',reconciliation:reconciliation.status==='fulfilled'?reconciliation.value:null,reconciliationError:reconciliation.status==='rejected'};}
       else if(state.tab==='legend'){const [delivery,production,retention]=await Promise.all([get('/little-legend/delivery-queue'),get('/little-legend/paid-production?limit=100'),get('/little-legend/retention-operations?limit=20')]);data={...delivery,production,retention};}
       else if(state.tab==='products')data=await get('/settings');
-      else if(state.tab==='dashboard'){const [overview,calendar,productScope]=await Promise.all([get('/dashboard?days='+state.days),get('/finance/calendar?period=month&year='+now.getFullYear()+'&index='+(now.getMonth()+1)),get('/product-scope')]);data={...overview,calendar,productScope};}
+      else if(state.tab==='dashboard'){const [overview,calendar,productScope,productMetrics,legendProduction]=await Promise.allSettled([get('/dashboard?days='+state.days),get('/finance/calendar?period=month&year='+now.getFullYear()+'&index='+(now.getMonth()+1)),get('/product-scope'),get('/product-metrics?days='+state.days),get('/little-legend/paid-production?limit=100')]);if(overview.status!=='fulfilled')throw overview.reason;if(calendar.status!=='fulfilled')throw calendar.reason;data={...overview.value,calendar:calendar.value,productScope:productScope.status==='fulfilled'?productScope.value:null,productMetrics:productMetrics.status==='fulfilled'?productMetrics.value:null,legendProduction:legendProduction.status==='fulfilled'?legendProduction.value:null};}
       else data=await get('/'+(state.tab==='audit'?'audit':state.tab)+'?'+query);
       if(version!==state.version)return;state.data=data;content.innerHTML=({dashboard,customers,orders,finance,products,ads:advertising,storage,settings,audit,legend}[state.tab])(data);
     }catch(error){if(version!==state.version)return;content.innerHTML=`<div class="auth-screen"><p class="eyebrow">FOOD_PORN / ДОСТУП</p><h1>Рабочее пространство недоступно</h1><p>${esc(error.message)}</p><a class="button primary" href="/admin/login">Войти через веб-админку</a><button class="secondary" data-action="refresh" style="margin-left:10px">Повторить</button></div>`;}
