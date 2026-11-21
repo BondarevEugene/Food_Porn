@@ -63,16 +63,29 @@
   function storage(data){
     const gb = value => (Number(value || 0) / 1073741824).toFixed(2) + ' ГБ';
     const scratch = data.scratch || {};
-    return heading('Использование диска и безопасная очистка временных файлов.') +
-      '<section class="panel"><h2>Использование файловой системы</h2>' +
+    const cloud = data.cloud || {providers:[]};
+    const panels = (cloud.providers||[]).map(p => {
+      const rows = [...p.objects].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+      return '<section class="panel"><h2>☁ '+esc(p.provider)+' · '+esc(p.bucket)+'</h2>'+
+        '<p>Объектов: '+num(p.object_count)+' · Занято: <strong>'+gb(p.used_bytes)+'</strong> · Доступно: не ограничено квотой бакета</p>'+
+        (p.truncated?'<p class="sub">Показаны первые 5000 объектов. Итог неполный.</p>':'')+
+        '<div style="overflow-x:auto"><table><thead><tr><th>Выбор</th><th>Дата изменения ↕</th><th>Файл / ключ</th><th>Размер</th></tr></thead><tbody>'+
+        rows.map(o=>'<tr><td><input type="checkbox" class="r2-object" data-provider="'+esc(p.provider)+'" value="'+esc(o.key)+'" aria-label="Выбрать объект"></td>'+
+          '<td>'+esc(date(o.created_at))+'</td><td style="overflow-wrap:anywhere">'+esc(o.key)+'</td><td>'+gb(o.bytes)+'</td></tr>').join('')+
+        '</tbody></table></div><button class="secondary" data-action="r2-delete" data-provider="'+esc(p.provider)+'">⛔ Удалить выбранные файлы</button></section>';
+    }).join('');
+    return heading('Локальный диск и приватные хранилища Cloudflare R2.') +
+      '<section class="panel"><h2>▣ Локальный диск Railway</h2>' +
       '<p><strong>' + esc(data.percent) + '%</strong> занято · ' + gb(data.used_bytes) + ' из ' + gb(data.total_bytes) + '</p>' +
       '<p>Свободно: ' + gb(data.free_bytes) + '</p>' +
       '<p class="sub">' + esc(data.note) + '</p></section>' +
-      '<section class="panel"><h2>Временные файлы генерации</h2>' +
-      '<p>Проверено файлов: ' + num(scratch.examined) + ' · Доступно для очистки: ' + num(scratch.eligible) + '</p>' +
+      '<section class="panel"><h2>🧹 Временные файлы генерации</h2>' +
+      '<p>Проверено: ' + num(scratch.examined) + ' · Доступно для очистки: ' + num(scratch.eligible) + '</p>' +
       '<p>Можно освободить: <strong>' + gb(scratch.reclaimable_bytes) + '</strong></p>' +
-      '<p class="sub">Удаляются только временные файлы старше 24 часов из cache/gift_scratch. Фотографии клиентов и готовые заказы не затрагиваются.</p>' +
-      '<button class="secondary" data-action="storage-cleanup" ' + (!scratch.eligible ? 'disabled' : '') + '>Очистить временные файлы</button></section>';
+      '<button class="secondary" data-action="storage-cleanup" ' + (!scratch.eligible ? 'disabled' : '') + '>Очистить временные файлы</button></section>' +
+      '<section class="panel"><h2>☁ Cloudflare R2 · '+gb(cloud.total_used_bytes)+'</h2>'+
+      '<p class="sub">Учёт только объектов Little Legend. У R2 нет показателя физически свободного места. Удаление необратимо и может повредить книгу, если файл используется в заказе.</p>'+
+      (data.cloud_error?'<p>'+esc(data.cloud_error)+'</p>':'')+'</section>'+panels;
   }
   async function render(){
     const version=++state.version;content.innerHTML='<div class="loading">Загружаем данные…</div>';
@@ -82,7 +95,7 @@
       let data;
       if(state.tab==='finance')data=await Promise.all([get('/dashboard?days='+state.days),get('/expenses?days='+state.days+'&page='+state.page),get('/ledger'),get('/finance/calendar?period='+state.financePeriod+'&year='+state.financeYear+'&index='+state.financeIndex)]);
       else if(state.tab==='ads')data=await get('/integrations');
-      else if(state.tab==='storage')data=await get('/storage');
+      else if(state.tab==='storage'){const [local,cloud]=await Promise.allSettled([get('/storage'),get('/storage/r2')]);if(local.status!=='fulfilled')throw local.reason;data={...local.value,cloud:cloud.status==='fulfilled'?cloud.value:{providers:[],total_used_bytes:0},cloud_error:cloud.status==='rejected'?cloud.reason.message:''};}
       else if(state.tab==='legend'){const [delivery,production,retention]=await Promise.all([get('/little-legend/delivery-queue'),get('/little-legend/paid-production?limit=100'),get('/little-legend/retention-operations?limit=20')]);data={...delivery,production,retention};}
       else if(state.tab==='products')data=await get('/settings');
       else if(state.tab==='dashboard'){const [overview,calendar]=await Promise.all([get('/dashboard?days='+state.days),get('/finance/calendar?period=month&year='+now.getFullYear()+'&index='+(now.getMonth()+1))]);data={...overview,calendar};}
@@ -122,6 +135,17 @@
       if(action==='refresh'){await render();return;}
       if(action==='legend-detail'){const owner=el.dataset.owner,story=el.dataset.story;const result=await get('/little-legend/delivery-queue/'+owner+'/'+story);showDialog(`<h2>Диагностика книги #${esc(story)}</h2><p>Состояние журнала: ${esc(result.effect_status||'нет')}</p><p>Состояние книги: ${esc(result.manifest_status||'нет')}</p><p>Решение: ${esc(result.action)}</p><p>Telegram message ID: ${esc(result.telegram_message_id||'нет')}</p><p class="sub">Восстановление не отправляет PDF повторно. Для неопределённых операций требуется ручная проверка.</p><div class="form-footer"><button class="primary" data-action="legend-repair" data-owner="${esc(owner)}" data-story="${esc(story)}" ${result.action==='repair_projection'?'':'disabled'}>Восстановить подтверждённый статус</button></div>`);return;}
       if(action==='legend-repair'){if(!window.confirm('Восстановить только подтверждённый статус? PDF не будет отправлен повторно.'))return;const result=await write('/little-legend/delivery-queue/'+el.dataset.owner+'/'+el.dataset.story+'/repair','POST',{});closeDialog();toast('Результат сверки: '+result.action);await render();return;}
+      if(action==='r2-delete'){
+        const provider=el.dataset.provider;
+        const keys=[...document.querySelectorAll('.r2-object:checked')].filter(x=>x.dataset.provider===provider).map(x=>x.value);
+        if(!keys.length){toast('Выберите файлы в таблице',true);return;}
+        if(keys.length>100){toast('Не более 100 файлов за раз',true);return;}
+        if(!window.confirm('⛔ Безвозвратно удалить '+keys.length+' объектов из '+provider+'? Это может повредить существующие заказы.'))return;
+        const phrase=window.prompt('Для подтверждения введите DELETE SELECTED R2 OBJECTS');
+        if(phrase!=='DELETE SELECTED R2 OBJECTS'){toast('Удаление отменено');return;}
+        const result=await write('/storage/r2/delete','POST',{provider,keys,confirmation:phrase});
+        toast('Удалено объектов: '+result.deleted);await render();return;
+      }
       if(action==='storage-cleanup'){if(!window.confirm('Удалить только временные файлы gift_scratch старше 24 часов?'))return;const result=await write('/storage/cleanup','POST',{});toast('Удалено временных файлов: '+result.deleted);await render();return;}
       if(action==='prev'||action==='next'){state.page+=action==='next'?1:-1;await render();return;}
       if(action==='close-dialog'){closeDialog();return;}
