@@ -4,7 +4,6 @@ Only sum non-overlapping, complete inventories. Unknown usage stays unknown.
 """
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import Any
 
 
