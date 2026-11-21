@@ -2,8 +2,8 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy.schema import CreateTable
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.schema import CreateTable
 
 from app.little_legend.neon_photo_vault import photo_assets
 from app.little_legend.secure_vault import (
