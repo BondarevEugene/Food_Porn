@@ -64,16 +64,17 @@
     const gb = value => (Number(value || 0) / 1073741824).toFixed(2) + ' ГБ';
     const scratch = data.scratch || {};
     const cloud = data.cloud || {providers:[]};
-    const panels = (cloud.providers||[]).map(p => {
-      const rows = [...p.objects].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
-      return '<section class="panel"><h2>☁ '+esc(p.provider)+' · '+esc(p.bucket)+'</h2>'+
-        '<p>Объектов: '+num(p.object_count)+' · Занято: <strong>'+gb(p.used_bytes)+'</strong> · Доступно: не ограничено квотой бакета</p>'+
-        (p.truncated?'<p class="sub">Показаны первые 5000 объектов. Итог неполный.</p>':'')+
-        '<div style="overflow-x:auto"><table><thead><tr><th>Выбор</th><th>Дата изменения ↕</th><th>Файл / ключ</th><th>Размер</th></tr></thead><tbody>'+
-        rows.map(o=>'<tr><td><input type="checkbox" class="r2-object" data-provider="'+esc(p.provider)+'" value="'+esc(o.key)+'" aria-label="Выбрать объект"></td>'+
-          '<td>'+esc(date(o.created_at))+'</td><td style="overflow-wrap:anywhere">'+esc(o.key)+'</td><td>'+gb(o.bytes)+'</td></tr>').join('')+
-        '</tbody></table></div><button class="secondary" data-action="r2-delete" data-provider="'+esc(p.provider)+'">⛔ Удалить выбранные файлы</button></section>';
-    }).join('');
+    const books = cloud.books || [];
+    const panels = '<section class="panel"><h2>📚 Файлы по книгам</h2>'+
+      '<p class="sub">Сортировка по последнему изменению книги. Непривязанные объекты выделены отдельно. Все файлы пока защищены от удаления.</p>'+
+      '<div style="overflow-x:auto"><table><thead><tr><th>Книга / заказ</th><th>Дата ↕</th><th>Файлов</th><th>Занято</th><th>Состав</th></tr></thead><tbody>'+
+      books.map(book=>'<tr><td>'+esc(book.story_id===null?'⚠ Не привязано':'📖 #'+book.story_id)+'</td>'+
+        '<td>'+esc(date(book.created_at))+'</td><td>'+num(book.file_count)+'</td><td>'+gb(book.used_bytes)+'</td>'+
+        '<td><details><summary>👁 Показать файлы</summary><table><tbody>'+
+        book.files.map(f=>'<tr><td><input type="checkbox" disabled aria-label="Защищённый файл"></td><td style="overflow-wrap:anywhere">'+esc(f.key)+'</td><td>'+esc(f.provider)+'</td><td>'+gb(f.bytes)+'</td><td>🔒 '+esc(f.status)+'</td></tr>').join('')+
+        '</tbody></table></details></td></tr>').join('')+'</tbody></table></div>'+
+      '<p class="sub">⛔ '+esc(cloud.deletion_notice||'Удаление защищённых файлов недоступно')+'</p>'+
+      '<button class="secondary" disabled>⛔ Удалить выбранные файлы</button></section>';
     return heading('Локальный диск и приватные хранилища Cloudflare R2.') +
       '<section class="panel"><h2>▣ Локальный диск Railway</h2>' +
       '<p><strong>' + esc(data.percent) + '%</strong> занято · ' + gb(data.used_bytes) + ' из ' + gb(data.total_bytes) + '</p>' +
