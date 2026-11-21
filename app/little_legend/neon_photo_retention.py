@@ -28,7 +28,7 @@ def _due(row: dict, now: datetime) -> bool:
         attempts = row["deletion_attempts"]
         if attempts >= MAX_ATTEMPTS:
             return False
-        return row["expires_at"] <= now
+        return True
     return False
 
 
@@ -38,7 +38,7 @@ async def erase_expired_photo_assets(
     now: datetime | None = None,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> dict[str, int]:
-    """Process expired and previously failed assets without double-processing rows.
+    """Process expired, withdrawn and previously failed assets without races.
 
     Holds a row lock during deletion. A crash leaves the object eligible for
     another attempt; S3 DeleteObject must be idempotent for missing keys.
@@ -57,7 +57,13 @@ async def erase_expired_photo_assets(
                 select(photo_assets).where(
                     photo_assets.c.asset_id.not_in(seen),
                     photo_assets.c.state != AssetState.DELETED.value,
-                    photo_assets.c.expires_at <= instant,
+                    (
+                        (photo_assets.c.expires_at <= instant)
+                        | photo_assets.c.state.in_([
+                            AssetState.DELETION_PENDING.value,
+                            AssetState.DELETE_FAILED.value,
+                        ])
+                    ),
                     photo_assets.c.deletion_attempts < MAX_ATTEMPTS,
                 ).order_by(
                     photo_assets.c.expires_at, photo_assets.c.asset_id,
