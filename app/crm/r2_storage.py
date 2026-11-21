@@ -75,12 +75,13 @@ def inventory(*, env: dict[str, str] | None = None) -> dict[str, Any]:
     for target in targets:
         base = {
             "provider": target["provider"], "bucket": target["bucket"],
-            "bot_id": target["bot_id"], "prefix": target["prefix"],
-            "storage_provider": target["storage_provider"],
+            "bot_id": target.get("bot_id", "little_legend"),
+            "prefix": target.get("prefix", PREFIX),
+            "storage_provider": target.get("storage_provider", "Cloudflare R2"),
             "capacity_bytes": None, "free_bytes": None,
         }
         try:
-            if not target["configured"]:
+            if not target.get("configured", True):
                 raise ValueError("Storage connection is not configured")
             client = client_for(target)
             objects: list[dict[str, Any]] = []
@@ -88,14 +89,14 @@ def inventory(*, env: dict[str, str] | None = None) -> dict[str, Any]:
             truncated = False
             while True:
                 args = {
-                    "Bucket": target["bucket"], "Prefix": target["prefix"], "MaxKeys": 1000,
+                    "Bucket": target["bucket"], "Prefix": target.get("prefix", PREFIX), "MaxKeys": 1000,
                 }
                 if cursor:
                     args["ContinuationToken"] = cursor
                 response = client.list_objects_v2(**args)
                 for item in response.get("Contents", []):
                     key = item["Key"]
-                    if key.startswith(target["prefix"] + "diagnostics/"):
+                    if key.startswith(target.get("prefix", PREFIX) + "diagnostics/"):
                         continue
                     modified = item["LastModified"]
                     objects.append({
