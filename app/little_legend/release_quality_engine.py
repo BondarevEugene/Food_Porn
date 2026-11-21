@@ -15,6 +15,7 @@ from pypdf.errors import PdfReadError
 from app.little_legend.book_quality import inspect_illustrated_book
 from app.little_legend.digital_delivery_gate import validate_paid_digital_pdf
 from app.little_legend.pdf_preflight import MAX_PDF_BYTES
+from app.little_legend.premium_layout_audit import audit_pdf_layout
 
 Edition = Literal["digital", "editorial_proof"]
 
@@ -73,6 +74,9 @@ def audit_book_release(
     except (PdfReadError, KeyError, ValueError, TypeError, OSError):
         issues.append("pdf_content_unreadable")
 
+    layout = audit_pdf_layout(pdf, expected_pages_min=expected_scenes + 2)
+    issues.extend(item.code for item in layout.issues)
+
     if edition == "digital":
         try:
             validate_paid_digital_pdf(pdf, expected_scenes=expected_scenes)
@@ -95,6 +99,9 @@ def audit_book_release(
         "corrupt_pdf",
         "pdf_content_unreadable",
         "paid_delivery_gate_failed",
+        "invalid_crop_box",
+        "page_without_selectable_text",
+        "corrupted_text_extraction",
         "editorial_proof_not_deliverable",
     }
     return ReleaseAudit(
