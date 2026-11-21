@@ -95,7 +95,7 @@ async def test_missing_private_reference_blocks_provider_fence(monkeypatch):
             dependencies=_deps(references), claim=claim,
         )
     assert calls == ["claim"]
-    assert references.calls == [(1, 2, {"ref-1", "ref-2", "ref-3"})]
+    assert references.calls == [(1, 2, {"ref-1", "ref-2"})]
 
 
 @pytest.mark.asyncio
@@ -120,7 +120,7 @@ async def test_ready_worker_checks_all_references_before_running(monkeypatch):
         dependencies=_deps(references), claim=claim,
     )
     assert calls == ["claim", "runner"]
-    assert references.calls[0][2] == {"ref-1", "ref-2", "ref-3"}
+    assert references.calls[0][2] == {"ref-1", "ref-2"}
 
 
 @pytest.mark.asyncio
