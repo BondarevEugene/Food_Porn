@@ -4,6 +4,7 @@ from __future__ import annotations
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
+from app.bot.handlers.little_legend_context_help import help_button, selected_language, stage_message
 from app.little_legend.book_delivery import DeliveryStatus
 from app.little_legend.owned_production import load_owned_production
 from app.little_legend.release_manifest_store import get_release_manifest
@@ -89,10 +90,13 @@ async def show_release_preflight(callback: CallbackQuery) -> None:
     except PermissionError:
         await callback.answer("Книга ещё не готова", show_alert=True)
         return
+    lang = await selected_language(callback.from_user)
+    keyboard = release_actions(
+        story_id, ready_for_export=ready, delivery_status=status,
+    )
+    keyboard.inline_keyboard.insert(-1, [help_button(lang, "release", story_id)])
     await callback.message.answer(
-        message,
-        reply_markup=release_actions(
-            story_id, ready_for_export=ready, delivery_status=status,
-        ),
+        message + "\n\n" + stage_message(lang, "release"),
+        parse_mode="HTML", reply_markup=keyboard,
     )
     await callback.answer()
