@@ -34,6 +34,13 @@ def setup():
     return plan, manifest, job
 
 
+class ReferenceReader:
+    async def read_reference(self, *, owner_id, story_id, reference_id):
+        image = BytesIO()
+        Image.new("RGB", (100, 100)).save(image, format="PNG")
+        return image.getvalue()
+
+
 class Store:
     def __init__(self, events):
         self.events = events
@@ -50,7 +57,9 @@ class Provider:
         self.events = events
         self.fail = fail
 
-    async def generate_premium_image(self, *, request, plan):
+    async def generate_premium_image(self, *, request, plan, reference):
+        assert reference.reference_id == request.reference_id
+        assert reference.image_jpeg.startswith(bytes((255, 216, 255)))
         self.events.append("provider")
         assert request.moment_id == "chapter-01-moment-1"
         if self.fail:
@@ -81,7 +90,7 @@ async def test_runner_fences_before_paid_call_and_stores_private_jpeg():
         return job.model_copy(update={"status": JobStatus.COMPLETED})
 
     key = await run_premium_image_job(
-        job=job, manifest=manifest, plan=plan, provider=Provider(events),
+        job=job, manifest=manifest, plan=plan, provider=Provider(events), reference_reader=ReferenceReader(),
         store=store, policy=JobPolicy(),
         fence_dispatch=fence_dispatch, complete_job=complete_job,
     )
@@ -106,7 +115,7 @@ async def test_ambiguous_provider_failure_never_marks_completed_or_retries():
     with pytest.raises(RuntimeError, match="ambiguous"):
         await run_premium_image_job(
             job=job, manifest=manifest, plan=plan,
-            provider=Provider(events, fail=True), store=Store(events),
+            provider=Provider(events, fail=True), reference_reader=ReferenceReader(), store=Store(events),
             policy=JobPolicy(), fence_dispatch=fence_dispatch,
             complete_job=complete_job,
         )
@@ -125,7 +134,7 @@ async def test_invalid_lease_never_dispatches_paid_provider():
 
     with pytest.raises(PermissionError):
         await run_premium_image_job(
-            job=job, manifest=manifest, plan=plan, provider=Provider(events),
+            job=job, manifest=manifest, plan=plan, provider=Provider(events), reference_reader=ReferenceReader(),
             store=Store(events), policy=JobPolicy(),
             fence_dispatch=forbidden, complete_job=forbidden,
         )
