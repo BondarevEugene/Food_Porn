@@ -101,6 +101,9 @@ class NeonPremiumPhotoConsentRepository:
     async def withdraw(self, *, owner_id: int, story_id: int) -> None:
         from datetime import UTC, datetime
 
+        from app.little_legend.neon_photo_vault import photo_assets
+        from app.little_legend.secure_vault import AssetState
+
         async with self.session_factory() as session:
             result = await session.execute(
                 update(premium_photo_consents).where(
@@ -111,4 +114,15 @@ class NeonPremiumPhotoConsentRepository:
             )
             if result.rowcount != 1:
                 raise PermissionError("Active consent not found")
+            await session.execute(
+                update(photo_assets).where(
+                    photo_assets.c.owner_id == owner_id,
+                    photo_assets.c.story_id == story_id,
+                    photo_assets.c.state.in_([
+                        AssetState.RESERVED.value,
+                        AssetState.STORED.value,
+                        AssetState.DELETE_FAILED.value,
+                    ]),
+                ).values(state=AssetState.DELETION_PENDING.value)
+            )
             await session.commit()
