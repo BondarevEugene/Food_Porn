@@ -1,5 +1,6 @@
 """Entry point for Little Legend as Food_Porn's third product."""
 import logging
+import os
 from urllib.parse import urlsplit, urlunsplit
 
 from aiogram import F, Router
@@ -549,6 +550,7 @@ async def prepare_little_legend_book(callback: CallbackQuery) -> None:
         manifest = await prepare_owned_release(
             owner_id=owner_id, story_id=story_id,
             art_store=art_store, pdf_store=pdf_store,
+            registry_bucket=os.environ.get("LITTLE_LEGEND_S3_BUCKET") or None,
         )
     except (PermissionError, ValueError):
         await callback.message.answer(

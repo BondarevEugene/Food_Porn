@@ -13,6 +13,7 @@ from app.little_legend.private_pdf_store import (
     persist_release_pdf,
     restore_release_pdf,
 )
+from app.little_legend.registered_artifact_writes import register_release_pdf
 from app.little_legend.release_manifest_store import (
     ReleaseManifest,
     get_release_manifest,
@@ -25,6 +26,7 @@ from app.little_legend.telegram_pdf_dispatch import PDFSender, dispatch_release_
 async def prepare_owned_release(
     *, owner_id: int, story_id: int, art_store,
     pdf_store: PrivatePDFStore,
+    registry_bucket: str | None = None,
 ) -> ReleaseManifest:
     """Assemble once from approved art, persist private PDF, register in Neon."""
     existing = await get_release_manifest(owner_id=owner_id, story_id=story_id)
@@ -32,10 +34,18 @@ async def prepare_owned_release(
         return existing
     production = await load_owned_production(owner_id=owner_id, story_id=story_id)
     package = production.assemble(store=art_store)
-    persist_release_pdf(
-        store=pdf_store, package=package,
-        owner_id=owner_id, story_id=story_id,
-    )
+    if registry_bucket is not None:
+        pdf = package.verified_pdf(owner_id=owner_id, story_id=story_id)
+        await register_release_pdf(
+            store=pdf_store, bucket=registry_bucket,
+            owner_id=owner_id, story_id=story_id,
+            pdf=pdf, pdf_sha256=package.release.pdf_sha256,
+        )
+    else:
+        persist_release_pdf(
+            store=pdf_store, package=package,
+            owner_id=owner_id, story_id=story_id,
+        )
     return await register_release(
         package=package, owner_id=owner_id, story_id=story_id,
     )

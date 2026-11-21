@@ -7,6 +7,7 @@ one job, and never retries a provider-dispatched job.
 from __future__ import annotations
 
 import asyncio
+import os
 
 from sqlalchemy import select
 
@@ -24,6 +25,7 @@ from app.little_legend.illustration_worker import (
     run_illustration_job,
 )
 from app.little_legend.image_ai_consent import configured_image_ai_disclosure
+from app.little_legend.registered_artifact_writes import register_generated_illustration
 from app.little_legend.router import StoryDraft, stories
 from app.little_legend.story_graph import SceneNode
 from app.little_legend.writer_queue import JobPolicy
@@ -170,11 +172,18 @@ async def process_next_illustration(
         )
 
     async def persist(current, data):
-        await asyncio.to_thread(
-            save_generated_illustration,
-            store=store, owner_id=current.owner_id,
-            story_id=current.story_id, job_id=current.job_id, data=data,
-        )
+        bucket = os.environ.get("LITTLE_LEGEND_S3_BUCKET")
+        if bucket:
+            await register_generated_illustration(
+                store=store, bucket=bucket, owner_id=current.owner_id,
+                story_id=current.story_id, job_id=current.job_id, image=data,
+            )
+        else:
+            await asyncio.to_thread(
+                save_generated_illustration,
+                store=store, owner_id=current.owner_id,
+                story_id=current.story_id, job_id=current.job_id, data=data,
+            )
 
     await run_illustration_job(
         job=job, context=context, illustrator=illustrator,
