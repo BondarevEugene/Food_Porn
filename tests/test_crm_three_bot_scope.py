@@ -15,5 +15,5 @@ def test_three_bot_coverage_is_explicit_and_read_only():
 def test_dashboard_discloses_nonconsolidated_finance():
     js = Path("app/crm/static/crm.js").read_text(encoding="utf-8")
     assert "get('/product-scope')" in js
-    assert "scopeNotice(data.productScope)" in js
+    assert "scopeNotice(data.productScope,data.productMetrics,data.legendProduction)" in js
     assert "Общая финансовая сводка пока не объединяет все три бота" in js
