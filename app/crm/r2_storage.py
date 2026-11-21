@@ -41,7 +41,19 @@ def configured_targets(env: dict[str, str] | None = None) -> list[dict[str, str]
             "bot_id": "little_legend", "prefix": PREFIX,
             "storage_provider": "Cloudflare R2", "configured": True,
         })
-    result.extend(extra_connections(values))
+    extras = extra_connections(values)
+    for extra in extras:
+        for legacy in result:
+            if (
+                extra.get("endpoint") == legacy.get("endpoint")
+                and extra["bucket"] == legacy["bucket"]
+                and (
+                    extra["prefix"].startswith(legacy["prefix"])
+                    or legacy["prefix"].startswith(extra["prefix"])
+                )
+            ):
+                raise ValueError("Storage registry overlaps a legacy Little Legend bucket")
+    result.extend(extras)
     return result
 
 
