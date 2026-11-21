@@ -21,7 +21,8 @@ def summarize(providers: list[dict[str, Any]]) -> dict[str, Any]:
         good = p["status"] == "ok"
         if good:
             bot["healthy"] += 1
-            bot["object_count"] += p["object_count"]
+            if bot["object_count"] is not None:
+                bot["object_count"] += p["object_count"]
             if bot["used_bytes"] is not None:
                 bot["used_bytes"] += p["used_bytes"]
         else:
