@@ -27,6 +27,7 @@ from app.crm import (
     storage_audit,
     storage_connections,
     storage_preflight,
+    storage_reconciliation,
 )
 from app.crm.login_tickets import consume_crm_login_ticket
 from app.crm.models import Audit, CustomerNote, Expense, Integration
@@ -264,6 +265,17 @@ async def r2_storage_preflight(payload: R2PreflightRequest, identity: Identity):
         service.audit(session, identity["actor"], storage_audit.ACTION, details)
         await session.commit()
     return result
+
+
+@router.get("/api/storage/r2/reconcile")
+async def r2_storage_reconcile(identity: Identity):
+    """Owner-only read-only comparison; no mutation or deletion."""
+    require_owner(identity)
+    async with async_session_maker() as session:
+        entries = await storage_connections.load(session)
+        registry = await storage_reconciliation.registry_snapshot(session)
+    inventory = r2_storage.inventory(stored_connections=entries)
+    return storage_reconciliation.reconcile(inventory, registry)
 
 
 @router.get("/api/storage/artifacts")
