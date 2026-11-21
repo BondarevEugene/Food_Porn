@@ -2,11 +2,17 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from html import escape
 
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select, update
 
+from app.bot.handlers.little_legend_context_help import (
+    help_button,
+    selected_language,
+    stage_message,
+)
 from app.database.session import async_session_maker
 from app.little_legend.router import StoryDraft, stories
 from app.little_legend.story_modes import StoryMode
@@ -84,9 +90,13 @@ async def show_outline(callback: CallbackQuery) -> None:
         if classic_blocked else ""
     )
     status = "\n\n✅ План уже утверждён." if draft.outline_approved else ""
+    lang = await selected_language(callback.from_user)
+    keyboard = _keyboard(story_id, approvable=approvable)
+    keyboard.inline_keyboard.insert(-1, [help_button(lang, "outline", story_id)])
     await callback.message.answer(
-        _preview(draft) + note + status,
-        reply_markup=_keyboard(story_id, approvable=approvable),
+        escape(_preview(draft) + note + status) + "\n\n" + stage_message(lang, "outline"),
+        parse_mode="HTML",
+        reply_markup=keyboard,
     )
     await callback.answer()
 

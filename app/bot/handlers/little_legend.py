@@ -7,6 +7,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy import select
 
 from app.bot.handlers.little_legend_checkpoint import router as checkpoint_router
+from app.bot.handlers.little_legend_context_help import router as context_help_router
 from app.bot.handlers.little_legend_guided import router as guided_router
 from app.bot.handlers.little_legend_illustrations import router as illustrations_router
 from app.bot.handlers.little_legend_manuscript import router as manuscript_router
@@ -32,6 +33,7 @@ from app.little_legend.router import stories
 logger = logging.getLogger(__name__)
 
 router = Router(name="little_legend")
+router.include_router(context_help_router)
 router.include_router(palette_router)
 router.include_router(photo_router)
 router.include_router(checkpoint_router)

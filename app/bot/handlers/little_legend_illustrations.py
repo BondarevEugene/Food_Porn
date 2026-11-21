@@ -5,6 +5,11 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
 
+from app.bot.handlers.little_legend_context_help import (
+    help_button,
+    selected_language,
+    stage_message,
+)
 from app.database.session import async_session_maker
 from app.little_legend.illustration_queue_store import enqueue_illustration_jobs
 from app.little_legend.router import StoryDraft, stories
@@ -88,9 +93,12 @@ async def show_art_readiness(callback: CallbackQuery) -> None:
             "⏳ Иллюстрации пока недоступны. Сначала нужно "
             "утвердить каждую главу и всю рукопись."
         )
+    lang = await selected_language(callback.from_user)
+    rows.append([help_button(lang, "art", story_id)])
     rows.extend(_navigation(story_id).inline_keyboard)
     await callback.message.answer(
-        text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        text + "\n\n" + stage_message(lang, "art"),
+        parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
     )
     await callback.answer()
 
