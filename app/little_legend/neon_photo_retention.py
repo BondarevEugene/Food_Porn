@@ -6,7 +6,7 @@ The R2 object is deleted before the database row is marked DELETED.
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -28,8 +28,7 @@ def _due(row: dict, now: datetime) -> bool:
         attempts = row["deletion_attempts"]
         if attempts >= MAX_ATTEMPTS:
             return False
-        last = row["deleted_at"]
-        return last is None or last <= now
+        return row["expires_at"] <= now
     return False
 
 
@@ -80,7 +79,6 @@ async def erase_expired_photo_assets(
                     state=AssetState.DELETE_FAILED.value,
                     deletion_attempts=attempts,
                     last_error_code="storage_delete_failed",
-                    deleted_at=instant + timedelta(minutes=min(2 ** attempts, 1440)),
                 ))
                 result["failed"] += 1
             else:
