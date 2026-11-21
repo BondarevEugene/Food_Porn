@@ -1,0 +1,7 @@
+# Dedicated Railway service for premium child-photo illustration generation.
+# Must NOT replace the Telegram bot/web service.
+# Keep LL_PREMIUM_WORKER_ENABLED=false until privacy and pricing are approved.
+[deploy]
+startCommand = "python -m app.little_legend.premium_railway_runner"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
