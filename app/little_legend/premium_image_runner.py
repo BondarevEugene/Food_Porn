@@ -20,7 +20,7 @@ from app.little_legend.premium_batch_manifest import (
     PremiumBatchManifest,
 )
 from app.little_legend.premium_visual_contract import BookVisualPlan
-from app.little_legend.writer_queue import JobStatus
+from app.little_legend.writer_queue import JobPolicy, JobStatus
 
 
 class PremiumImageProvider(Protocol):
@@ -35,6 +35,7 @@ async def run_premium_image_job(
     plan: BookVisualPlan,
     provider: PremiumImageProvider,
     store: GeneratedArtStore,
+    policy: JobPolicy,
     fence_dispatch: Callable[..., Awaitable[IllustrationJob]],
     complete_job: Callable[..., Awaitable[IllustrationJob]],
 ) -> str:
@@ -82,7 +83,7 @@ async def run_premium_image_job(
     )
     await complete_job(
         job_id=job.job_id, owner_id=job.owner_id, token=job.lease_token,
-        success=True,
+        success=True, policy=policy,
         actual_micro_usd=receipt.actual_micro_usd,
         provider_reference=receipt.provider_reference,
     )
