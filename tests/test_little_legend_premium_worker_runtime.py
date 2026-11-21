@@ -6,7 +6,6 @@ import pytest
 from app.little_legend.illustration_queue_store import IllustrationJob
 from app.little_legend.premium_batch_manifest import build_premium_batch_manifest
 from app.little_legend.premium_photo_consent import (
-    PremiumPhotoConsent,
     PremiumPhotoDisclosure,
     accept_premium_photo_consent,
 )
