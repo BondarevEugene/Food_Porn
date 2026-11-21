@@ -18,7 +18,7 @@ from sqlalchemy import func, inspect, select
 from sqlalchemy.exc import IntegrityError
 
 from app.config import get_settings
-from app.crm import integrations, service
+from app.crm import integrations, r2_storage, service
 from app.crm.login_tickets import consume_crm_login_ticket
 from app.crm.models import Audit, CustomerNote, Expense, Integration
 from app.crm.security import crm_identity, decrypt_credentials, encrypt_credentials, require_owner
@@ -142,6 +142,34 @@ async def storage_overview(identity: Identity):
         },
         "note": "Disk usage includes the whole filesystem, not just Food_Porn files.",
     }
+
+
+class R2DeleteRequest(BaseModel):
+    provider: Literal["release", "illustrations"]
+    keys: list[str] = Field(min_length=1, max_length=100)
+    confirmation: Literal["DELETE SELECTED R2 OBJECTS"]
+
+
+@router.get("/api/storage/r2")
+async def r2_storage_inventory(identity: Identity):
+    require_owner(identity)
+    try:
+        return r2_storage.inventory()
+    except Exception as exc:
+        raise HTTPException(503, "Cloud storage inventory unavailable") from exc
+
+
+@router.post("/api/storage/r2/delete")
+async def r2_storage_delete(payload: R2DeleteRequest, identity: Identity):
+    require_owner(identity)
+    try:
+        return r2_storage.delete_selected(
+            provider=payload.provider, keys=payload.keys,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(503, "Cloud storage deletion failed") from exc
 
 
 @router.post("/api/storage/cleanup")
