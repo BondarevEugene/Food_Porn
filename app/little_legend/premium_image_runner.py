@@ -19,6 +19,11 @@ from app.little_legend.premium_batch_manifest import (
     PremiumArtRequest,
     PremiumBatchManifest,
 )
+from app.little_legend.premium_private_reference import (
+    PrivatePremiumReference,
+    PrivateReferenceReader,
+    load_private_premium_reference,
+)
 from app.little_legend.premium_visual_contract import BookVisualPlan
 from app.little_legend.writer_queue import JobPolicy, JobStatus
 
@@ -26,6 +31,7 @@ from app.little_legend.writer_queue import JobPolicy, JobStatus
 class PremiumImageProvider(Protocol):
     async def generate_premium_image(
         self, *, request: PremiumArtRequest, plan: BookVisualPlan,
+        reference: PrivatePremiumReference,
     ) -> IllustrationProviderResult: ...
 
 
@@ -34,6 +40,7 @@ async def run_premium_image_job(
     manifest: PremiumBatchManifest,
     plan: BookVisualPlan,
     provider: PremiumImageProvider,
+    reference_reader: PrivateReferenceReader,
     store: GeneratedArtStore,
     policy: JobPolicy,
     fence_dispatch: Callable[..., Awaitable[IllustrationJob]],
@@ -64,6 +71,10 @@ async def run_premium_image_job(
             or request.estimated_micro_usd
             != round(job.estimated_cost_usd * 1_000_000)):
         raise PermissionError("Premium request revision or cost changed")
+    reference = await load_private_premium_reference(
+        reader=reference_reader, owner_id=job.owner_id,
+        story_id=job.story_id, request=request,
+    )
     # The durable dispatch fence rechecks the live story, parental consent,
     # identity, budget and lease under database locks before this paid call.
     fenced = await fence_dispatch(
@@ -73,7 +84,9 @@ async def run_premium_image_job(
     if (fenced.job_id != job.job_id or fenced.lease_token != job.lease_token
             or fenced.provider_dispatched_at is None):
         raise PermissionError("Premium dispatch fence did not commit")
-    receipt = await provider.generate_premium_image(request=request, plan=plan)
+    receipt = await provider.generate_premium_image(
+        request=request, plan=plan, reference=reference,
+    )
     if not isinstance(receipt, IllustrationProviderResult):
         raise ValueError("Premium provider returned an invalid receipt")
     image = sanitize_image(receipt.image)
@@ -93,6 +106,7 @@ async def run_premium_image_job(
 async def run_restored_premium_image_job(
     *, job: IllustrationJob,
     provider: PremiumImageProvider,
+    reference_reader: PrivateReferenceReader,
     store: GeneratedArtStore,
     policy: JobPolicy,
     fence_dispatch: Callable[..., Awaitable[IllustrationJob]],
@@ -104,6 +118,7 @@ async def run_restored_premium_image_job(
     context = restore_premium_job_context(job)
     return await run_premium_image_job(
         job=job, manifest=context.manifest, plan=context.plan,
-        provider=provider, store=store, policy=policy,
+        provider=provider, reference_reader=reference_reader,
+        store=store, policy=policy,
         fence_dispatch=fence_dispatch, complete_job=complete_job,
     )

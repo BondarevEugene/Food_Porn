@@ -26,6 +26,7 @@ from app.little_legend.premium_image_runner import (
     PremiumImageProvider,
     run_restored_premium_image_job,
 )
+from app.little_legend.premium_private_reference import PrivateReferenceReader
 from app.little_legend.writer_queue import JobPolicy
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ class PremiumWorkerDependencies:
     provider: PremiumImageProvider
     store: GeneratedArtStore
     references: PremiumReferenceResolver
+    reference_reader: PrivateReferenceReader
     policy: JobPolicy
     provider_configured: bool
     private_storage_configured: bool
@@ -91,6 +93,7 @@ async def run_premium_worker_once(
     await run_restored_premium_image_job(
         job=job,
         provider=dependencies.provider,
+        reference_reader=dependencies.reference_reader,
         store=dependencies.store,
         policy=dependencies.policy,
         fence_dispatch=fence,
