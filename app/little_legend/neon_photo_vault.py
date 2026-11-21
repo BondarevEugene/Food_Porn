@@ -73,3 +73,26 @@ class NeonVaultMetadataRepository:
             if result.rowcount != 1:
                 raise PermissionError("Photo asset is not reserved")
             await session.commit()
+
+    async def list_stored_reference_ids(
+        self, *, owner_id: int, story_id: int,
+    ) -> list[str]:
+        """Return only live, private, owner-scoped references for visual plans.
+
+        This is a metadata lookup, not an authorization to transfer photos to AI.
+        The premium worker separately verifies current parental consent and R2.
+        """
+        from datetime import UTC, datetime
+
+        if owner_id <= 0 or story_id <= 0:
+            raise PermissionError("Story not found")
+        async with async_session_maker() as session:
+            rows = (await session.execute(
+                select(photo_assets.c.asset_id).where(
+                    photo_assets.c.owner_id == owner_id,
+                    photo_assets.c.story_id == story_id,
+                    photo_assets.c.state == AssetState.STORED.value,
+                    photo_assets.c.expires_at > datetime.now(UTC),
+                ).order_by(photo_assets.c.created_at, photo_assets.c.asset_id)
+            )).scalars().all()
+        return list(rows)
