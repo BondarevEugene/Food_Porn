@@ -40,6 +40,7 @@ async def run_premium_image_job(
     manifest: PremiumBatchManifest,
     plan: BookVisualPlan,
     provider: PremiumImageProvider,
+    reference_reader: PrivateReferenceReader,
     store: GeneratedArtStore,
     policy: JobPolicy,
     fence_dispatch: Callable[..., Awaitable[IllustrationJob]],
@@ -105,6 +106,7 @@ async def run_premium_image_job(
 async def run_restored_premium_image_job(
     *, job: IllustrationJob,
     provider: PremiumImageProvider,
+    reference_reader: PrivateReferenceReader,
     store: GeneratedArtStore,
     policy: JobPolicy,
     fence_dispatch: Callable[..., Awaitable[IllustrationJob]],
@@ -116,6 +118,7 @@ async def run_restored_premium_image_job(
     context = restore_premium_job_context(job)
     return await run_premium_image_job(
         job=job, manifest=context.manifest, plan=context.plan,
-        provider=provider, store=store, policy=policy,
+        provider=provider, reference_reader=reference_reader,
+        store=store, policy=policy,
         fence_dispatch=fence_dispatch, complete_job=complete_job,
     )
