@@ -55,7 +55,6 @@ class PremiumWorkerDependencies:
     store: GeneratedArtStore
     references: PremiumReferenceResolver
     reference_reader: PrivateReferenceReader
-    photo_consents: PremiumPhotoConsentResolver | None = None
     policy: JobPolicy
     provider_configured: bool
     private_storage_configured: bool
