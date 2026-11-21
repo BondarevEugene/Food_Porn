@@ -22,6 +22,7 @@ from app.little_legend.image_ai_consent import (
     consent_allows_image_ai,
 )
 from app.little_legend.image_safety import sanitize_image
+from app.little_legend.registered_artifact_writes import register_generated_illustration
 from app.little_legend.story_graph import SceneNode
 from app.little_legend.writer_queue import JobStatus
 
@@ -106,6 +107,7 @@ async def run_illustration_job_with_private_store(
     illustrator: Illustrator, store: GeneratedArtStore,
     fence_dispatch: Callable[[IllustrationJob], Awaitable[None]],
     mark_completed: Callable[[IllustrationJob], Awaitable[None]],
+    registry_bucket: str | None = None,
 ) -> None:
     """Use the private, deterministic S3 key for idempotent asset persistence.
 
@@ -113,10 +115,17 @@ async def run_illustration_job_with_private_store(
     A failed storage write after provider dispatch is NOT automatically retried.
     """
     async def persist_image(current: IllustrationJob, image: bytes) -> None:
-        save_generated_illustration(
-            store=store, owner_id=current.owner_id,
-            story_id=current.story_id, job_id=current.job_id, data=image,
-        )
+        if registry_bucket is not None:
+            await register_generated_illustration(
+                store=store, bucket=registry_bucket,
+                owner_id=current.owner_id, story_id=current.story_id,
+                job_id=current.job_id, image=image,
+            )
+        else:
+            save_generated_illustration(
+                store=store, owner_id=current.owner_id,
+                story_id=current.story_id, job_id=current.job_id, data=image,
+            )
 
     await run_illustration_job(
         job=job, context=context, illustrator=illustrator,
