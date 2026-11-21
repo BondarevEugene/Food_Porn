@@ -33,7 +33,7 @@
   function dashboard(data){
     const month=data.calendar||{};
     const chart=data.daily.slice(-30);const max=Math.max(1,...chart.map(row=>row.orders));
-    return heading('Текущий месяц: поступления и расходы. Активность заказов показана отдельно.')+`<div class="cards">${card('Поступления за месяц',num(month.revenue_uah||0)+'<span class="unit">UAH</span>','По фактической дате оплаты',true)}${card('Расходы за месяц',num(month.expenses_total_uah||0)+'<span class="unit">Stars</span>','Ручные расходы и AI')}${card('Заказы за период',num(data.qualified_orders),`${num(data.orders)} попыток · ${num(data.draft_orders)} черновиков`)}${card('Активные клиенты',num(data.customers),`${num(data.customers_total)} всего в базе`)}</div>
+    return heading('Текущий месяц: поступления и расходы. Активность заказов показана отдельно.')+`<div class="cards">${card('Поступления за месяц',num(month.revenue_uah||0)+'<span class="unit">UAH</span>','По фактической дате оплаты',true)}${card('Расходы за месяц',num(month.expenses_total_uah||0)+'<span class="unit">UAH</span>','Ручные расходы и AI')}${card('Заказы за период',num(data.qualified_orders),`${num(data.orders)} попыток · ${num(data.draft_orders)} черновиков`)}${card('Активные клиенты',num(data.customers),`${num(data.customers_total)} всего в базе`)}</div>
     <div class="panels"><section class="panel"><div class="panel-head"><div><h2>Динамика заказов</h2><p>Последние ${chart.length} дней выбранного периода</p></div><span class="badge">${data.days} дней</span></div><div class="panel-body"><div class="chart">${chart.map(row=>`<div class="chart-col" title="${esc(row.day)}: ${row.orders} заказов, ${row.paid} коммерческих оплат"><div class="bar" style="height:${row.orders/max*100}%"><div class="bar-paid" style="height:${row.orders?row.paid/row.orders*100:0}%"></div></div></div>`).join('')}</div><div class="chart-labels"><span>${esc(chart[0]?.day)}</span><span>${esc(chart.at(-1)?.day)}</span></div><div class="legend"><span><i></i>Все заказы</span><span><i class="paid"></i>Коммерческие оплаты</span></div></div></section>
     <section class="panel"><div class="panel-head"><div><h2>Оплаты и воронка</h2><p>VIP и черновики исключены из коммерческого знаменателя</p></div><span class="badge green">${data.conversion}%</span></div><div class="panel-body">${[['Коммерчески оплачено',data.paid_orders],['Коммерческих возможностей',data.commercial_opportunities],['Бесплатный VIP-доступ',data.vip_orders],['Черновики',data.draft_orders],['Провайдер не определён',data.unclassified_orders]].map(([name,value])=>`<div class="funnel-row"><span>${name}</span><strong>${num(value)}</strong><div class="progress"><span style="width:${value/Math.max(1,data.orders)*100}%"></span></div></div>`).join('')}</div></section></div>
     <div class="note">Заказы считаются по дате создания, выручка — по дате подтверждения оплаты. Бесплатные VIP-заказы и черновики не уменьшают коммерческую конверсию.</div>
@@ -170,6 +170,43 @@
       '<th>Дата</th><th>Кто</th><th>Бот</th><th>Подключение</th><th>Файлов</th><th>Результат</th>'+
       '</tr></thead><tbody>'+(historyRows||'<tr><td colspan="6">Проверок пока нет.</td></tr>')+
       '</tbody></table></div></details>';
+    const reconciliation = data.reconciliation;
+    const rc = reconciliation?.counts || {};
+    const reconcileStatus = !reconciliation || data.reconciliationError
+      ? 'Недоступно' : reconciliation.status === 'complete'
+      ? 'Инвентаризация завершена' : 'Частичная сверка';
+    const issueLabels = {
+      unregistered:'Нет регистрации в Neon',
+      size_mismatch:'Размер отличается',
+      missing_in_r2:'Не найден в R2',
+      unexpected_after_delete:'Обнаружен после отметки удаления'
+    };
+    const findings = (reconciliation?.findings||[]).filter(f=>
+      selected==='all'||f.bot_id===selected);
+    const reconcileRows = findings.slice(0,100).map(f=>
+      '<tr><td>'+esc(f.bot_id)+'</td><td>'+esc(f.provider)+'</td>'+
+      '<td class="wrap">'+esc(f.key)+'</td><td>'+esc(issueLabels[f.status]||f.status)+'</td>'+
+      '<td>🔒 Защищён</td></tr>').join('');
+    const reconcilePanel = '<section class="panel storage-panel">'+
+      '<div class="storage-section-head"><h2>⇄ Сверка R2 и Neon</h2>'+
+      '<span class="storage-status '+(reconciliation?.status==='complete'?'ok':'warn')+'">'+
+      esc(reconcileStatus)+'</span></div>'+
+      '<p class="sub">Только диагностика. Удаление файлов запрещено. '+
+      'Неизвестные объекты и неполные списки не считаются безопасными для очистки.</p>'+
+      '<div class="storage-kpis">'+
+      [['Зарегистрированы',rc.registered],['Без регистрации',rc.unregistered],
+       ['Расхождения размера',rc.size_mismatch],['Нет в R2',rc.missing_in_r2],
+       ['Недоступные подключения',rc.unavailable_providers]].map(([label,value])=>
+         '<div class="storage-kpi"><span>'+esc(label)+'</span><strong>'+
+         (reconciliation?num(value||0):'—')+'</strong></div>').join('')+
+      '</div>'+
+      (data.reconciliationError?'<p role="alert">Не удалось выполнить сверку. Данные не считаются полными.</p>':'')+
+      (reconciliation?.findings_truncated?'<p role="status">Показана только часть расхождений.</p>':'')+
+      (findings.length?'<div class="storage-table-wrap"><table class="storage-table"><thead>'+
+        '<tr><th>Бот</th><th>Подключение</th><th>Ключ объекта</th><th>Проблема</th><th>Защита</th></tr>'+
+        '</thead><tbody>'+reconcileRows+'</tbody></table></div>':
+        '<p class="sub">'+(reconciliation?.status==='complete'?'Расхождений не обнаружено.':'Нет подтверждённых результатов сверки.')+'</p>')+
+      '</section>';
     const connectionRows = (data.connectionList||[]).map((c,i)=>
       '<tr><td>'+esc(c.bot_id)+'</td><td>'+esc(c.name)+'</td>'+
       '<td>'+esc(c.prefix)+'</td><td><button class="secondary" data-action="storage-remove-connection" data-index="'+i+'">✕ Убрать</button></td></tr>').join('');
@@ -194,7 +231,7 @@
     return heading('Контроль подключений, объёма и файлов по ботам.')+
       '<div class="storage-dashboard">'+tabs+metrics+
       (data.cloud_error?'<p role="alert">⚠ Не удалось получить инвентаризацию облака.</p>':'')+
-      table+chart+bookSection+historySection+bucketSection+connectionEditor+disk+'</div>';
+      table+chart+reconcilePanel+bookSection+historySection+bucketSection+connectionEditor+disk+'</div>';
   }
   async function render(){
     const version=++state.version;content.innerHTML='<div class="loading">Загружаем данные…</div>';
@@ -204,7 +241,7 @@
       let data;
       if(state.tab==='finance')data=await Promise.all([get('/dashboard?days='+state.days),get('/expenses?days='+state.days+'&page='+state.page),get('/ledger'),get('/finance/calendar?period='+state.financePeriod+'&year='+state.financeYear+'&index='+state.financeIndex)]);
       else if(state.tab==='ads')data=await get('/integrations');
-      else if(state.tab==='storage'){const [local,cloud,connections,checks]=await Promise.allSettled([get('/storage'),get('/storage/r2'),get('/storage/connections'),get('/storage/r2/preflight/history')]);if(local.status!=='fulfilled')throw local.reason;data={...local.value,cloud:cloud.status==='fulfilled'?cloud.value:{providers:[],total_used_bytes:0},cloud_error:cloud.status==='rejected'?cloud.reason.message:'',connectionList:connections.status==='fulfilled'?connections.value.connections:[],connectionError:connections.status==='rejected',preflightHistory:checks.status==='fulfilled'?checks.value.items:[],historyError:checks.status==='rejected'};}
+      else if(state.tab==='storage'){const [local,cloud,connections,checks,reconciliation]=await Promise.allSettled([get('/storage'),get('/storage/r2'),get('/storage/connections'),get('/storage/r2/preflight/history'),get('/storage/r2/reconcile')]);if(local.status!=='fulfilled')throw local.reason;data={...local.value,cloud:cloud.status==='fulfilled'?cloud.value:{providers:[],total_used_bytes:0},cloud_error:cloud.status==='rejected'?cloud.reason.message:'',connectionList:connections.status==='fulfilled'?connections.value.connections:[],connectionError:connections.status==='rejected',preflightHistory:checks.status==='fulfilled'?checks.value.items:[],historyError:checks.status==='rejected',reconciliation:reconciliation.status==='fulfilled'?reconciliation.value:null,reconciliationError:reconciliation.status==='rejected'};}
       else if(state.tab==='legend'){const [delivery,production,retention]=await Promise.all([get('/little-legend/delivery-queue'),get('/little-legend/paid-production?limit=100'),get('/little-legend/retention-operations?limit=20')]);data={...delivery,production,retention};}
       else if(state.tab==='products')data=await get('/settings');
       else if(state.tab==='dashboard'){const [overview,calendar]=await Promise.all([get('/dashboard?days='+state.days),get('/finance/calendar?period=month&year='+now.getFullYear()+'&index='+(now.getMonth()+1))]);data={...overview,calendar};}

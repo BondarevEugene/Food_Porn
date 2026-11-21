@@ -24,13 +24,14 @@ def reconcile(
 ) -> dict[str, Any]:
     """Compare only complete provider listings. Never authorize deletion."""
     registered = {
-        (r["bot_id"], r["connection"], r["bucket"], r["object_key"]): r
+        (r["bot_id"], r["bucket"], r["object_key"]): r
         for r in registry
     }
-    observed: set[tuple[str, str, str, str]] = set()
+    observed: set[tuple[str, str, str]] = set()
     findings: list[dict[str, Any]] = []
     counts: Counter[str] = Counter()
     complete = True
+    complete_scopes: list[tuple[str, str, str]] = []
     for provider in inventory.get("providers", []):
         ok = provider.get("status") == "ok" and not provider.get("truncated")
         if not ok:
@@ -40,8 +41,14 @@ def reconcile(
         bot_id = provider["bot_id"]
         connection = provider["provider"]
         bucket = provider["bucket"]
+        prefix = provider.get("prefix", "")
+        complete_scopes.append((bot_id, bucket, prefix))
         for obj in provider.get("objects", []):
-            key = (bot_id, connection, bucket, obj["key"])
+            object_key = obj["key"]
+            key = (bot_id, bucket, object_key)
+            # Shared buckets may be listed by multiple connections.
+            if key in observed:
+                continue
             observed.add(key)
             row = registered.get(key)
             if row is None:
@@ -50,29 +57,28 @@ def reconcile(
                 status = "unexpected_after_delete"
             elif row["bytes"] != obj["bytes"]:
                 status = "size_mismatch"
-            elif row.get("etag") and row["etag"] != obj.get("etag"):
-                # PDF registry stores SHA-256, which is not an S3 ETag.
-                status = "registered"
             else:
                 status = "registered"
             counts[status] += 1
             if status != "registered":
                 findings.append({
                     "bot_id": bot_id, "provider": connection, "bucket": bucket,
-                    "key": obj["key"], "status": status, "protected": True,
+                    "key": object_key, "status": status, "protected": True,
                 })
-    # Only a fully enumerated provider can prove an object absent.
-    complete_providers = {
-        (p["bot_id"], p["provider"], p["bucket"])
-        for p in inventory.get("providers", [])
-        if p.get("status") == "ok" and not p.get("truncated")
-    }
+    # Missing means absent from a COMPLETE listing covering the key prefix.
+    # A partial or unrelated connection must never establish absence.
     for key, row in registered.items():
-        if key[:3] in complete_providers and key not in observed and row["state"] != "deleted":
+        if (
+            key not in observed and row["state"] != "deleted"
+            and any(
+                bot == key[0] and bucket == key[1] and key[2].startswith(prefix)
+                for bot, bucket, prefix in complete_scopes
+            )
+        ):
             counts["missing_in_r2"] += 1
             findings.append({
-                "bot_id": key[0], "provider": key[1], "bucket": key[2],
-                "key": key[3], "status": "missing_in_r2", "protected": True,
+                "bot_id": key[0], "provider": row["connection"], "bucket": key[1],
+                "key": key[2], "status": "missing_in_r2", "protected": True,
             })
     return {
         "status": "complete" if complete and inventory.get("providers") else "partial",
