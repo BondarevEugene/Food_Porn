@@ -18,7 +18,7 @@ from sqlalchemy import func, inspect, select
 from sqlalchemy.exc import IntegrityError
 
 from app.config import get_settings
-from app.crm import integrations, r2_book_inventory, r2_storage, service
+from app.crm import integrations, r2_book_inventory, r2_storage, service, storage_preflight
 from app.crm.login_tickets import consume_crm_login_ticket
 from app.crm.models import Audit, CustomerNote, Expense, Integration
 from app.crm.security import crm_identity, decrypt_credentials, encrypt_credentials, require_owner
@@ -168,6 +168,35 @@ async def r2_storage_inventory(identity: Identity):
         result["deletion_enabled"] = False
         result["deletion_notice"] = "Связь файлов с книгами временно недоступна."
     return result
+
+
+class R2PreflightRequest(BaseModel):
+    bot_id: str = Field(min_length=2, max_length=40)
+    provider: str = Field(min_length=1, max_length=60)
+    keys: list[str] = Field(min_length=1, max_length=100)
+
+
+@router.post("/api/storage/r2/preflight")
+async def r2_storage_preflight(payload: R2PreflightRequest, identity: Identity):
+    """Owner-only read-only check. Never authorizes deletion."""
+    require_owner(identity)
+    inventory = r2_storage.inventory()
+    if inventory["status"] != "ok":
+        raise HTTPException(409, "Инвентаризация облака неполная")
+    if payload.bot_id == "little_legend":
+        try:
+            inventory.update(await r2_book_inventory.associate_books(
+                [p for p in inventory["providers"] if p["bot_id"] == payload.bot_id]
+            ))
+        except Exception as exc:
+            raise HTTPException(503, "Связь файлов с книгами недоступна") from exc
+    try:
+        return storage_preflight.inspect_selection(
+            inventory, bot_id=payload.bot_id,
+            provider=payload.provider, keys=payload.keys,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/api/storage/r2/delete")
