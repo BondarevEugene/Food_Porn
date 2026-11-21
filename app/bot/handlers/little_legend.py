@@ -79,48 +79,85 @@ async def little_legend_language(user: object) -> str:
     return language_for(user)
 
 
-@router.callback_query(F.data == "prod_little_legend")
-async def open_little_legend(callback: CallbackQuery) -> None:
-    lang = await little_legend_language(callback.from_user)
-    studio_url = little_legend_studio_url(get_settings().miniapp_url)
+def _legend_home(lang: str, studio_url: str | None, *, expanded: bool):
+    """Compact main actions; explanation expands in the same Telegram message."""
     buttons = [[InlineKeyboardButton(
-        text=text_for(lang, "✨ Створити книгу", "✨ Создать книгу", "✨ Create a book"),
+        text=text_for(lang, "▶ Створити книгу", "▶ Создать книгу", "▶ Create book"),
         callback_data="ll_choose_mode",
     )]]
     if studio_url:
         buttons.append([InlineKeyboardButton(
-            text=text_for(lang, "🎨 Редактор книги", "🎨 Редактор книги", "🎨 Book editor"),
+            text=text_for(lang, "✏️ Редактор", "✏️ Редактор", "✏️ Editor"),
             web_app=WebAppInfo(url=studio_url),
         )])
-    buttons.append([InlineKeyboardButton(
-        text=text_for(lang, "💎 Формати й ціни", "💎 Форматы и цены", "💎 Editions & prices"),
-        callback_data="ll_catalog",
-    )])
-    buttons.append([InlineKeyboardButton(
-        text=text_for(lang, "❓ Як створити книгу", "❓ Как создать книгу", "❓ How to make a book"),
-        callback_data="ll_help",
-    )])
     buttons.append([InlineKeyboardButton(
         text=text_for(lang, "📚 Мої книги", "📚 Мои книги", "📚 My books"),
         callback_data="ll_books",
     )])
     buttons.append([InlineKeyboardButton(
-        text=text_for(lang, "⬅️ До продуктів", "⬅️ К продуктам", "⬅️ Back to products"),
+        text=text_for(lang, "ⓘ Згорнути підказку", "ⓘ Скрыть подсказку", "ⓘ Hide help")
+        if expanded else text_for(lang, "ⓘ Що тут робити?", "ⓘ Что здесь делать?", "ⓘ What to do?"),
+        callback_data="ll_home:hide" if expanded else "ll_home:help",
+    )])
+    buttons.append([InlineKeyboardButton(
+        text=text_for(lang, "↩ До продуктів", "↩ К продуктам", "↩ Products"),
         callback_data="back_to_products",
     )])
     message = text_for(
         lang,
-        "📚 <b>Little Legend</b> — персональна книга про вашу дитину. Створіть сюжет, героїв та 12 сцен.",
-        "📚 <b>Little Legend</b> — персональная книга о вашем ребёнке. Создайте сюжет, героев и 12 сцен.",
-        "📚 <b>Little Legend</b> — a personal book starring your child. Design the story, characters and 12 scenes.",
+        "📖 <b>Little Legend</b>\nВаша дитина — герой книги.\n\n"
+        "▶ <b>Створити книгу</b>\nОберіть сюжет і спосіб створення.\n"
+        "✏️ <b>Редактор</b>\nЗмінюйте героїв, сцени й оформлення.\n"
+        "📚 <b>Мої книги</b>\nПереглядайте та отримуйте готове.",
+        "📖 <b>Little Legend</b>\nВаш ребёнок — герой книги.\n\n"
+        "▶ <b>Создать книгу</b>\nВыберите сюжет и способ создания.\n"
+        "✏️ <b>Редактор</b>\nМеняйте героев, сцены и оформление.\n"
+        "📚 <b>Мои книги</b>\nПросматривайте и получайте готовое.",
+        "📖 <b>Little Legend</b>\nYour child stars in a book.\n\n"
+        "▶ <b>Create book</b>\nChoose a story and creation path.\n"
+        "✏️ <b>Editor</b>\nEdit characters, scenes and design.\n"
+        "📚 <b>My books</b>\nReview drafts and receive PDFs.",
     )
-    if not studio_url:
+    if expanded:
         message += "\n\n" + text_for(
-            lang, "Студія стане доступною після налаштування MINIAPP_URL (HTTPS).",
-            "Студия станет доступна после настройки MINIAPP_URL (HTTPS).",
-            "The studio will open once MINIAPP_URL (HTTPS) is configured.",
+            lang,
+            "ⓘ <b>Підказка</b>\n1. Почніть зі створення історії.\n"
+            "2. У редакторі затвердьте сцени й ілюстрації.\n"
+            "3. У «Мої книги» перевірте готовність PDF.\n"
+            "Формати й ціни відкриваються з довідки. Оплата ще недоступна.",
+            "ⓘ <b>Подсказка</b>\n1. Начните с создания истории.\n"
+            "2. В редакторе утвердите сцены и иллюстрации.\n"
+            "3. В «Мои книги» проверьте готовность PDF.\n"
+            "Форматы и цены доступны через справку. Оплата пока недоступна.",
+            "ⓘ <b>Help</b>\n1. Start by creating a story.\n"
+            "2. Approve scenes and art in the editor.\n"
+            "3. Check PDF readiness in My books.\n"
+            "Editions and prices are in Help. Checkout is not available.",
         )
-    await callback.message.answer(message, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        buttons.insert(-2, [InlineKeyboardButton(
+            text=text_for(lang, "💎 Формати й ціни", "💎 Форматы и цены", "💎 Editions & prices"),
+            callback_data="ll_catalog",
+        )])
+    return message, InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@router.callback_query(F.data == "prod_little_legend")
+async def open_little_legend(callback: CallbackQuery) -> None:
+    lang = await little_legend_language(callback.from_user)
+    studio_url = little_legend_studio_url(get_settings().miniapp_url)
+    message, keyboard = _legend_home(lang, studio_url, expanded=False)
+    await callback.message.answer(message, parse_mode="HTML", reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data.in_({"ll_home:help", "ll_home:hide"}))
+async def toggle_little_legend_home_help(callback: CallbackQuery) -> None:
+    """Expand/collapse inline without replacing the user's current selection."""
+    lang = await little_legend_language(callback.from_user)
+    studio_url = little_legend_studio_url(get_settings().miniapp_url)
+    expanded = callback.data == "ll_home:help"
+    message, keyboard = _legend_home(lang, studio_url, expanded=expanded)
+    await callback.message.edit_text(message, parse_mode="HTML", reply_markup=keyboard)
     await callback.answer()
 
 
@@ -194,10 +231,25 @@ async def choose_little_legend_mode(callback: CallbackQuery) -> None:
         callback_data="prod_little_legend",
     )])
     await callback.message.answer(
-        text_for(lang,
-                 "📖 Крок 1/5 · Як створимо вашу книгу?",
-                 "📖 Шаг 1/5 · Как создадим вашу книгу?",
-                 "📖 Step 1/5 · How shall we create your book?"),
+        text_for(
+            lang,
+            "📖 <b>Крок 1/5 · Оберіть спосіб</b>\n\n"
+            "✍️ <b>Моя історія</b> — ви керуєте сюжетом.\n"
+            "🏰 <b>Герой казки</b> — адаптація готується.\n"
+            "✨ <b>За моєю ідеєю</b> — редактор готується.\n\n"
+            "ⓘ Почніть із «Моя історія».",
+            "📖 <b>Шаг 1/5 · Выберите способ</b>\n\n"
+            "✍️ <b>Моя история</b> — управляйте сюжетом сами.\n"
+            "🏰 <b>Герой сказки</b> — адаптация готовится.\n"
+            "✨ <b>По моей идее</b> — редактор готовится.\n\n"
+            "ⓘ Начните с «Моя история».",
+            "📖 <b>Step 1/5 · Choose a path</b>\n\n"
+            "✍️ <b>My story</b> — direct the plot yourself.\n"
+            "🏰 <b>Classic hero</b> — coming later.\n"
+            "✨ <b>My idea</b> — editor coming later.\n\n"
+            "ⓘ Start with My story.",
+        ),
+        parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
     await callback.answer()
