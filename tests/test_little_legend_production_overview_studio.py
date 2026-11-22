@@ -16,5 +16,6 @@ def test_studio_exposes_production_status_and_private_pdf_download() -> None:
     assert 'id="productionOverviewStatus"' in STUDIO_HTML
     assert "async function refreshProductionOverview()" in STUDIO_HTML
     assert "async function downloadCompletedBook()" in STUDIO_HTML
-    assert "if(!result.all_illustrations_complete||!result.has_manuscript)" in STUDIO_HTML
+    assert "if(!result.pdf_ready)" in STUDIO_HTML
+    assert "result.pdf_blocker" in STUDIO_HTML
     assert "Authorization:'tma '+auth" in STUDIO_HTML
