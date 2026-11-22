@@ -29,10 +29,6 @@ def _keyboard(story_id: int, *, approvable: bool) -> InlineKeyboardMarkup:
             callback_data=f"ll_outline_approve:{story_id}",
         )])
     rows.append([InlineKeyboardButton(
-        text="🧩 Проверить готовность к написанию",
-        callback_data=f"ll_writer_ready:{story_id}",
-    )])
-    rows.append([InlineKeyboardButton(
         text="⬅️ К книге", callback_data=f"ll_book:{story_id}",
     )])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -141,7 +137,9 @@ async def approve_outline(callback: CallbackQuery) -> None:
     await callback.message.answer(
         "✅ План утверждён. Это не запускает платную генерацию. "
         "Для написания глав ещё нужны профиль героя и согласие на AI.",
-        reply_markup=_keyboard(story_id, approvable=False),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="▶ Продолжить создание книги", callback_data=f"ll_book:{story_id}")],
+        ]),
     )
     await callback.answer()
 
@@ -175,6 +173,8 @@ async def show_writer_readiness(callback: CallbackQuery) -> None:
             f"• {reason}" for reason in report["blockers"]
         )
     await callback.message.answer(
-        text, reply_markup=_keyboard(story_id, approvable=False),
+        text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="▶ К следующему этапу", callback_data=f"ll_book:{story_id}")],
+        ]),
     )
     await callback.answer()
