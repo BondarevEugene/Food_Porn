@@ -37,6 +37,7 @@ async def test_prepare_persists_before_registering_manifest() -> None:
     package = Mock()
     production.assemble.return_value = package
     manifest = Mock()
+    package.release.pdf_sha256 = "a" * 64
 
     def persist(**kwargs):
         events.append("persist")
