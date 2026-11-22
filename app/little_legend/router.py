@@ -1669,6 +1669,19 @@ async def story_illustration_status(
     }
 
 
+@router.get("/api/stories/{story_id}/illustrations/auto-delivery")
+async def read_premium_auto_delivery(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Read only this owner's automatic delivery status."""
+    from app.little_legend.auto_delivery_worker import get_auto_delivery_status
+
+    try:
+        return await get_auto_delivery_status(owner_id=owner, story_id=story_id)
+    except PermissionError as exc:
+        raise HTTPException(404, "Story not found") from exc
+
+
 @router.post("/api/stories/{story_id}/illustrations/auto-delivery")
 async def enable_premium_auto_delivery(
     story_id: int, owner: Annotated[int, Depends(_owner)],
