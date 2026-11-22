@@ -1,4 +1,5 @@
 """Contract regression tests for the private web photo upload endpoint."""
+
 import ast
 from pathlib import Path
 
