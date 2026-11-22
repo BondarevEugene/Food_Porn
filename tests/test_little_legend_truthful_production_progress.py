@@ -6,7 +6,7 @@ SOURCE = Path("app/bot/handlers/little_legend.py").read_text(encoding="utf-8")
 
 def test_illustrations_do_not_inherit_pdf_manifest_status():
     assert '("Иллюстрации", art_done, f"ll_art_ready:{story_id}")' in SOURCE
-    assert '("Финальная проверка", editorial_done, f"ll_checkpoint:{story_id}")' in SOURCE
+    assert '("Финальная проверка", editorial_done, f"ll_editorial:{story_id}")' in SOURCE
     assert 'issue.stage.value == "illustrations"' in SOURCE
     assert "editorial_done = production.editorial_approved" in SOURCE
     assert 'bool(ready_for_assembly or status)' not in SOURCE
