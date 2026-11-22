@@ -17,6 +17,12 @@ from app.little_legend.private_pdf_store import (
     restore_release_pdf,
     validate_pdf,
 )
+from app.little_legend.production_effect_ledger import (
+    EffectKind,
+    EffectStatus,
+    get_effect,
+    request_fingerprint,
+)
 from app.little_legend.registered_artifact_writes import register_release_pdf
 from app.little_legend.release_manifest_store import (
     ReleaseManifest,
@@ -24,7 +30,11 @@ from app.little_legend.release_manifest_store import (
     mark_release_delivery,
     register_release,
 )
-from app.little_legend.telegram_pdf_dispatch import PDFSender, dispatch_release_pdf
+from app.little_legend.telegram_pdf_dispatch import (
+    PDFSender,
+    dispatch_release_pdf,
+    pdf_delivery_effect_key,
+)
 
 
 async def prepare_owned_release(
@@ -102,3 +112,50 @@ async def send_owned_release(
         status=outcome.status,
         message_id=outcome.telegram_message_id,
     )
+
+
+async def reconcile_owned_delivery(
+    *, owner_id: int, story_id: int,
+) -> ReleaseManifest:
+    """Repair manifest projection from a confirmed durable Telegram effect.
+
+    Never calls Telegram, retries delivery or changes an uncertain effect.
+    An unresolved/ambiguous attempt is left for explicit operator review.
+    """
+    manifest = await get_release_manifest(owner_id=owner_id, story_id=story_id)
+    if manifest is None:
+        raise PermissionError("Release is not prepared")
+    if manifest.status == DeliveryStatus.SENT:
+        return manifest
+    effect = await get_effect(
+        effect_key=pdf_delivery_effect_key(
+            owner_id=owner_id, story_id=story_id,
+            pdf_sha256=manifest.pdf_sha256,
+        ),
+        owner_id=owner_id, story_id=story_id,
+        kind=EffectKind.TELEGRAM_PDF,
+        request_sha256=request_fingerprint({
+            "owner_id": owner_id, "story_id": story_id,
+            "pdf_sha256": manifest.pdf_sha256,
+            "destination": owner_id,
+        }),
+    )
+    if effect is None:
+        return manifest
+    if effect.status == EffectStatus.CONFIRMED:
+        reference = effect.provider_reference
+        if reference is None or not reference.isdecimal() or int(reference) <= 0:
+            raise ValueError("Confirmed effect lacks a valid Telegram message ID")
+        return await mark_release_delivery(
+            owner_id=owner_id, story_id=story_id,
+            pdf_sha256=manifest.pdf_sha256,
+            status=DeliveryStatus.SENT, message_id=int(reference),
+        )
+    if effect.status == EffectStatus.UNCERTAIN and manifest.status == DeliveryStatus.READY:
+        return await mark_release_delivery(
+            owner_id=owner_id, story_id=story_id,
+            pdf_sha256=manifest.pdf_sha256,
+            status=DeliveryStatus.UNCERTAIN,
+        )
+    # RESERVED or DISPATCHED can still be in flight: never project or resend.
+    return manifest
