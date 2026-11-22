@@ -625,6 +625,9 @@ async def prompt_menu_plan(
     if not _owned_by(menu, callback.from_user.id):
         await callback.answer("Сет не найден.", show_alert=True)
         return
+    if menu.status not in (MenuStatus.DRAFT, MenuStatus.FAILED):
+        await callback.answer("Готовый заказ нельзя изменять.", show_alert=True)
+        return
     language = getattr(menu.customer.language, "value", menu.customer.language)
     await state.set_state(PremiumMenuStates.waiting_for_dish_list)
     await state.update_data(
@@ -635,9 +638,9 @@ async def prompt_menu_plan(
     await callback.message.edit_text(
         (text_for(
             language,
-            "✍️ <b>Введіть страви вибраної категорії</b>\\nКожна страва з нового рядка. Інші категорії збережуться.",
-            "✍️ <b>Введите блюда выбранной категории</b>\\nКаждое блюдо с новой строки. Другие категории сохранятся.",
-            "✍️ <b>Enter dishes for this category</b>\\nOne dish per line. Other categories are preserved.",
+            "✍️ <b>Введіть страви вибраної категорії</b>\nКожна страва з нового рядка. Інші категорії збережуться.",
+            "✍️ <b>Введите блюда выбранной категории</b>\nКаждое блюдо с новой строки. Другие категории сохранятся.",
+            "✍️ <b>Enter dishes for this category</b>\nOne dish per line. Other categories are preserved.",
         ) if callback_data.action == "edit_category" else text_for(
             language,
             "🖋 <b>Введіть усе меню одним повідомленням</b>\n\n"
