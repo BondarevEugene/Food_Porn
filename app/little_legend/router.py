@@ -1538,7 +1538,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 <header><strong>✦ LITTLE LEGEND</strong><span>Story Director</span></header>
 <h1>История, в которой ваш ребёнок — герой</h1>
 <p class="hero-lead">Придумайте приключение за пару минут или станьте режиссёром каждой сцены. Личные детали необязательны.</p>
-<div id="authError" class="error hidden">Откройте студию кнопкой из Telegram-бота.</div>
+<div id="authError" class="error hidden" role="alert">Не удалось подтвердить вход. Закройте студию и откройте её заново кнопкой в Telegram-боте. Если ошибка повторяется, обратитесь в поддержку; ваши данные не отправлены.</div>
 <div id="workspace" class="hidden">
 <nav><a href="/little-legend/release-control" style="display:inline-block;padding:12px 16px;background:#545ac7;color:white;border-radius:12px;text-decoration:none;font-weight:700">✦ Контроль выпуска</a><button class="secondary" onclick="tab('idea')">01 · Идея</button><button class="secondary" onclick="tab('hero')">02 · Герой</button><button class="secondary" onclick="openDesign()">03 · Драматургия</button><button class="secondary" onclick="tab('scenes')">04 · Сцены</button><button class="secondary" onclick="openPrivacy()">Безопасность</button><button class="secondary" onclick="openPortrait()">Портрет</button><button class="secondary" onclick="openConsent()">05 · Согласие и фото</button><button class="secondary" onclick="openManuscriptQuality()">✦ Качество книги</button><button class="secondary" onclick="openArtReadiness()">✦ Иллюстрации</button><button class="secondary" onclick="openIdentity()">06 · Внешность</button><button class="secondary" onclick="openDirector()">07 · Стиль</button><button class="secondary" onclick="tab('edition')">08 · Издание</button></nav>
 <section id="idea" class="card">
@@ -1676,7 +1676,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 </div>
 <script>
 const tg=window.Telegram?.WebApp;tg?.ready();tg?.expand();
-const auth=tg?.initData;let storyId=null;let activeGraph=null;
+const auth=tg?.initData || '';let storyId=null;let activeGraph=null;let saving=false;
 const fields=['title','genre','setup','mystery','ending','habits','phrases','dedication','city'];
 const defaults=['Знакомство с героем','Необычное событие','Первый союзник','Тайное послание','Первая загадка','Опасная находка','Неожиданный поворот','Испытание дружбы','Разгадка тайны','План спасения','Главное испытание','Развязка и новая тайна'];
 const $=id=>document.getElementById(id);
@@ -1684,9 +1684,31 @@ function tab(id){['idea','hero','scenes','edition','graph','director','design','
 function drawScenes(items){$('sceneList').replaceChildren();items.forEach((value,i)=>{let row=document.createElement('div');row.className='scene';let n=document.createElement('span');n.textContent=i+1;let t=document.createElement('textarea');t.maxLength=4000;t.value=value;t.dataset.scene=i;row.append(n,t);$('sceneList').append(row)})}
 function collect(){let obj={};fields.forEach(k=>obj[k]=$(k).value);obj.hero=$('heroName').value;obj.scenes=[...document.querySelectorAll('[data-scene]')].map(x=>x.value);return obj}
 function fill(data){fields.forEach(k=>$(k).value=data[k]||'');$('heroName').value=data.hero||'Оля';drawScenes(data.scenes||defaults)}
-async function api(path,method='GET',data){let r=await fetch('/little-legend/api'+path,{method,headers:{Authorization:'tma '+auth,'Content-Type':'application/json'},body:data?JSON.stringify(data):undefined});if(!r.ok)throw Error('HTTP '+r.status);return r.json()}
+function authRejected(){ $('authError').classList.remove('hidden'); $('workspace').classList.add('hidden'); }
+async function api(path,method='GET',data){
+ if(!auth){authRejected();throw Error('Откройте студию заново через Telegram-бота')}
+ let r;
+ try{r=await fetch('/little-legend/api'+path,{method,headers:{Authorization:'tma '+auth,'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data),cache:'no-store'})}
+ catch(e){throw Error('Нет соединения с сервером. Проверьте интернет и повторите действие')}
+ if(r.status===401){authRejected();throw Error('Сессия Telegram не подтверждена. Закройте студию и откройте заново через бота')}
+ if(!r.ok){throw Error('Сервер вернул HTTP '+r.status)}
+ return r.json()
+}
 async function load(){let books=await api('/stories');$('books').replaceChildren();books.forEach(b=>{let button=document.createElement('button');button.className='secondary';button.style.margin='4px';button.textContent=b.title+' · '+b.hero;button.onclick=async()=>{try{fill(await api('/stories/'+b.id));storyId=b.id;$('status').textContent='Черновик открыт'}catch(e){$('status').textContent=e.message}};$('books').append(button)})}
-async function save(){try{let data=collect();if(!data.title.trim()||!data.hero.trim()){throw Error('Укажите название и имя героя')}let result=await api(storyId?'/stories/'+storyId:'/stories',storyId?'PUT':'POST',data);storyId=storyId||result.id;$('status').textContent='Сохранено';await load()}catch(e){$('status').textContent='Ошибка: '+e.message}}
+async function save(){
+ if(saving)return;
+ saving=true;
+ try{
+  let data=collect();
+  if(!data.title.trim()||!data.hero.trim())throw Error('Укажите название и имя героя');
+  $('status').textContent='Сохраняем черновик…';
+  const result=await api(storyId?'/stories/'+storyId:'/stories',storyId?'PUT':'POST',data);
+  storyId=storyId||result.id;
+  $('status').textContent='Черновик сохранён';
+  try{await load()}catch(e){$('status').textContent='Черновик сохранён, но список книг не обновился: '+e.message}
+ }catch(e){$('status').textContent='Ошибка сохранения: '+e.message}
+ finally{saving=false}
+}
 async function showGraph(){try{
 if(!storyId){$('status').textContent='Сначала сохраните книгу';return}
 const result=await api('/stories/'+storyId+'/graph');activeGraph=result.graph;
@@ -1775,7 +1797,7 @@ function directorMode(){$('advancedControls').classList.toggle('hidden',$('creat
 async function openDirector(){tab('director');if(!storyId)return;try{let b=(await api('/stories/'+storyId+'/blueprint')).blueprint;$('creativeMode').value=b.controls.mode;$('childAge').value=b.controls.age??'';$('tone').value=b.controls.tone;$('freedom').value=b.controls.creative_freedom;$('length').value=b.controls.story_length;$('artStyle').value=b.controls.illustration_style;$('appearance').value=b.characters[0]?.appearance||'';$('visualNotes').value=b.characters[0]?.visual_identity_notes||'';directorMode()}catch(e){$('directorStatus').textContent=e.message}}
 async function saveDirector(){try{if(!storyId)throw Error('Сначала сохраните книгу');let b=(await api('/stories/'+storyId+'/blueprint')).blueprint;b.controls.mode=$('creativeMode').value;b.controls.age=$('childAge').value===''?null:Number($('childAge').value);b.controls.tone=$('tone').value;b.controls.creative_freedom=$('freedom').value;b.controls.story_length=$('length').value;b.controls.illustration_style=$('artStyle').value;if(!b.characters.length)b.characters=[{name:$('heroName').value,role:'hero'}];b.characters[0].appearance=$('appearance').value;b.characters[0].visual_identity_notes=$('visualNotes').value;await api('/stories/'+storyId+'/blueprint','PUT',b);$('directorStatus').textContent='Настройки сохранены'}catch(e){$('directorStatus').textContent=e.message}}
 function fresh(){storyId=null;fill({title:'Новая история',hero:'Оля',genre:'Научная фантастика',scenes:defaults});$('status').textContent='Новый черновик — сохраните его'}
-fresh();if(auth){$('workspace').classList.remove('hidden');load().catch(e=>$('status').textContent='Не удалось загрузить книги: '+e.message)}else{$('authError').classList.remove('hidden')}
+fresh();if(auth){$('workspace').classList.remove('hidden');load().catch(e=>$('status').textContent='Не удалось загрузить книги: '+e.message)}else{authRejected()}
 </script></body></html>"""
 
 
