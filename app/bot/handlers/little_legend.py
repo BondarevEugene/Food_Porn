@@ -26,12 +26,19 @@ from app.little_legend.art_storage_config import configured_generated_art_store
 from app.little_legend.blueprint import quick_blueprint
 from app.little_legend.book_delivery import DeliveryStatus
 from app.little_legend.commercial_catalog import crm_book_catalog
+from app.little_legend.consent import consent_status
 from app.little_legend.owned_production import load_owned_production
 from app.little_legend.pdf_storage_config import configured_private_pdf_store
 from app.little_legend.readiness_messages import readiness_message
 from app.little_legend.release_manifest_store import get_release_manifest
 from app.little_legend.release_orchestrator import prepare_owned_release, send_owned_release
 from app.little_legend.router import StoryDraft, stories
+from app.little_legend.text_ai_consent import TextAIConsentDecision
+from app.little_legend.text_ai_disclosure import (
+    accept_server_disclosure,
+    configured_text_ai_disclosure,
+    consent_allows_provider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -406,11 +413,14 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
     manuscript_done = (
         draft.manuscript is not None and draft.manuscript.parent_approved
     )
+    disclosure = configured_text_ai_disclosure()
+    ai_done = consent_allows_provider(draft.text_ai_consent, disclosure)
     steps = [
         ("Идея и герой", bool(draft.entry.brief or draft.entry.classic or draft.parent_sketch), f"ll_outline:{story_id}"),
         ("План истории", plan_done, f"ll_outline:{story_id}"),
         ("Утверждение плана", approved, f"ll_outline:{story_id}"),
         ("Профиль героя", hero_done, f"ll_hero_review:{story_id}"),
+        ("Согласие на AI-текст", ai_done, f"ll_text_notice:{story_id}"),
         ("Рукопись", manuscript_done, f"ll_manuscript_review:{story_id}"),
         ("Иллюстрации", bool(ready_for_assembly or status), f"ll_art_ready:{story_id}"),
         ("Готовый PDF", bool(status), f"ll_release_review:{story_id}"),
@@ -544,6 +554,135 @@ async def little_legend_hero_approve(callback: CallbackQuery) -> None:
                 callback_data=f"ll_book:{story_id}",
             )],
         ]),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ll_text_notice:"))
+async def little_legend_text_notice(callback: CallbackQuery) -> None:
+    """Show the current server-owned provider notice; never imply consent."""
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("Только в личном чате", show_alert=True)
+        return
+    try:
+        story_id = int((callback.data or "").split(":", 1)[1])
+        if story_id <= 0:
+            raise ValueError
+    except (IndexError, ValueError):
+        await callback.answer("Неверная книга", show_alert=True)
+        return
+    async with async_session_maker() as session:
+        raw = (await session.execute(select(stories.c.data).where(
+            stories.c.id == story_id, stories.c.owner_id == callback.from_user.id,
+        ))).scalar_one_or_none()
+    if raw is None:
+        await callback.answer("Книга не найдена", show_alert=True)
+        return
+    draft = StoryDraft.model_validate_json(raw)
+    disclosure = configured_text_ai_disclosure()
+    if not disclosure.ready:
+        await callback.message.answer(
+            "⚠️ Генерация текста временно недоступна: AI-провайдер не настроен. "
+            "Ваш черновик сохранён, повторно вводить данные не нужно.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="⬅️ К книге", callback_data=f"ll_book:{story_id}"),
+            ]]),
+        )
+        await callback.answer()
+        return
+    if consent_allows_provider(draft.text_ai_consent, disclosure):
+        await callback.message.answer(
+            "✅ Согласие на обработку текста уже сохранено.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="▶ Продолжить", callback_data=f"ll_book:{story_id}"),
+            ]]),
+        )
+        await callback.answer()
+        return
+    terms = consent_status(draft.consent)
+    if not (draft.consent.terms_accepted_at and draft.consent.parental_authority_declared
+            and draft.consent.version == terms["version"]):
+        await callback.message.answer(
+            "❌ Сначала необходимо принять условия и подтвердить полномочия "
+            "родителя или законного представителя в настройках книги.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="⬅️ К книге", callback_data=f"ll_book:{story_id}"),
+            ]]),
+        )
+        await callback.answer()
+        return
+    await callback.message.answer(
+        disclosure.notice() + "\n\n"
+        "Это отдельное добровольное согласие на передачу текста AI-провайдеру. "
+        "Фотографии не передаются. Подтвердите только если согласны.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text="✅ Согласен(на) на обработку текста",
+                callback_data=f"ll_text_accept:{story_id}",
+            )],
+            [InlineKeyboardButton(
+                text="⬅️ Не соглашаться", callback_data=f"ll_book:{story_id}",
+            )],
+        ]),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ll_text_accept:"))
+async def little_legend_text_accept(callback: CallbackQuery) -> None:
+    """Persist a separately disclosed consent under owner lock."""
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("Только в личном чате", show_alert=True)
+        return
+    try:
+        story_id = int((callback.data or "").split(":", 1)[1])
+        if story_id <= 0:
+            raise ValueError
+    except (IndexError, ValueError):
+        await callback.answer("Неверная книга", show_alert=True)
+        return
+    disclosure = configured_text_ai_disclosure()
+    if not disclosure.ready:
+        await callback.answer("AI-провайдер не настроен", show_alert=True)
+        return
+    async with async_session_maker() as session:
+        raw = (await session.execute(select(stories.c.data).where(
+            stories.c.id == story_id, stories.c.owner_id == callback.from_user.id,
+        ).with_for_update())).scalar_one_or_none()
+        if raw is None:
+            await callback.answer("Книга не найдена", show_alert=True)
+            return
+        draft = StoryDraft.model_validate_json(raw)
+        terms = consent_status(draft.consent)
+        terms_accepted = bool(
+            draft.consent.terms_accepted_at
+            and draft.consent.parental_authority_declared
+            and draft.consent.version == terms["version"]
+        )
+        try:
+            draft.text_ai_consent = accept_server_disclosure(
+                decision=TextAIConsentDecision(
+                    accepted=True, provider=disclosure.provider,
+                    notice=disclosure.notice(),
+                ),
+                terms_accepted=terms_accepted,
+                disclosure=disclosure,
+            )
+        except (PermissionError, ValueError):
+            await callback.answer("Согласие недоступно: проверьте условия", show_alert=True)
+            return
+        await session.execute(update(stories).where(
+            stories.c.id == story_id, stories.c.owner_id == callback.from_user.id,
+        ).values(data=draft.model_dump_json(), updated_at=datetime.now(UTC)))
+        await session.commit()
+    await callback.message.answer(
+        "✅ Согласие на обработку текста сохранено. Генерация не запущена.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text="▶ Продолжить создание книги",
+                callback_data=f"ll_book:{story_id}",
+            ),
+        ]]),
     )
     await callback.answer()
 
