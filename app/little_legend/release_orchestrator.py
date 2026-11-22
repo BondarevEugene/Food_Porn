@@ -87,10 +87,6 @@ async def send_owned_release(
     manifest = await get_release_manifest(owner_id=owner_id, story_id=story_id)
     if manifest is None:
         raise PermissionError("Release is not prepared")
-    if manifest.status == DeliveryStatus.READY:
-        manifest = await reconcile_owned_delivery(
-            owner_id=owner_id, story_id=story_id,
-        )
     if manifest.status != DeliveryStatus.READY:
         raise PermissionError("Release delivery already started or completed")
     release = BookRelease(
