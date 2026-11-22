@@ -7,10 +7,10 @@ from __future__ import annotations
 import logging
 import sys
 
-from alembic import command
 from alembic.config import Config
 from sqlalchemy.engine import make_url
 
+from alembic import command
 from app.config import get_settings
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
