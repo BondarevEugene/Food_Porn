@@ -29,7 +29,7 @@ from app.little_legend.pdf_storage_config import configured_private_pdf_store
 from app.little_legend.readiness_messages import readiness_message
 from app.little_legend.release_manifest_store import get_release_manifest
 from app.little_legend.release_orchestrator import prepare_owned_release, send_owned_release
-from app.little_legend.router import stories
+from app.little_legend.router import StoryDraft, stories
 
 logger = logging.getLogger(__name__)
 
@@ -353,7 +353,7 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
         return
     owner_id = callback.from_user.id
     async with async_session_maker() as session:
-        owned = (await session.execute(select(stories.c.id).where(
+        owned = (await session.execute(select(stories.c.data).where(
             stories.c.id == story_id, stories.c.owner_id == owner_id,
         ))).scalar_one_or_none()
     if owned is None:
@@ -395,64 +395,62 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
                 "⚠️ Статус временно недоступен.",
                 "⚠️ Status is temporarily unavailable.",
             )
+    draft = StoryDraft.model_validate_json(owned)
+    plan_done = draft.graph is not None and draft.parent_sketch is not None
+    approved = plan_done and draft.outline_approved and draft.entry.plan_approved
+    hero_done = (
+        draft.blueprint is not None and draft.blueprint.family_approved
+    )
+    manuscript_done = (
+        draft.manuscript is not None and draft.manuscript.parent_approved
+    )
+    steps = [
+        ("Идея и герой", bool(draft.hero.strip()), f"ll_book:{story_id}"),
+        ("План истории", plan_done, f"ll_outline:{story_id}"),
+        ("Утверждение плана", approved, f"ll_outline:{story_id}"),
+        ("Профиль героя", hero_done, f"ll_book:{story_id}"),
+        ("Рукопись", manuscript_done, f"ll_manuscript_review:{story_id}"),
+        ("Иллюстрации", bool(ready_for_assembly or status), f"ll_art_ready:{story_id}"),
+        ("Готовый PDF", bool(status), f"ll_release_review:{story_id}"),
+        ("Доставка", status == DeliveryStatus.SENT, f"ll_send:{story_id}"),
+    ]
+    complete = sum(bool(done) for _, done, _ in steps)
+    first = next(
+        ((label, action) for label, done, action in steps if not done),
+        None,
+    )
+    checklist = "\\n".join(
+        f"{'✅' if done else '❌'} {label}" for label, done, _ in steps
+    )
+    if first is not None and first[1] == f"ll_book:{story_id}":
+        # A book overview is not a completion action: direct the user to
+        # the existing guided editor instead of creating a self-loop.
+        first = (first[0], f"ll_outline:{story_id}")
     buttons = []
     if callback.message.chat.type == "private":
+        if status == DeliveryStatus.READY:
+            primary = ("📥 Получить готовый PDF", f"ll_send:{story_id}")
+        elif ready_for_assembly:
+            primary = ("📘 Подготовить книгу", f"ll_prepare:{story_id}")
+        elif first is not None:
+            primary = (f"▶ Продолжить: {first[0]}", first[1])
+        else:
+            primary = ("📊 Проверить производство", f"ll_checkpoint:{story_id}")
         buttons.append([InlineKeyboardButton(
-            text="📖 Проверить рукопись",
-            callback_data=f"ll_manuscript_review:{story_id}",
+            text=primary[0], callback_data=primary[1],
         )])
         buttons.append([InlineKeyboardButton(
-            text="🎨 Иллюстрации книги",
-            callback_data=f"ll_art_ready:{story_id}",
+            text="⚙️ Дополнительные действия",
+            callback_data=f"ll_book_tools:{story_id}",
         )])
-        buttons.append([InlineKeyboardButton(
-            text="📘 Проверить выпуск PDF",
-            callback_data=f"ll_release_review:{story_id}",
-        )])
-        buttons.append([InlineKeyboardButton(
-            text="📷 Фото ребёнка и согласие",
-            callback_data=f"ll_photo_notice:{story_id}",
-        )])
-        buttons.append([InlineKeyboardButton(
-            text="🗑 Отозвать согласие и удалить фото",
-            callback_data=f"ll_photo_withdraw:{story_id}",
-        )])
-        buttons.append([InlineKeyboardButton(
-            text="📊 Производство книги",
-            callback_data=f"ll_checkpoint:{story_id}",
-        )])
-    if status is None and callback.message.chat.type == "private":
-        buttons.append([InlineKeyboardButton(
-            text="📖 Посмотреть и утвердить план",
-            callback_data=f"ll_outline:{story_id}",
-        )])
-    if ready_for_assembly and callback.message.chat.type == "private":
-        buttons.append([InlineKeyboardButton(
-            text=text_for(
-                lang, "📘 Підготувати книгу", "📘 Подготовить книгу",
-                "📘 Prepare book",
-            ),
-            callback_data=f"ll_prepare:{story_id}",
-        )])
-    if status == DeliveryStatus.READY and callback.message.chat.type == "private":
-        buttons.append([InlineKeyboardButton(
-            text=text_for(lang, "📥 Отримати PDF", "📥 Получить PDF", "📥 Get PDF"),
-            callback_data=f"ll_send:{story_id}",
-        )])
-    if status is None and callback.message.chat.type == "private":
-        buttons.append([InlineKeyboardButton(
-            text=text_for(lang, "🎨 Оформлення книги", "🎨 Оформление книги",
-                          "🎨 Book colors"),
-            callback_data=f"ll_palette:{story_id}",
-        )])
-    buttons.append([
-            InlineKeyboardButton(
-                text=text_for(lang, "⬅️ Мої книги", "⬅️ Мои книги", "⬅️ My books"),
-                callback_data="ll_books",
-            ),
-        ])
+    buttons.append([InlineKeyboardButton(
+        text="⬅️ Мои книги", callback_data="ll_books",
+    )])
     await callback.message.answer(
-        f"📖 #{story_id} — {status_text}" + (f"\n\n{readiness_text}" if readiness_text else ""),
+        f"📖 Книга №{story_id} · {status_text}\\n"
+        f"Выполнено {complete} из {len(steps)} обязательных этапов\\n\\n"
+        f"{checklist}\\n\\n"
+        "Нажмите основную кнопку, чтобы продолжить.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
     await callback.answer()
