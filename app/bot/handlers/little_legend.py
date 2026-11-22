@@ -405,10 +405,10 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
         draft.manuscript is not None and draft.manuscript.parent_approved
     )
     steps = [
-        ("Идея и герой", bool(draft.hero.strip()), f"ll_book:{story_id}"),
+        ("Идея и герой", bool(draft.entry.brief or draft.entry.classic or draft.parent_sketch), f"ll_outline:{story_id}"),
         ("План истории", plan_done, f"ll_outline:{story_id}"),
         ("Утверждение плана", approved, f"ll_outline:{story_id}"),
-        ("Профиль героя", hero_done, f"ll_book:{story_id}"),
+        ("Профиль героя", hero_done, f"ll_outline:{story_id}"),
         ("Рукопись", manuscript_done, f"ll_manuscript_review:{story_id}"),
         ("Иллюстрации", bool(ready_for_assembly or status), f"ll_art_ready:{story_id}"),
         ("Готовый PDF", bool(status), f"ll_release_review:{story_id}"),
@@ -422,10 +422,6 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
     checklist = "\n".join(
         f"{'✅' if done else '❌'} {label}" for label, done, _ in steps
     )
-    if first is not None and first[1] == f"ll_book:{story_id}":
-        # A book overview is not a completion action: direct the user to
-        # the existing guided editor instead of creating a self-loop.
-        first = (first[0], f"ll_outline:{story_id}")
     buttons = []
     if callback.message.chat.type == "private":
         if status == DeliveryStatus.READY:
