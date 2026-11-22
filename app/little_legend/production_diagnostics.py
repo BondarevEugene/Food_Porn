@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.database.session import async_session_maker
-
 from app.little_legend.book_delivery import DeliveryStatus
 from app.little_legend.delivery_reconciliation import (
     RecoveryAction,
