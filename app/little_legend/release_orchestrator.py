@@ -5,13 +5,17 @@ by dispatch_release_pdf; uncertain outcomes must never be retried automatically.
 """
 from __future__ import annotations
 
+import asyncio
+
 from app.little_legend.book_delivery import BookDelivery, DeliveryStatus
 from app.little_legend.book_release import BookRelease
 from app.little_legend.owned_production import load_owned_production
 from app.little_legend.private_pdf_store import (
     PrivatePDFStore,
+    pdf_object_key,
     persist_release_pdf,
     restore_release_pdf,
+    validate_pdf,
 )
 from app.little_legend.registered_artifact_writes import register_release_pdf
 from app.little_legend.release_manifest_store import (
@@ -46,6 +50,16 @@ async def prepare_owned_release(
             store=pdf_store, package=package,
             owner_id=owner_id, story_id=story_id,
         )
+    # Never advertise a ready PDF before the private store can read back
+    # the exact sealed bytes. A failed read leaves no delivery manifest.
+    stored_pdf = await asyncio.to_thread(
+        pdf_store.get,
+        key=pdf_object_key(
+            owner_id=owner_id, story_id=story_id,
+            pdf_sha256=package.release.pdf_sha256,
+        ),
+    )
+    validate_pdf(stored_pdf, expected_sha256=package.release.pdf_sha256)
     return await register_release(
         package=package, owner_id=owner_id, story_id=story_id,
     )

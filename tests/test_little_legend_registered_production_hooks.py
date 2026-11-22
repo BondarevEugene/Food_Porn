@@ -47,6 +47,10 @@ async def test_release_registration_precedes_manifest():
     production = Mock()
     production.assemble.return_value = package
     events = []
+    pdf = b"%PDF-1.7\\n" + b"x" * 120
+    package.release.pdf_sha256 = __import__("hashlib").sha256(pdf).hexdigest()
+    store = Mock()
+    store.get.return_value = pdf
 
     async def registered(**kwargs):
         events.append("registered")
@@ -74,7 +78,7 @@ async def test_release_registration_precedes_manifest():
         ),
     ):
         await prepare_owned_release(
-            owner_id=1, story_id=2, art_store=Mock(), pdf_store=Mock(),
+            owner_id=1, story_id=2, art_store=Mock(), pdf_store=store,
             registry_bucket="private",
         )
     assert events == ["registered", "manifest"]
