@@ -381,6 +381,8 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
     }
     status_text = text_for(lang, *status_labels[status])
     ready_for_assembly = False
+    art_done = False
+    editorial_done = False
     if status is None:
         try:
             production = await load_owned_production(
@@ -388,6 +390,10 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
             )
             readiness = production.readiness()
             ready_for_assembly = readiness.ready_for_export
+            art_done = not any(
+                issue.stage.value == "illustrations" for issue in readiness.issues
+            )
+            editorial_done = production.editorial_approved
         except PermissionError:
             pass  # The manuscript is not complete yet; show the next client step.
         except Exception:
@@ -412,7 +418,8 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
         ("Условия и полномочия родителя", terms_done, f"ll_terms:{story_id}"),
         ("Согласие на AI-текст", ai_done, f"ll_text_notice:{story_id}"),
         ("Рукопись", manuscript_done, f"ll_manuscript_review:{story_id}" if draft.manuscript is not None else f"ll_writer_start:{story_id}"),
-        ("Иллюстрации", ready_for_assembly, f"ll_art_ready:{story_id}"),
+        ("Иллюстрации", art_done, f"ll_art_ready:{story_id}"),
+        ("Финальная проверка", editorial_done, f"ll_checkpoint:{story_id}"),
         ("Готовый PDF", status is not None, f"ll_release_review:{story_id}"),
         ("Доставка", status == DeliveryStatus.SENT, f"ll_send:{story_id}"),
     ]
