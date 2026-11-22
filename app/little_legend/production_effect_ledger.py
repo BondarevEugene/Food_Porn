@@ -39,6 +39,7 @@ class EffectKind(StrEnum):
     WRITER_AI = "writer_ai"
     ILLUSTRATION_AI = "illustration_ai"
     TELEGRAM_PDF = "telegram_pdf"
+    TELEGRAM_AUTO_REQUEST = "telegram_auto_request"
 
 
 metadata = MetaData()
@@ -180,4 +181,21 @@ async def list_unresolved_effects(
             production_effects.c.created_at,
             production_effects.c.effect_key,
         ).limit(limit))).mappings().all()
+    return [_decode(row) for row in rows]
+
+
+async def list_pending_auto_delivery(*, limit: int = 20) -> list[ProductionEffect]:
+    """Read opted-in pending deliveries; the PDF ledger fences concurrent workers."""
+    if not 1 <= limit <= 100:
+        raise ValueError("Invalid auto-delivery batch size")
+    async with async_session_maker() as session:
+        rows = (await session.execute(
+            select(production_effects).where(
+                production_effects.c.kind == EffectKind.TELEGRAM_AUTO_REQUEST.value,
+                production_effects.c.status == EffectStatus.RESERVED.value,
+            ).order_by(
+                production_effects.c.created_at,
+                production_effects.c.effect_key,
+            ).limit(limit)
+        )).mappings().all()
     return [_decode(row) for row in rows]
