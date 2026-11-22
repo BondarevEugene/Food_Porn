@@ -17,6 +17,7 @@ from app.bot.handlers.little_legend_outline import router as outline_router
 from app.bot.handlers.little_legend_palettes import router as palette_router
 from app.bot.handlers.little_legend_photo import router as photo_router
 from app.bot.handlers.little_legend_release_preflight import router as release_preflight_router
+from app.bot.handlers.little_legend_writer_start import router as writer_start_router
 from app.bot.handlers.wallpaper import language_for, text_for
 from app.config import get_settings
 from app.database.models import Customer
@@ -52,6 +53,7 @@ router.include_router(illustrations_router)
 router.include_router(release_preflight_router)
 router.include_router(outline_router)
 router.include_router(guided_router)
+router.include_router(writer_start_router)
 
 
 def little_legend_studio_url(configured_url: str) -> str | None:
@@ -415,13 +417,15 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
     )
     disclosure = configured_text_ai_disclosure()
     ai_done = consent_allows_provider(draft.text_ai_consent, disclosure)
+    terms_done = consent_status(draft.consent)["terms_accepted"]
     steps = [
         ("Идея и герой", bool(draft.entry.brief or draft.entry.classic or draft.parent_sketch), f"ll_outline:{story_id}"),
         ("План истории", plan_done, f"ll_outline:{story_id}"),
         ("Утверждение плана", approved, f"ll_outline:{story_id}"),
         ("Профиль героя", hero_done, f"ll_hero_review:{story_id}"),
+        ("Условия и полномочия родителя", terms_done, f"ll_terms:{story_id}"),
         ("Согласие на AI-текст", ai_done, f"ll_text_notice:{story_id}"),
-        ("Рукопись", manuscript_done, f"ll_manuscript_review:{story_id}"),
+        ("Рукопись", manuscript_done, f"ll_writer_start:{story_id}"),
         ("Иллюстрации", bool(ready_for_assembly or status), f"ll_art_ready:{story_id}"),
         ("Готовый PDF", bool(status), f"ll_release_review:{story_id}"),
         ("Доставка", status == DeliveryStatus.SENT, f"ll_send:{story_id}"),
