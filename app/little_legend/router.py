@@ -1669,6 +1669,28 @@ async def story_illustration_status(
     }
 
 
+@router.post("/api/stories/{story_id}/illustrations/send-premium-book")
+async def send_premium_book_to_telegram(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Owner explicitly requests one private Telegram PDF delivery."""
+    from app.little_legend.telegram_book_delivery import deliver_owned_book_once
+
+    pdf_response = await download_premium_illustrated_book(story_id, owner)
+    try:
+        result = await deliver_owned_book_once(
+            owner_id=owner, story_id=story_id, pdf=pdf_response.body,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except Exception as exc:
+        # A timeout may mean Telegram delivered the PDF. Do not auto-retry.
+        raise HTTPException(
+            409, "Delivery outcome is uncertain; check Telegram before retrying",
+        ) from exc
+    return result
+
+
 @router.get("/api/stories/{story_id}/illustrations/premium-book.pdf")
 async def download_premium_illustrated_book(
     story_id: int, owner: Annotated[int, Depends(_owner)],
