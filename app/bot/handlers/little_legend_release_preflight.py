@@ -15,6 +15,31 @@ from app.little_legend.release_manifest_store import get_release_manifest
 
 router = Router(name="little_legend_release_preflight")
 
+_ISSUE_HINTS = {
+    "scenes_missing": "Нужно завершить план истории",
+    "duplicate_scene_ids": "План истории требует проверки",
+    "duplicate_chapters": "Обнаружены повторяющиеся главы",
+    "parent_approval_missing": "Утвердите рукопись",
+    "hero_missing": "Заполните профиль героя",
+    "chapter_missing": "Дождитесь написания всех глав",
+    "chapter_unapproved": "Прочитайте и утвердите главы",
+    "unexpected_chapter": "Состав глав требует проверки",
+    "illustration_job_count_invalid": "Запустите иллюстрации или проверьте их очередь",
+    "illustration_incomplete": "Дождитесь завершения иллюстраций",
+    "illustration_revision_stale": "Иллюстрации устарели после изменения текста",
+    "unexpected_illustration": "Найдена иллюстрация вне плана книги",
+    "editorial_approval_missing": "Подтвердите финальную редакторскую проверку",
+    "pdf_not_verified": "PDF ещё не собран",
+}
+
+
+def release_issue_hints(codes: list[str]) -> list[str]:
+    """Translate technical readiness codes into actionable parent-facing hints."""
+    return list(dict.fromkeys(_ISSUE_HINTS.get(code, "Нужна проверка производства") for code in codes))
+
+
+
+
 
 def release_actions(
     story_id: int, *, ready_for_export: bool, delivery_status: DeliveryStatus | None,
@@ -87,9 +112,11 @@ async def show_release_preflight(callback: CallbackQuery) -> None:
                 )
             else:
                 issues = sorted({issue.code for issue in readiness.issues})
+                hints = release_issue_hints(issues)
                 message = (
-                    "⏳ Сборка пока недоступна. "
-                    "Незакрытые проверки: " + ", ".join(issues[:12])
+                    "⏳ Книга ещё не готова к сборке. Что осталось:\\n"
+                    + "\\n".join(f"• {hint}" for hint in hints[:6])
+                    + "\\n\\nВернитесь к этапам книги и нажмите основную кнопку."
                 )
     except PermissionError:
         await callback.answer("Книга ещё не готова", show_alert=True)
