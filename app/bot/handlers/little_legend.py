@@ -419,7 +419,7 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
         ((label, action) for label, done, action in steps if not done),
         None,
     )
-    checklist = "\\n".join(
+    checklist = "\n".join(
         f"{'✅' if done else '❌'} {label}" for label, done, _ in steps
     )
     if first is not None and first[1] == f"ll_book:{story_id}":
@@ -447,10 +447,11 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
         text="⬅️ Мои книги", callback_data="ll_books",
     )])
     await callback.message.answer(
-        f"📖 Книга №{story_id} · {status_text}\\n"
-        f"Выполнено {complete} из {len(steps)} обязательных этапов\\n\\n"
-        f"{checklist}\\n\\n"
-        "Нажмите основную кнопку, чтобы продолжить.",
+        f"📖 Книга №{story_id} · {status_text}\n"
+        f"Выполнено {complete} из {len(steps)} обязательных этапов\n\n"
+        f"{checklist}\n\n"
+        + (f"{readiness_text}\n\n" if readiness_text else "")
+        + "Нажмите основную кнопку, чтобы продолжить.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
     await callback.answer()
