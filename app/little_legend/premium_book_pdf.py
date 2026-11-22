@@ -44,7 +44,7 @@ def validate_premium_book_jobs(
         raise PermissionError("Premium illustrations are incomplete or cross-owner")
     first = restore_premium_job_context(jobs[0])
     manifest, plan = first.manifest, first.plan
-    require_premium_batch_ready(
+    story_fingerprint = require_premium_batch_ready(
         manifest=manifest, plan=plan, graph=graph, manuscript=manuscript,
         owner_id=owner_id, story_id=story_id,
     )
@@ -59,7 +59,7 @@ def validate_premium_book_jobs(
         if (
             context.manifest.fingerprint != manifest.fingerprint
             or context.plan != plan
-            or job.premium_story_fingerprint != jobs[0].premium_story_fingerprint
+            or job.premium_story_fingerprint != story_fingerprint
         ):
             raise PermissionError("Premium batch mixes different production plans")
     return [by_moment[moment_id] for moment_id in expected]
