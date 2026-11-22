@@ -12,8 +12,8 @@ from app.little_legend.book_release import BookRelease
 from app.little_legend.owned_production import load_owned_production
 from app.little_legend.private_pdf_store import (
     PrivatePDFStore,
-    persist_release_pdf,
     pdf_object_key,
+    persist_release_pdf,
     restore_release_pdf,
     validate_pdf,
 )
