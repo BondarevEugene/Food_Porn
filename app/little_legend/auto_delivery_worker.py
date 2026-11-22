@@ -44,6 +44,31 @@ async def opt_in_auto_delivery(*, owner_id: int, story_id: int) -> dict:
     return {"status":effect.status.value, "created":created}
 
 
+async def get_auto_delivery_status(*, owner_id: int, story_id: int) -> dict:
+    """Owner-only status; never expose Telegram message IDs or tokens."""
+    from sqlalchemy import select
+
+    from app.database.session import async_session_maker
+    from app.little_legend.production_effect_ledger import production_effects
+    from app.little_legend.router import stories
+
+    async with async_session_maker() as session:
+        owned = (await session.execute(select(stories.c.id).where(
+            stories.c.id == story_id, stories.c.owner_id == owner_id,
+        ))).scalar_one_or_none()
+        if owned is None:
+            raise PermissionError("Story does not belong to owner")
+        status = (await session.execute(select(production_effects.c.status).where(
+            production_effects.c.effect_key == auto_delivery_key(
+                owner_id=owner_id, story_id=story_id,
+            ),
+            production_effects.c.owner_id == owner_id,
+            production_effects.c.story_id == story_id,
+            production_effects.c.kind == EffectKind.TELEGRAM_AUTO_REQUEST.value,
+        ))).scalar_one_or_none()
+    return {"status":status or "not_requested"}
+
+
 async def render_ready_premium_pdf(*, owner_id: int, story_id: int) -> bytes | None:
     """Reuse all owner, manuscript, illustration and private-storage checks."""
     from app.little_legend.router import download_premium_illustrated_book
