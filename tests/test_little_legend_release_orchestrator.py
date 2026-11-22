@@ -62,6 +62,7 @@ async def test_prepare_persists_before_registering_manifest() -> None:
             "app.little_legend.release_orchestrator.register_release",
             side_effect=register,
         ),
+        patch("app.little_legend.release_orchestrator.validate_pdf"),
     ):
         result = await prepare_owned_release(
             owner_id=1, story_id=2, art_store=Mock(), pdf_store=Mock(),
