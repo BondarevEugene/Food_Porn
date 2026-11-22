@@ -27,6 +27,7 @@ from reportlab.pdfgen import canvas
 from app.database.models import FileKind, ItemCategory, Language, Menu
 from app.locales.messages import t
 from app.services.menu_art_directions import BY_CODE, choose_direction
+from app.services.menu_living_scene import plan_living_scene
 from app.services.menu_romance_copy import romantic_copy
 from app.services.menu_wizard import (
     MEAL_FULL_DAY,
@@ -55,14 +56,22 @@ def menu_render_snapshot(menu: Menu) -> SimpleNamespace:
     Pillow/ReportLab worker thread.
     """
     customer = menu.customer
+    meal = getattr(menu, "meal_period", None)
+    scene = (
+        plan_living_scene(
+            meal=meal, mood="romantic",
+            order_seed=getattr(menu, "design_seed", None) or menu.id,
+        )
+        if meal in ("breakfast", "lunch", "dinner") else None
+    )
     return SimpleNamespace(
         id=menu.id,
         cover_photo_path=menu.cover_photo_path,
         spread_photo_path=menu.spread_photo_path,
         meal_period=menu.meal_period,
-        visual_style=getattr(menu, "visual_style", "dark"),
+        visual_style=scene.visual_theme if scene else getattr(menu, "visual_style", "dark"),
         design_seed=getattr(menu, "design_seed", menu.id),
-        design_preset=getattr(menu, "design_preset", None),
+        design_preset=scene.art_direction if scene else getattr(menu, "design_preset", None),
         customer=SimpleNamespace(
             name=customer.name,
             language=customer.language,

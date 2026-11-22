@@ -13,6 +13,7 @@ Responsibilities:
 """
 
 from app.database.models import ItemCategory, MenuItem
+from app.services.menu_living_scene import LivingSceneBrief
 
 CATEGORY_HINTS = {
     ItemCategory.MAIN: "a complete plated main course",
@@ -25,7 +26,7 @@ CATEGORY_HINTS = {
 
 
 class PromptBuilder:
-    def build(self, item: MenuItem) -> str:
+    def build(self, item: MenuItem, *, scene: LivingSceneBrief | None = None) -> str:
         if item.title.casefold() in {
             "сюрприз от повара",
             "сюрприз від шефа",
@@ -39,6 +40,18 @@ class PromptBuilder:
                 "No people, hands, text, letters, logo, watermark or border. Square image."
             )
         subject = CATEGORY_HINTS[item.category]
+        if scene is not None:
+            return (
+                f"Create a photorealistic premium editorial food photograph of {item.title!r}, "
+                f"presented as {subject}. One single serving, three-quarter camera angle. "
+                f"Setting: {scene.setting}. Lighting: {scene.lighting}. "
+                f"Art direction: {scene.art_direction}; mood: {scene.emotion}. "
+                f"Props: {scene.props}. Match the same restaurant editorial world "
+                "across all dishes in this order, with consistent light, tabletop and "
+                "color grading. Keep the plate fully visible and naturally appetizing. "
+                "No people, faces, hands, text, lettering, logos, watermark or border. "
+                "Square composition."
+            )
         return (
             f"Create a realistic premium restaurant food photograph of {item.title!r}, "
             f"presented as {subject}. One single serving, centered composition, three-quarter "

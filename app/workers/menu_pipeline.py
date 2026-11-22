@@ -41,6 +41,7 @@ from app.render.recipes import render_recipe_sheet
 from app.services.evening_plan import build_evening_plan, save_evening_plan
 from app.services.free_access import has_free_generation_access
 from app.services.image_generation import ImageGenerationService
+from app.services.menu_living_scene import plan_living_scene
 from app.services.menu_photo_recovery import restore_missing_menu_photos
 from app.services.menu_processing_lease import MenuProcessingLease
 from app.services.menu_quality import (
@@ -174,6 +175,15 @@ class MenuPipeline:
                     customer_telegram_id, username, self.settings, self.session_factory)
                 placeholder = self.settings.demo_dir / "placeholder.jpg"
                 mock_hash = hashlib.sha256(placeholder.read_bytes()).digest() if placeholder.is_file() else None
+                # One reproducible art direction for dishes and print layout.
+                # Legacy full-day orders retain their existing rendering contract.
+                scene = None
+                if menu.meal_period in ("breakfast", "lunch", "dinner"):
+                    scene = plan_living_scene(
+                        meal=menu.meal_period,
+                        mood="romantic",
+                        order_seed=getattr(menu, "design_seed", None) or menu.id,
+                    )
                 # Шаг 1: Генерация изображений блюд с защитой от дублирования
                 dishes_total = sum(1 for item in menu.items if item.title != "—")
                 dishes_done = 0
@@ -188,7 +198,7 @@ class MenuPipeline:
                         continue
 
                     await lease.assert_owned()
-                    prompt = self.prompt_builder.build(item)
+                    prompt = self.prompt_builder.build(item, scene=scene)
                     await repo.set_item_processing(item, prompt)
 
                     destination = self.settings.uploads_dir / str(menu.id) / f"item_{item.id}.jpg"
@@ -262,6 +272,9 @@ class MenuPipeline:
                 # Resolve every ORM attribute on the event loop before the
                 # CPU-bound Pillow/ReportLab renderer enters its worker thread.
                 render_input = menu_render_snapshot(menu)
+                if scene is not None:
+                    render_input.visual_style = scene.visual_theme
+                    render_input.design_preset = scene.art_direction
                 rendered_artifacts = await asyncio.to_thread(
                     self.renderer.render, render_input
                 )
