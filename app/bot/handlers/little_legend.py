@@ -456,6 +456,47 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("ll_book_tools:"))
+async def little_legend_book_tools(callback: CallbackQuery) -> None:
+    """Keep optional and destructive actions away from the primary route."""
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("Только в личном чате", show_alert=True)
+        return
+    try:
+        story_id = int((callback.data or "").split(":", 1)[1])
+    except (IndexError, ValueError):
+        await callback.answer("Неверная книга", show_alert=True)
+        return
+    async with async_session_maker() as session:
+        owned = (await session.execute(select(stories.c.id).where(
+            stories.c.id == story_id,
+            stories.c.owner_id == callback.from_user.id,
+        ))).scalar_one_or_none()
+    if owned is None:
+        await callback.answer("Книга не найдена", show_alert=True)
+        return
+    actions = [
+        ("📖 План", f"ll_outline:{story_id}"),
+        ("📖 Рукопись", f"ll_manuscript_review:{story_id}"),
+        ("🎨 Иллюстрации", f"ll_art_ready:{story_id}"),
+        ("🎨 Оформление", f"ll_palette:{story_id}"),
+        ("📷 Фото и согласие", f"ll_photo_notice:{story_id}"),
+        ("📊 Производство", f"ll_checkpoint:{story_id}"),
+        ("📘 Выпуск PDF", f"ll_release_review:{story_id}"),
+        ("🗑 Удалить фото и отозвать согласие", f"ll_photo_withdraw:{story_id}"),
+        ("⬅️ К этапам книги", f"ll_book:{story_id}"),
+    ]
+    await callback.message.answer(
+        "⚙️ Дополнительные действия\\n"
+        "Они не заменяют обязательные этапы создания книги.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=label, callback_data=data)]
+            for label, data in actions
+        ]),
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("ll_send:"))
 async def send_little_legend_book(callback: CallbackQuery) -> None:
     """One explicit owner-authorized send; no automatic retries on ambiguity."""
