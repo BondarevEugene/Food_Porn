@@ -385,21 +385,20 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
     ready_for_assembly = False
     art_done = False
     editorial_done = False
-    if status is None:
-        try:
-            production = await load_owned_production(
-                owner_id=owner_id, story_id=story_id,
-            )
-            readiness = production.readiness()
-            ready_for_assembly = readiness.ready_for_export
-            art_done = not any(
-                issue.stage.value == "illustrations" for issue in readiness.issues
-            )
-            editorial_done = production.editorial_approved
-        except PermissionError:
-            pass  # The manuscript is not complete yet; show the next client step.
-        except Exception:
-            logger.exception("Little Legend readiness lookup failed")
+    try:
+        production = await load_owned_production(
+            owner_id=owner_id, story_id=story_id,
+        )
+        readiness = production.readiness()
+        ready_for_assembly = readiness.ready_for_export and status is None
+        art_done = readiness.total_scenes > 0 and not any(
+            issue.stage.value == "illustrations" for issue in readiness.issues
+        )
+        editorial_done = production.editorial_approved
+    except PermissionError:
+        pass  # Manuscript not ready: the next step stays available.
+    except Exception:
+        logger.exception("Little Legend readiness lookup failed")
     draft = StoryDraft.model_validate_json(owned)
     plan_done = draft.graph is not None and draft.parent_sketch is not None
     approved = plan_done and draft.outline_approved and draft.entry.plan_approved
@@ -435,7 +434,11 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
     )
     buttons = []
     if callback.message.chat.type == "private":
-        if status == DeliveryStatus.READY:
+        if status == DeliveryStatus.SENT:
+            primary = ("✅ Книга уже доставлена", f"ll_release_review:{story_id}")
+        elif status in (DeliveryStatus.SENDING, DeliveryStatus.UNCERTAIN):
+            primary = ("📦 Проверить доставку", f"ll_release_review:{story_id}")
+        elif status == DeliveryStatus.READY:
             primary = ("📥 Получить готовый PDF", f"ll_send:{story_id}")
         elif ready_for_assembly:
             primary = ("📘 Подготовить книгу", f"ll_prepare:{story_id}")
