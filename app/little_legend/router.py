@@ -1474,6 +1474,54 @@ async def story_production_overview(
     }
 
 
+class PremiumBatchQueueRequest(BaseModel):
+    manifest: dict
+    plan: dict
+
+
+@router.post("/api/stories/{story_id}/illustrations/premium-queue")
+async def queue_premium_story_illustrations(
+    story_id: int, request: PremiumBatchQueueRequest,
+    owner: Annotated[int, Depends(_owner)],
+):
+    """Queue validated photo-aware work for the dedicated premium Railway worker."""
+    from app.little_legend.illustration_queue_store import enqueue_premium_illustration_jobs
+    from app.little_legend.neon_photo_vault import NeonVaultMetadataRepository
+    from app.little_legend.neon_premium_photo_consent import NeonPremiumPhotoConsentRepository
+    from app.little_legend.premium_batch_manifest import PremiumBatchManifest
+    from app.little_legend.premium_photo_consent import (
+        configured_premium_photo_disclosure,
+        premium_photo_consent_allows_transfer,
+    )
+    from app.little_legend.premium_visual_contract import BookVisualPlan
+
+    await _owned_draft(story_id, owner)
+    manifest = PremiumBatchManifest.model_validate(request.manifest)
+    plan = BookVisualPlan.model_validate(request.plan)
+    if manifest.owner_id != owner or manifest.story_id != story_id:
+        raise HTTPException(403, "Premium batch ownership mismatch")
+    consent = await NeonPremiumPhotoConsentRepository().get_photo_consent(
+        owner_id=owner, story_id=story_id,
+    )
+    if not premium_photo_consent_allows_transfer(
+        consent, configured_premium_photo_disclosure(),
+    ):
+        raise HTTPException(403, "Current parental photo AI consent required")
+    refs = {item.reference_id for item in manifest.requests}
+    live = set(await NeonVaultMetadataRepository().list_stored_reference_ids(
+        owner_id=owner, story_id=story_id,
+    ))
+    if not refs or not refs.issubset(live):
+        raise HTTPException(409, "Premium batch contains missing or expired photos")
+    try:
+        ids = await enqueue_premium_illustration_jobs(manifest=manifest, plan=plan)
+    except PermissionError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"status": "queued", "job_count": len(ids), "premium": True}
+
+
 @router.get("/api/stories/{story_id}/illustrations/status")
 async def story_illustration_status(
     story_id: int, owner: Annotated[int, Depends(_owner)],
