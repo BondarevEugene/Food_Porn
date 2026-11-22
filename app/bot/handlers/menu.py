@@ -633,7 +633,12 @@ async def prompt_menu_plan(
         selected_category=(callback_data.category if callback_data.action == "edit_category" else None),
     )
     await callback.message.edit_text(
-        text_for(
+        (text_for(
+            language,
+            "✍️ <b>Введіть страви вибраної категорії</b>\\nКожна страва з нового рядка. Інші категорії збережуться.",
+            "✍️ <b>Введите блюда выбранной категории</b>\\nКаждое блюдо с новой строки. Другие категории сохранятся.",
+            "✍️ <b>Enter dishes for this category</b>\\nOne dish per line. Other categories are preserved.",
+        ) if callback_data.action == "edit_category" else text_for(
             language,
             "🖋 <b>Введіть усе меню одним повідомленням</b>\n\n"
             "Заголовки <b>Сніданок, Обід, Вечеря</b> не вважаються стравами. "
@@ -650,7 +655,7 @@ async def prompt_menu_plan(
             "Every other line is one dish. Bullets, dashes, and numbering are allowed.\n\n"
             "Languages may be mixed; transliteration and minor typos are accepted.\n\n"
             "<pre>Breakfast\n- Omelet\nCoffee\n\nLunch:\n1. Soup\nCaesar salad\n\nDinner\nSteak\nRed wine</pre>",
-        ),
+        )),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⬅️ Назад", callback_data=MenuAction(action="view", menu_id=menu.id).pack())],
             [InlineKeyboardButton(text="🏠 В начало", callback_data="back_to_products")],
