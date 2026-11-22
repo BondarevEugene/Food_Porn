@@ -480,6 +480,57 @@ async def view_dashboard(
     await callback.answer()
 
 
+@router.callback_query(MenuAction.filter(F.action == "pick_category"))
+async def pick_item_category(
+    callback: CallbackQuery,
+    callback_data: MenuAction,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Open a real category picker for the full-day menu."""
+    async with session_factory() as session:
+        menu = await MenuRepository(session).get(callback_data.menu_id, full=True)
+    if not _owned_by(menu, callback.from_user.id):
+        await callback.answer("Сет не найден.", show_alert=True)
+        return
+    if menu.status not in (MenuStatus.DRAFT, MenuStatus.FAILED):
+        await callback.answer("Готовый заказ нельзя изменять.", show_alert=True)
+        return
+    language = getattr(menu.customer.language, "value", menu.customer.language) or "ru"
+    labels = {
+        "ru": ("Основные блюда", "Салаты", "Напитки", "Супы", "Закуски", "Десерты"),
+        "uk": ("Основні страви", "Салати", "Напої", "Супи", "Закуски", "Десерти"),
+        "en": ("Main dishes", "Salads", "Drinks", "Soups", "Appetizers", "Desserts"),
+    }
+    categories = (
+        ItemCategory.MAIN, ItemCategory.SALAD, ItemCategory.DRINK,
+        ItemCategory.SOUP, ItemCategory.APPETIZER, ItemCategory.DESSERT,
+    )
+    builder = InlineKeyboardBuilder()
+    for category, label in zip(categories, labels.get(str(language), labels["ru"])):
+        builder.button(
+            text=label,
+            callback_data=MenuAction(
+                action="edit_category", menu_id=menu.id, category=category.value,
+            ),
+        )
+    builder.button(
+        text="⬅️ Назад",
+        callback_data=MenuAction(action="menu_dish_methods", menu_id=menu.id),
+    )
+    builder.adjust(2, 2, 2, 1)
+    await callback.message.edit_text(
+        text_for(
+            str(language),
+            "🍽️ <b>Оберіть категорію страв</b>\nДодавайте страви по одній категорії.",
+            "🍽️ <b>Выберите категорию блюд</b>\nДобавляйте блюда по одной категории.",
+            "🍽️ <b>Choose a dish category</b>\nAdd dishes one category at a time.",
+        ),
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
 @router.callback_query(MenuAction.filter(F.action == "choose_cuisine"))
 async def choose_cuisine(
     callback: CallbackQuery,
@@ -579,6 +630,7 @@ async def prompt_menu_plan(
     await state.update_data(
         menu_id=callback_data.menu_id,
         ui_lang=language,
+        selected_category=(callback_data.category if callback_data.action == "edit_category" else None),
     )
     await callback.message.edit_text(
         text_for(
@@ -617,6 +669,7 @@ async def receive_dish_list(
     data = await state.get_data()
     menu_id = data.get("menu_id")
     language = data.get("ui_lang", "ru")
+    selected_category = data.get("selected_category")
     try:
         entries = parse_menu_plan(message.text, language=language)
     except (ValueError, TypeError) as exc:
@@ -636,10 +689,21 @@ async def receive_dish_list(
             await state.clear()
             await message.answer("Сет не найден. Вернитесь в /start.")
             return
-        await repo.replace_menu_plan(
-            menu_id=menu_id,
-            entries=[(entry.meal_slot, entry.title, entry.category) for entry in entries],
-        )
+        if selected_category:
+            try:
+                category = ItemCategory(selected_category)
+            except ValueError:
+                await message.answer("Категория устарела. Выберите её заново.")
+                return
+            await repo.replace_category_items(
+                menu_id=menu_id, category=category,
+                titles=[entry.title for entry in entries],
+            )
+        else:
+            await repo.replace_menu_plan(
+                menu_id=menu_id,
+                entries=[(entry.meal_slot, entry.title, entry.category) for entry in entries],
+            )
         menu = await repo.get(menu_id, full=True)
     await state.set_state(None)
     await message.answer(
