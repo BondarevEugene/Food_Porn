@@ -487,13 +487,12 @@ async def little_legend_book_tools(callback: CallbackQuery) -> None:
         ("🗑 Удалить фото и отозвать согласие", f"ll_photo_withdraw:{story_id}"),
         ("⬅️ К этапам книги", f"ll_book:{story_id}"),
     ]
-    await callback.message.answer(
-        "⚙️ Дополнительные действия\\n"
+    outline_button = InlineKeyboardButton(\n        text="📖 Посмотреть и утвердить план",\n        callback_data=f"ll_outline:{story_id}",\n    )\n    await callback.message.answer(\n        "⚙️ Дополнительные действия\\n"
         "Они не заменяют обязательные этапы создания книги.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=label, callback_data=data)]
             for label, data in actions
-        ]),
+        ] + [[outline_button]]),
     )
     await callback.answer()
 
