@@ -6,9 +6,9 @@ returns the existing delivery state, not another message.
 from __future__ import annotations
 
 import hashlib
-import os
-
 import httpx
+
+from app.config import get_settings
 
 from app.little_legend.production_effect_ledger import (
     EffectKind,
@@ -53,8 +53,8 @@ async def deliver_owned_book_once(
     sender=send_telegram_pdf,
 ) -> dict:
     """Dispatch only a newly reserved PDF; subsequent requests are read-only."""
-    token = os.environ.get("BOT_TOKEN", "") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    if not token:
+    token = get_settings().bot_token
+    if not token or token == "replace_me":
         raise RuntimeError("Telegram bot token is not configured")
     key = delivery_effect_key(owner_id=owner_id, story_id=story_id, pdf=pdf)
     digest = hashlib.sha256(pdf).hexdigest()
