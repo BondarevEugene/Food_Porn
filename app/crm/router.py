@@ -370,6 +370,13 @@ async def sync_openai_costs(request: Request, identity: Identity, days: Days = 3
     return {"ok": True, "imported": imported, "synced_at": synchronizer.last_synced_at}
 
 
+@router.get("/api/product-metrics")
+async def product_metrics(identity: Identity, days: Days = 30):
+    """Authenticated per-product sales metrics, no cross-currency summation."""
+    async with async_session_maker() as session:
+        return await service.product_metrics(session, days)
+
+
 @router.get("/api/product-scope")
 async def product_scope(identity: Identity):
     """Declare actual data coverage without pretending legacy tables are three bot ledgers."""

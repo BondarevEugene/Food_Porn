@@ -157,6 +157,70 @@ async def orders_page(session, days=30, product="all", payment="all", search="",
     return {"items": result, "total": total or 0, "page": page, "limit": limit}
 
 
+async def product_metrics(session, days: int = 30) -> dict:
+    """Per-product metrics for the two verified legacy order sources.
+
+    UAH and Telegram Stars are separate units. Little Legend is not included
+    until its independent paid-order ledger can be reconciled safely.
+    """
+    orders = order_queries()
+    begin, end = date_range(days)
+    rows = (await session.execute(
+        select(
+            orders.c.product,
+            func.count().label("orders"),
+            func.sum(case(
+                (orders.c.payment_kind.in_(("cash", "stars")), 1), else_=0,
+            )).label("paid_orders"),
+            func.sum(case(
+                (orders.c.payment_kind == "vip", 1), else_=0,
+            )).label("vip_orders"),
+            func.count(func.distinct(orders.c.telegram_id)).label("customers"),
+        )
+        .where(orders.c.created_at >= begin, orders.c.created_at <= end)
+        .group_by(orders.c.product)
+    )).mappings().all()
+    revenue = (await session.execute(
+        select(
+            orders.c.product,
+            func.sum(case(
+                (orders.c.payment_kind == "cash", orders.c.amount), else_=0,
+            )).label("uah"),
+            func.sum(case(
+                (orders.c.payment_kind == "stars", orders.c.stars), else_=0,
+            )).label("stars"),
+        )
+        .where(orders.c.paid_at >= begin, orders.c.paid_at <= end)
+        .group_by(orders.c.product)
+    )).mappings().all()
+    counts = {row["product"]: row for row in rows}
+    amounts = {row["product"]: row for row in revenue}
+    products = []
+    for source, product_id, name in (
+        ("gift", "food_porn", "Food_Porn"),
+        ("menu", "menu_for_loved_one", "Меню для любимого"),
+    ):
+        item = counts.get(source, {})
+        paid = amounts.get(source, {})
+        products.append({
+            "id": product_id, "name": name, "source": source,
+            "orders": int(item.get("orders") or 0),
+            "paid_orders": int(item.get("paid_orders") or 0),
+            "vip_orders": int(item.get("vip_orders") or 0),
+            "customers": int(item.get("customers") or 0),
+            "revenue_uah": money(paid.get("uah")),
+            "revenue_stars": int(paid.get("stars") or 0),
+            "coverage": "legacy_order_tables",
+        })
+    return {
+        "days": days, "products": products,
+        "little_legend_included": False,
+        "consolidated_finance": False,
+        "note": "Выручка по дате оплаты; заказы по дате создания. "
+                "Little Legend не включён. UAH и Stars не суммируются.",
+    }
+
+
 async def dashboard(session, days: int = 30) -> dict:
     orders = order_queries()
     conditions = order_conditions(orders, days)
