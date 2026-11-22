@@ -30,7 +30,6 @@ from app.little_legend.commercial_catalog import crm_book_catalog
 from app.little_legend.consent import consent_status
 from app.little_legend.owned_production import load_owned_production
 from app.little_legend.pdf_storage_config import configured_private_pdf_store
-from app.little_legend.readiness_messages import readiness_message
 from app.little_legend.release_manifest_store import get_release_manifest
 from app.little_legend.release_orchestrator import prepare_owned_release, send_owned_release
 from app.little_legend.router import StoryDraft, stories
@@ -381,7 +380,6 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
         DeliveryStatus.UNCERTAIN: ("⚠️ Потрібна перевірка", "⚠️ Нужна проверка", "⚠️ Needs review"),
     }
     status_text = text_for(lang, *status_labels[status])
-    readiness_text = ""
     ready_for_assembly = False
     if status is None:
         try:
@@ -390,22 +388,10 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
             )
             readiness = production.readiness()
             ready_for_assembly = readiness.ready_for_export
-            readiness_text = readiness_message(
-                readiness, language=lang,
-            )
         except PermissionError:
-            readiness_text = text_for(
-                lang, "📖 Завершіть створення історії в студії.",
-                "📖 Завершите создание истории в студии.",
-                "📖 Complete the story in the studio.",
-            )
+            pass  # The manuscript is not complete yet; show the next client step.
         except Exception:
             logger.exception("Little Legend readiness lookup failed")
-            readiness_text = text_for(
-                lang, "⚠️ Статус тимчасово недоступний.",
-                "⚠️ Статус временно недоступен.",
-                "⚠️ Status is temporarily unavailable.",
-            )
     draft = StoryDraft.model_validate_json(owned)
     plan_done = draft.graph is not None and draft.parent_sketch is not None
     approved = plan_done and draft.outline_approved and draft.entry.plan_approved
@@ -425,9 +411,9 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
         ("Профиль героя", hero_done, f"ll_hero_review:{story_id}"),
         ("Условия и полномочия родителя", terms_done, f"ll_terms:{story_id}"),
         ("Согласие на AI-текст", ai_done, f"ll_text_notice:{story_id}"),
-        ("Рукопись", manuscript_done, f"ll_writer_start:{story_id}"),
-        ("Иллюстрации", bool(ready_for_assembly or status), f"ll_art_ready:{story_id}"),
-        ("Готовый PDF", bool(status), f"ll_release_review:{story_id}"),
+        ("Рукопись", manuscript_done, f"ll_manuscript_review:{story_id}" if draft.manuscript is not None else f"ll_writer_start:{story_id}"),
+        ("Иллюстрации", ready_for_assembly, f"ll_art_ready:{story_id}"),
+        ("Готовый PDF", status is not None, f"ll_release_review:{story_id}"),
         ("Доставка", status == DeliveryStatus.SENT, f"ll_send:{story_id}"),
     ]
     complete = sum(bool(done) for _, done, _ in steps)
