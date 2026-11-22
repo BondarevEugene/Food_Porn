@@ -41,8 +41,38 @@ def release_issue_hints(codes: list[str]) -> list[str]:
 
 
 
+def next_release_action(story_id: int, codes: list[str]) -> tuple[str, str] | None:
+    """Guide the parent to the earliest fixable stage, never to a paid retry."""
+    stages = (
+        (
+            {"scenes_missing", "duplicate_scene_ids"},
+            "▶ Проверить план истории", f"ll_outline:{story_id}",
+        ),
+        (
+            {"parent_approval_missing", "chapter_missing", "chapter_unapproved",
+             "duplicate_chapters", "unexpected_chapter", "hero_missing"},
+            "▶ Проверить рукопись", f"ll_manuscript_review:{story_id}",
+        ),
+        (
+            {"illustration_job_count_invalid", "illustration_incomplete",
+             "illustration_revision_stale", "unexpected_illustration"},
+            "▶ Проверить иллюстрации", f"ll_art_ready:{story_id}",
+        ),
+        (
+            {"editorial_approval_missing"},
+            "▶ Финальная проверка", f"ll_editorial:{story_id}",
+        ),
+    )
+    remaining = set(codes)
+    for group, label, action in stages:
+        if remaining & group:
+            return label, action
+    return None
+
+
 def release_actions(
     story_id: int, *, ready_for_export: bool, delivery_status: DeliveryStatus | None,
+    next_action: tuple[str, str] | None = None,
 ) -> InlineKeyboardMarkup:
     """Only offer the next valid step; never bypass server-side gates."""
     rows = []
@@ -55,6 +85,10 @@ def release_actions(
         rows.append([InlineKeyboardButton(
             text="📥 Получить готовый PDF",
             callback_data=f"ll_send:{story_id}",
+        )])
+    elif delivery_status is None and next_action is not None:
+        rows.append([InlineKeyboardButton(
+            text=next_action[0], callback_data=next_action[1],
         )])
     rows.append([InlineKeyboardButton(
         text="📊 Производство книги",
@@ -82,6 +116,7 @@ async def show_release_preflight(callback: CallbackQuery) -> None:
     if callback.message.chat.id != owner_id:
         await callback.answer("Откройте личный чат с ботом", show_alert=True)
         return
+    next_action = None
     try:
         manifest = await get_release_manifest(owner_id=owner_id, story_id=story_id)
         if manifest is not None:
@@ -113,6 +148,7 @@ async def show_release_preflight(callback: CallbackQuery) -> None:
             else:
                 issues = sorted({issue.code for issue in readiness.issues})
                 hints = release_issue_hints(issues)
+                next_action = next_release_action(story_id, issues)
                 message = (
                     "⏳ Книга ещё не готова к сборке. Что осталось:\\n"
                     + "\\n".join(f"• {hint}" for hint in hints[:6])
@@ -124,6 +160,7 @@ async def show_release_preflight(callback: CallbackQuery) -> None:
     lang = await selected_language(callback.from_user)
     keyboard = release_actions(
         story_id, ready_for_export=ready, delivery_status=status,
+        next_action=next_action,
     )
     keyboard.inline_keyboard.insert(-1, [help_button(lang, "release", story_id)])
     await callback.message.answer(
