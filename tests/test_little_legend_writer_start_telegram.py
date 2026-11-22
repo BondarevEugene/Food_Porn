@@ -11,7 +11,10 @@ FLOW = Path("app/bot/handlers/little_legend_writer_start.py").read_text(
 
 def test_required_steps_have_actual_actions():
     assert '("Условия и полномочия родителя", terms_done, f"ll_terms:{story_id}")' in ROOT
-    assert '("Рукопись", manuscript_done, f"ll_writer_start:{story_id}")' in ROOT
+    assert (
+        'f"ll_manuscript_review:{story_id}" if draft.manuscript is not None '
+        'else f"ll_writer_start:{story_id}"'
+    ) in ROOT
     assert "router.include_router(writer_start_router)" in ROOT
 
 
