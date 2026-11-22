@@ -45,3 +45,26 @@ python -m app.little_legend.auto_delivery_worker
 
 Таблица с `kind=telegram_pdf` хранит собственный idempotency fence.
 Никогда не переводите `uncertain` в `reserved` автоматически.
+
+
+## Обязательная production-миграция Neon
+
+Если в логах worker появляется `UndefinedTableError: relation
+"little_legend_production_effects" does not exist`, код уже запущен, но
+production-база отстаёт от миграций. Перед использованием функции нужно
+однократно применить все Alembic-миграции **к той же DATABASE_URL**, что
+используется сервисом Food_Porn:
+
+```sh
+python -m alembic current
+python -m alembic upgrade head
+python -m alembic current
+```
+
+Включённая в этот релиз миграция `20261122_0034` также расширяет
+PostgreSQL CHECK constraint `ck_ll_effect_kind`, разрешая
+`telegram_auto_request`. Она не удаляет существующие записи.
+
+Миграции выполняет **один** назначенный процесс, не каждый worker.
+Перед запуском проверьте резервную копию и правильность DATABASE_URL.
+После успешной миграции worker восстановит обработку ожидающих заявок.
