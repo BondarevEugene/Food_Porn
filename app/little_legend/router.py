@@ -1474,6 +1474,84 @@ async def story_production_overview(
     }
 
 
+class PremiumAutoQueueRequest(BaseModel):
+    genre: Literal[
+        "epic_fantasy", "fairy_tale", "adventure", "detective", "science_fiction",
+    ]
+    image_unit_cost_usd: str = "0.05"
+    max_budget_usd: str = "5.00"
+
+
+@router.post("/api/stories/{story_id}/illustrations/premium-auto-queue")
+async def auto_queue_premium_illustrations(
+    story_id: int, request: PremiumAutoQueueRequest,
+    owner: Annotated[int, Depends(_owner)],
+):
+    """Build a premium plan from the approved manuscript and private photos."""
+    from app.little_legend.art_preflight import require_book_art_ready
+    from app.little_legend.illustration_queue_store import enqueue_premium_illustration_jobs
+    from app.little_legend.neon_photo_vault import NeonVaultMetadataRepository
+    from app.little_legend.neon_premium_photo_consent import NeonPremiumPhotoConsentRepository
+    from app.little_legend.premium_batch_manifest import build_premium_batch_manifest
+    from app.little_legend.premium_photo_consent import (
+        configured_premium_photo_disclosure,
+        premium_photo_consent_allows_transfer,
+    )
+    from app.little_legend.premium_visual_contract import BookGenre, build_visual_plan
+
+    draft = await _owned_draft(story_id, owner)
+    try:
+        require_book_art_ready(draft)
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    consent = await NeonPremiumPhotoConsentRepository().get_photo_consent(
+        owner_id=owner, story_id=story_id,
+    )
+    if not premium_photo_consent_allows_transfer(
+        consent, configured_premium_photo_disclosure(),
+    ):
+        raise HTTPException(403, "Current parental photo AI consent required")
+    refs = await NeonVaultMetadataRepository().list_stored_reference_ids(
+        owner_id=owner, story_id=story_id,
+    )
+    if not refs:
+        raise HTTPException(409, "Upload a private reference photo first")
+    graph = draft.graph
+    manuscript = draft.manuscript
+    if graph is None or manuscript is None:
+        raise HTTPException(409, "Approved graph and manuscript required")
+    ordered = sorted(graph.nodes, key=lambda node: node.order)
+    chapters = {chapter.scene_id: chapter for chapter in manuscript.chapters}
+    moments = [
+        (
+            f"{node.summary.strip()} — establishing scene and environment",
+            f"{node.summary.strip()} — character action and emotional close-up",
+        )
+        for node in ordered
+    ]
+    try:
+        plan = build_visual_plan(
+            genre=BookGenre(request.genre),
+            reference_ids=refs,
+            chapter_moments=moments,
+        )
+        manifest = build_premium_batch_manifest(
+            owner_id=owner, story_id=story_id, plan=plan,
+            chapter_revisions=[chapters[node.id].revision for node in ordered],
+            image_unit_cost_usd=request.image_unit_cost_usd,
+            max_budget_usd=request.max_budget_usd,
+        )
+        ids = await enqueue_premium_illustration_jobs(
+            manifest=manifest, plan=plan,
+        )
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {
+        "status": "queued", "premium": True,
+        "job_count": len(ids), "estimated_micro_usd": manifest.total_estimated_micro_usd,
+    }
+
+
 class PremiumBatchQueueRequest(BaseModel):
     manifest: dict
     plan: dict
@@ -1828,7 +1906,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 <div class="consent-steps"><span>01 · Условия</span><span class="active">02 · Конструктор</span><span>03 · Проверка</span></div>
 <p class="note">Загрузка в приватное R2-хранилище. Для фотографий ребёнка требуется отдельное согласие родителя. Файлы не публикуются.</p>
 <div class="photo-slots"><div class="photo-slot"><strong>01 · Портрет</strong><p>Чёткое лицо, ровный свет, без других людей.</p><span>Приватное хранение</span></div><div class="photo-slot"><strong>02 · Дополнительный ракурс</strong><p>Необязательно. Помогает сохранить внешность героя.</p><span>Приватное хранение</span></div></div>
-<div id="photoConsentNotice" class="note" role="status"></div><label><input id="photoParentConsent" type="checkbox"> Я родитель или законный представитель ребёнка и даю отдельное согласие на описанную обработку фотографий</label><button type="button" class="secondary" onclick="confirmPhotoConsent()">Подтвердить согласие на фото</button><button type="button" class="secondary" onclick="revokePhotoConsent()">Отозвать согласие на фото</button><label for="photoUploadInput">Выберите фотографию (JPEG, PNG или WebP, до 12 МБ)</label><input id="photoUploadInput" type="file" accept="image/jpeg,image/png,image/webp"><button type="button" onclick="uploadPhoto()">Загрузить фото приватно</button><p id="photoConstructorStatus" class="note" role="status"></p><div id="photoLibraryStatus" class="note" role="status"></div><div id="productionOverviewStatus" class="note" role="status"></div><button type="button" class="secondary" onclick="refreshProductionOverview()">Проверить готовность книги</button><button type="button" class="secondary" onclick="downloadCompletedBook()">Скачать готовую PDF-книгу</button><button type="button" class="secondary" onclick="refreshPhotoLibrary()">Обновить список загруженных фото</button>
+<div id="photoConsentNotice" class="note" role="status"></div><label><input id="photoParentConsent" type="checkbox"> Я родитель или законный представитель ребёнка и даю отдельное согласие на описанную обработку фотографий</label><button type="button" class="secondary" onclick="confirmPhotoConsent()">Подтвердить согласие на фото</button><button type="button" class="secondary" onclick="revokePhotoConsent()">Отозвать согласие на фото</button><label for="photoUploadInput">Выберите фотографию (JPEG, PNG или WebP, до 12 МБ)</label><input id="photoUploadInput" type="file" accept="image/jpeg,image/png,image/webp"><button type="button" onclick="uploadPhoto()">Загрузить фото приватно</button><p id="photoConstructorStatus" class="note" role="status"></p><div id="photoLibraryStatus" class="note" role="status"></div><div id="productionOverviewStatus" class="note" role="status"></div><label for="premiumGenre">Жанр иллюстраций</label><select id="premiumGenre"><option value="fairy_tale">Сказка</option><option value="adventure">Приключения</option><option value="epic_fantasy">Фэнтези</option><option value="detective">Детектив</option><option value="science_fiction">Научная фантастика</option></select><button type="button" onclick="startPremiumProduction()">Запустить персонализированные иллюстрации</button><button type="button" class="secondary" onclick="refreshProductionOverview()">Проверить готовность книги</button><button type="button" class="secondary" onclick="downloadCompletedBook()">Скачать готовую PDF-книгу</button><button type="button" class="secondary" onclick="refreshPhotoLibrary()">Обновить список загруженных фото</button>
 <button class="secondary" onclick="openConsent()">← К условиям</button>
 <button onclick="openIdentity()">Продолжить без фото →</button>
 </section>
@@ -2026,6 +2104,17 @@ async function revokePhotoConsent(){
   await refreshPhotoConsent();
   status.textContent='Согласие отозвано. Фото поставлены в очередь удаления.';
  }catch(e){status.textContent='Ошибка отзыва: '+e.message}
+}
+async function startPremiumProduction(){
+ const status=$('productionOverviewStatus');
+ if(!storyId){status.textContent='Сначала сохраните книгу';return}
+ status.textContent='Проверяем рукопись, согласия, фотографии и бюджет…';
+ try{
+  const result=await api('/stories/'+storyId+'/illustrations/premium-auto-queue','POST',{
+   genre:$('premiumGenre').value
+  });
+  status.textContent='В очередь поставлено '+result.job_count+' персонализированных иллюстраций. Ожидайте завершения фоновой обработки.';
+ }catch(e){status.textContent='Запуск невозможен: '+e.message}
 }
 async function refreshProductionOverview(){
  if(!storyId)return;
