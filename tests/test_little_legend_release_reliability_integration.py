@@ -58,7 +58,7 @@ def _book():
 def test_real_production_status_does_not_overcount_art(change, expected_issue, completed):
     graph, manuscript, jobs = _book()
     if change == "pending":
-        jobs[0].status = JobStatus.PENDING
+        jobs[0].status = JobStatus.QUEUED
     elif change == "stale":
         manuscript.chapters[0].revision = 2
     elif change == "unverified":
