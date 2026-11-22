@@ -167,6 +167,25 @@ async def transition_effect(
         return _decode(row)
 
 
+
+async def get_effect(
+    *, effect_key: str, owner_id: int, story_id: int,
+    kind: EffectKind, request_sha256: str,
+) -> ProductionEffect | None:
+    """Read a fenced effect by its exact immutable identity, without side effects."""
+    async with async_session_maker() as session:
+        row = (await session.execute(select(production_effects).where(
+            production_effects.c.effect_key == effect_key,
+            production_effects.c.owner_id == owner_id,
+            production_effects.c.story_id == story_id,
+        ))).mappings().one_or_none()
+    if row is None:
+        return None
+    effect = _decode(row)
+    if effect.kind != kind or effect.request_sha256 != request_sha256:
+        raise PermissionError("Effect identity mismatch")
+    return effect
+
 async def list_unresolved_effects(
     *, owner_id: int, limit: int = 50,
 ) -> list[ProductionEffect]:
