@@ -1443,6 +1443,37 @@ async def queue_story_illustrations(
     return {"status": "queued", "job_count": len(ids)}
 
 
+@router.get("/api/stories/{story_id}/production-overview")
+async def story_production_overview(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """One owner-scoped production dashboard without triggering paid AI calls."""
+    from app.little_legend.illustration_queue_store import list_owner_illustration_jobs
+    from app.little_legend.neon_photo_vault import NeonVaultMetadataRepository
+
+    draft = await _owned_draft(story_id, owner)
+    photos = await NeonVaultMetadataRepository().list_stored_reference_ids(
+        owner_id=owner, story_id=story_id,
+    )
+    jobs = await list_owner_illustration_jobs(story_id=story_id, owner_id=owner)
+    counts = {}
+    for job in jobs:
+        key = job.status.value
+        counts[key] = counts.get(key, 0) + 1
+    return {
+        "story_id": story_id,
+        "has_graph": draft.graph is not None,
+        "has_manuscript": draft.manuscript is not None,
+        "photo_count": len(photos),
+        "illustration_total": len(jobs),
+        "illustration_status_counts": counts,
+        "all_illustrations_complete": bool(jobs) and all(
+            job.status.value == "completed" for job in jobs
+        ),
+        "pdf_path": f"/little-legend/api/stories/{story_id}/illustrations/book.pdf",
+    }
+
+
 @router.get("/api/stories/{story_id}/illustrations/status")
 async def story_illustration_status(
     story_id: int, owner: Annotated[int, Depends(_owner)],
@@ -1749,7 +1780,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 <div class="consent-steps"><span>01 · Условия</span><span class="active">02 · Конструктор</span><span>03 · Проверка</span></div>
 <p class="note">Загрузка в приватное R2-хранилище. Для фотографий ребёнка требуется отдельное согласие родителя. Файлы не публикуются.</p>
 <div class="photo-slots"><div class="photo-slot"><strong>01 · Портрет</strong><p>Чёткое лицо, ровный свет, без других людей.</p><span>Приватное хранение</span></div><div class="photo-slot"><strong>02 · Дополнительный ракурс</strong><p>Необязательно. Помогает сохранить внешность героя.</p><span>Приватное хранение</span></div></div>
-<div id="photoConsentNotice" class="note" role="status"></div><label><input id="photoParentConsent" type="checkbox"> Я родитель или законный представитель ребёнка и даю отдельное согласие на описанную обработку фотографий</label><button type="button" class="secondary" onclick="confirmPhotoConsent()">Подтвердить согласие на фото</button><button type="button" class="secondary" onclick="revokePhotoConsent()">Отозвать согласие на фото</button><label for="photoUploadInput">Выберите фотографию (JPEG, PNG или WebP, до 12 МБ)</label><input id="photoUploadInput" type="file" accept="image/jpeg,image/png,image/webp"><button type="button" onclick="uploadPhoto()">Загрузить фото приватно</button><p id="photoConstructorStatus" class="note" role="status"></p><div id="photoLibraryStatus" class="note" role="status"></div><button type="button" class="secondary" onclick="refreshPhotoLibrary()">Обновить список загруженных фото</button>
+<div id="photoConsentNotice" class="note" role="status"></div><label><input id="photoParentConsent" type="checkbox"> Я родитель или законный представитель ребёнка и даю отдельное согласие на описанную обработку фотографий</label><button type="button" class="secondary" onclick="confirmPhotoConsent()">Подтвердить согласие на фото</button><button type="button" class="secondary" onclick="revokePhotoConsent()">Отозвать согласие на фото</button><label for="photoUploadInput">Выберите фотографию (JPEG, PNG или WebP, до 12 МБ)</label><input id="photoUploadInput" type="file" accept="image/jpeg,image/png,image/webp"><button type="button" onclick="uploadPhoto()">Загрузить фото приватно</button><p id="photoConstructorStatus" class="note" role="status"></p><div id="photoLibraryStatus" class="note" role="status"></div><div id="productionOverviewStatus" class="note" role="status"></div><button type="button" class="secondary" onclick="refreshProductionOverview()">Проверить готовность книги</button><button type="button" class="secondary" onclick="downloadCompletedBook()">Скачать готовую PDF-книгу</button><button type="button" class="secondary" onclick="refreshPhotoLibrary()">Обновить список загруженных фото</button>
 <button class="secondary" onclick="openConsent()">← К условиям</button>
 <button onclick="openIdentity()">Продолжить без фото →</button>
 </section>
@@ -1947,6 +1978,29 @@ async function revokePhotoConsent(){
   await refreshPhotoConsent();
   status.textContent='Согласие отозвано. Фото поставлены в очередь удаления.';
  }catch(e){status.textContent='Ошибка отзыва: '+e.message}
+}
+async function refreshProductionOverview(){
+ if(!storyId)return;
+ const result=await api('/stories/'+storyId+'/production-overview');
+ const summary=result.illustration_status_counts;
+ $('productionOverviewStatus').textContent='Сценарий: '+(result.has_graph?'готов':'не готов')
+  +' · Рукопись: '+(result.has_manuscript?'готова':'не готова')
+  +' · Фото: '+result.photo_count
+  +' · Иллюстрации: '+JSON.stringify(summary)
+  +(result.all_illustrations_complete?' · PDF можно скачать':' · PDF пока не готова');
+ return result;
+}
+async function downloadCompletedBook(){
+ try{
+  const result=await refreshProductionOverview();
+  if(!result.all_illustrations_complete||!result.has_manuscript)throw Error('Дождитесь завершения рукописи и всех иллюстраций');
+  const r=await fetch(result.pdf_path,{headers:{Authorization:'tma '+auth},cache:'no-store'});
+  if(r.status===401){authRejected();throw Error('Повторно откройте студию через Telegram')}
+  if(!r.ok)throw Error('PDF пока недоступна: HTTP '+r.status);
+  const blob=await r.blob(),url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download='little-legend-book.pdf';a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+ }catch(e){$('productionOverviewStatus').textContent='Ошибка: '+e.message}
 }
 async function refreshPhotoLibrary(){
  if(!storyId)return;
