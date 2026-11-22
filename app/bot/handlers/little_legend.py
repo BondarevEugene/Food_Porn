@@ -9,6 +9,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy import select, update
 
 from app.bot.handlers.little_legend_checkpoint import router as checkpoint_router
+from app.bot.handlers.little_legend_editorial import router as editorial_router
 from app.bot.handlers.little_legend_context_help import router as context_help_router
 from app.bot.handlers.little_legend_guided import router as guided_router
 from app.bot.handlers.little_legend_illustrations import router as illustrations_router
@@ -44,6 +45,7 @@ logger = logging.getLogger(__name__)
 
 router = Router(name="little_legend")
 router.include_router(context_help_router)
+router.include_router(editorial_router)
 router.include_router(palette_router)
 router.include_router(photo_router)
 router.include_router(checkpoint_router)
@@ -419,7 +421,7 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
         ("Согласие на AI-текст", ai_done, f"ll_text_notice:{story_id}"),
         ("Рукопись", manuscript_done, f"ll_manuscript_review:{story_id}" if draft.manuscript is not None else f"ll_writer_start:{story_id}"),
         ("Иллюстрации", art_done, f"ll_art_ready:{story_id}"),
-        ("Финальная проверка", editorial_done, f"ll_checkpoint:{story_id}"),
+        ("Финальная проверка", editorial_done, f"ll_editorial:{story_id}"),
         ("Готовый PDF", status is not None, f"ll_release_review:{story_id}"),
         ("Доставка", status == DeliveryStatus.SENT, f"ll_send:{story_id}"),
     ]
