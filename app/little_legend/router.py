@@ -2247,9 +2247,7 @@ async function sendCompletedBookToTelegram(){
   const result=await refreshProductionOverview();
   if(!result.premium_batch||!result.pdf_ready)
    throw Error(result.pdf_blocker||'Премиальная книга ещё не готова');
-  const sent=await api('/stories/'+storyId+'/illustrations/send-premium-book',{
-   method:'POST'
-  });
+  const sent=await api('/stories/'+storyId+'/illustrations/send-premium-book','POST');
   $('productionOverviewStatus').textContent=sent.status==='confirmed'
    ?'Книга отправлена в ваш Telegram'
    :'Отправка уже зарегистрирована: '+sent.status+'. Проверьте Telegram';
