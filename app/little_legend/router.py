@@ -1669,6 +1669,28 @@ async def story_illustration_status(
     }
 
 
+@router.post("/api/stories/{story_id}/illustrations/send-premium-book")
+async def send_premium_book_to_telegram(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Owner explicitly requests one private Telegram PDF delivery."""
+    from app.little_legend.telegram_book_delivery import deliver_owned_book_once
+
+    pdf_response = await download_premium_illustrated_book(story_id, owner)
+    try:
+        result = await deliver_owned_book_once(
+            owner_id=owner, story_id=story_id, pdf=pdf_response.body,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except Exception as exc:
+        # A timeout may mean Telegram delivered the PDF. Do not auto-retry.
+        raise HTTPException(
+            409, "Delivery outcome is uncertain; check Telegram before retrying",
+        ) from exc
+    return result
+
+
 @router.get("/api/stories/{story_id}/illustrations/premium-book.pdf")
 async def download_premium_illustrated_book(
     story_id: int, owner: Annotated[int, Depends(_owner)],
@@ -1998,7 +2020,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 <div class="consent-steps"><span>01 · Условия</span><span class="active">02 · Конструктор</span><span>03 · Проверка</span></div>
 <p class="note">Загрузка в приватное R2-хранилище. Для фотографий ребёнка требуется отдельное согласие родителя. Файлы не публикуются.</p>
 <div class="photo-slots"><div class="photo-slot"><strong>01 · Портрет</strong><p>Чёткое лицо, ровный свет, без других людей.</p><span>Приватное хранение</span></div><div class="photo-slot"><strong>02 · Дополнительный ракурс</strong><p>Необязательно. Помогает сохранить внешность героя.</p><span>Приватное хранение</span></div></div>
-<div id="photoConsentNotice" class="note" role="status"></div><label><input id="photoParentConsent" type="checkbox"> Я родитель или законный представитель ребёнка и даю отдельное согласие на описанную обработку фотографий</label><button type="button" class="secondary" onclick="confirmPhotoConsent()">Подтвердить согласие на фото</button><button type="button" class="secondary" onclick="revokePhotoConsent()">Отозвать согласие на фото</button><label for="photoUploadInput">Выберите фотографию (JPEG, PNG или WebP, до 12 МБ)</label><input id="photoUploadInput" type="file" accept="image/jpeg,image/png,image/webp"><button type="button" onclick="uploadPhoto()">Загрузить фото приватно</button><p id="photoConstructorStatus" class="note" role="status"></p><div id="photoLibraryStatus" class="note" role="status"></div><div id="productionOverviewStatus" class="note" role="status"></div><label for="premiumGenre">Жанр иллюстраций</label><select id="premiumGenre"><option value="fairy_tale">Сказка</option><option value="adventure">Приключения</option><option value="epic_fantasy">Фэнтези</option><option value="detective">Детектив</option><option value="science_fiction">Научная фантастика</option></select><button type="button" onclick="startPremiumProduction()">Запустить персонализированные иллюстрации</button><button type="button" class="secondary" onclick="refreshProductionOverview()">Проверить готовность книги</button><button type="button" class="secondary" onclick="downloadCompletedBook()">Скачать готовую PDF-книгу</button><button type="button" class="secondary" onclick="refreshPhotoLibrary()">Обновить список загруженных фото</button>
+<div id="photoConsentNotice" class="note" role="status"></div><label><input id="photoParentConsent" type="checkbox"> Я родитель или законный представитель ребёнка и даю отдельное согласие на описанную обработку фотографий</label><button type="button" class="secondary" onclick="confirmPhotoConsent()">Подтвердить согласие на фото</button><button type="button" class="secondary" onclick="revokePhotoConsent()">Отозвать согласие на фото</button><label for="photoUploadInput">Выберите фотографию (JPEG, PNG или WebP, до 12 МБ)</label><input id="photoUploadInput" type="file" accept="image/jpeg,image/png,image/webp"><button type="button" onclick="uploadPhoto()">Загрузить фото приватно</button><p id="photoConstructorStatus" class="note" role="status"></p><div id="photoLibraryStatus" class="note" role="status"></div><div id="productionOverviewStatus" class="note" role="status"></div><label for="premiumGenre">Жанр иллюстраций</label><select id="premiumGenre"><option value="fairy_tale">Сказка</option><option value="adventure">Приключения</option><option value="epic_fantasy">Фэнтези</option><option value="detective">Детектив</option><option value="science_fiction">Научная фантастика</option></select><button type="button" onclick="startPremiumProduction()">Запустить персонализированные иллюстрации</button><button type="button" class="secondary" onclick="refreshProductionOverview()">Проверить готовность книги</button><button type="button" class="secondary" onclick="downloadCompletedBook()">Скачать готовую PDF-книгу</button><button type="button" class="secondary" onclick="sendCompletedBookToTelegram()">Отправить премиальную книгу в Telegram</button><button type="button" class="secondary" onclick="refreshPhotoLibrary()">Обновить список загруженных фото</button>
 <button class="secondary" onclick="openConsent()">← К условиям</button>
 <button onclick="openIdentity()">Продолжить без фото →</button>
 </section>
@@ -2219,6 +2241,17 @@ async function refreshProductionOverview(){
   +(result.premium_batch?' · '+result.premium_progress.message+' ('+result.premium_progress.completed+'/'+result.premium_progress.total+')':'')
   +(result.pdf_ready?' · PDF можно скачать':' · PDF пока не готова: '+result.pdf_blocker);
  return result;
+}
+async function sendCompletedBookToTelegram(){
+ try{
+  const result=await refreshProductionOverview();
+  if(!result.premium_batch||!result.pdf_ready)
+   throw Error(result.pdf_blocker||'Премиальная книга ещё не готова');
+  const sent=await api('/stories/'+storyId+'/illustrations/send-premium-book','POST');
+  $('productionOverviewStatus').textContent=sent.status==='confirmed'
+   ?'Книга отправлена в ваш Telegram'
+   :'Отправка уже зарегистрирована: '+sent.status+'. Проверьте Telegram';
+ }catch(e){$('productionOverviewStatus').textContent='Доставка: '+e.message}
 }
 async function downloadCompletedBook(){
  try{
