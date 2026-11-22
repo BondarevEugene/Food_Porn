@@ -56,7 +56,7 @@ async def test_new_delivery_fences_before_sending(monkeypatch):
 async def test_repeated_delivery_never_calls_telegram(monkeypatch):
     import app.little_legend.telegram_book_delivery as delivery
 
-    monkeypatch.setenv("BOT_TOKEN", "test-token")
+    monkeypatch.setattr(delivery, "get_settings", lambda: SimpleNamespace(bot_token="test-token"))
 
     async def reserve_effect(**kwargs):
         return effect(EffectStatus.UNCERTAIN), False
@@ -75,7 +75,7 @@ async def test_repeated_delivery_never_calls_telegram(monkeypatch):
 async def test_failed_send_becomes_uncertain_without_retry(monkeypatch):
     import app.little_legend.telegram_book_delivery as delivery
 
-    monkeypatch.setenv("BOT_TOKEN", "test-token")
+    monkeypatch.setattr(delivery, "get_settings", lambda: SimpleNamespace(bot_token="test-token"))
     states = []
 
     async def reserve_effect(**kwargs):
