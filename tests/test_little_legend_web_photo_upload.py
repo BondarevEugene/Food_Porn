@@ -10,6 +10,7 @@ def test_upload_is_authenticated_and_owner_scoped() -> None:
     assert 'upload_consented_child_photo(' in SOURCE
     assert 'NeonPremiumPhotoConsentRepository()' in SOURCE
 
+
 def test_upload_limits_size_and_type_before_storage() -> None:
     assert 'raise HTTPException(413, "Photo exceeds 12 MiB")' in SOURCE
     assert 'raise HTTPException(415, "JPEG, PNG or WebP required")' in SOURCE
