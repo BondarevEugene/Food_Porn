@@ -37,3 +37,11 @@ def test_invalid_story_id_is_rejected():
         data = "ll_outline_approve:bad"
 
     assert _story_id(Callback()) is None
+
+
+def test_outline_has_one_primary_action_without_readiness_loop():
+    buttons = _keyboard(7, approvable=True).inline_keyboard
+    callbacks = [button.callback_data for row in buttons for button in row]
+    assert callbacks == ["ll_outline_approve:7", "ll_book:7"]
+    assert "ll_writer_ready:7" not in callbacks
+    assert "▶ Продолжить создание книги" in SOURCE
