@@ -9,8 +9,8 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy import select, update
 
 from app.bot.handlers.little_legend_checkpoint import router as checkpoint_router
-from app.bot.handlers.little_legend_editorial import router as editorial_router
 from app.bot.handlers.little_legend_context_help import router as context_help_router
+from app.bot.handlers.little_legend_editorial import router as editorial_router
 from app.bot.handlers.little_legend_guided import router as guided_router
 from app.bot.handlers.little_legend_illustrations import router as illustrations_router
 from app.bot.handlers.little_legend_manuscript import router as manuscript_router
