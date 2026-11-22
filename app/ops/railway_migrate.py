@@ -9,7 +9,6 @@ import sys
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
 from app.config import get_settings
