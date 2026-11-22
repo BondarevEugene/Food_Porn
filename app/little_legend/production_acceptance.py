@@ -45,7 +45,10 @@ def evaluate_production_acceptance(
     diagnostic: ProductionDiagnostic,
 ) -> ProductionAcceptance:
     """Only a confirmed sent release passes all three acceptance gates."""
-    production_reasons = list(diagnostic.blockers)
+    production_reasons = [
+        reason for reason in diagnostic.blockers
+        if reason not in {"pdf_not_verified", "delivery_manual_review"}
+    ]
     if not diagnostic.manuscript_available and not diagnostic.pdf_registered:
         if "manuscript_unavailable" not in production_reasons:
             production_reasons.append("manuscript_unavailable")
