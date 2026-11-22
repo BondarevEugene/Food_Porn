@@ -506,7 +506,7 @@ async def pick_item_category(
         ItemCategory.SOUP, ItemCategory.APPETIZER, ItemCategory.DESSERT,
     )
     builder = InlineKeyboardBuilder()
-    for category, label in zip(categories, labels.get(str(language), labels["ru"])):
+    for category, label in zip(categories, labels.get(str(language), labels["ru"]), strict=True):
         builder.button(
             text=label,
             callback_data=MenuAction(
