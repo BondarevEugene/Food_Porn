@@ -121,12 +121,19 @@ async def test_missing_private_reference_blocks_provider_fence(monkeypatch):
         raise AssertionError("Paid provider must never run")
 
     monkeypatch.setattr(runtime, "run_restored_premium_image_job", runner)
+
+    async def recovery(**kwargs):
+        calls.append("recovery")
+
+    import app.little_legend.premium_recovery as recovery_module
+
+    monkeypatch.setattr(recovery_module, "record_premium_pre_dispatch_failure", recovery)
     references = References(missing=True)
     with pytest.raises(PermissionError, match="Missing private reference"):
         await run_premium_worker_once(
             dependencies=_deps(references), claim=claim,
         )
-    assert calls == ["claim"]
+    assert calls == ["claim", "recovery"]
     assert references.calls == [(1, 2, {"ref-1", "ref-2"})]
 
 
