@@ -2216,6 +2216,7 @@ async function refreshProductionOverview(){
   +' · Рукопись: '+(result.has_manuscript?'готова':'не готова')
   +' · Фото: '+result.photo_count
   +' · Иллюстрации: '+JSON.stringify(summary)
+  +(result.premium_batch?' · '+result.premium_progress.message+' ('+result.premium_progress.completed+'/'+result.premium_progress.total+')':'')
   +(result.pdf_ready?' · PDF можно скачать':' · PDF пока не готова: '+result.pdf_blocker);
  return result;
 }
