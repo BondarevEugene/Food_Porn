@@ -477,7 +477,6 @@ async def little_legend_book_tools(callback: CallbackQuery) -> None:
         await callback.answer("Книга не найдена", show_alert=True)
         return
     actions = [
-        ("📖 План", f"ll_outline:{story_id}"),
         ("📖 Рукопись", f"ll_manuscript_review:{story_id}"),
         ("🎨 Иллюстрации", f"ll_art_ready:{story_id}"),
         ("🎨 Оформление", f"ll_palette:{story_id}"),
