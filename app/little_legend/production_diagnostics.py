@@ -5,6 +5,9 @@ No AI generation, payment, Telegram dispatch, PDF writes or child text output.
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+
+from app.database.session import async_session_maker
 
 from app.little_legend.book_delivery import DeliveryStatus
 from app.little_legend.delivery_reconciliation import (
@@ -34,6 +37,14 @@ async def diagnose_owned_production(
     """Collect persisted state only; never change production or send files."""
     if owner_id <= 0 or story_id <= 0:
         raise PermissionError("Invalid story owner")
+    from app.little_legend.router import stories
+
+    async with async_session_maker() as session:
+        owned = (await session.execute(select(stories.c.id).where(
+            stories.c.id == story_id, stories.c.owner_id == owner_id,
+        ))).scalar_one_or_none()
+    if owned is None:
+        raise PermissionError("Story not found")
     manifest = await get_release_manifest(owner_id=owner_id, story_id=story_id)
     blockers: list[str] = []
     total = completed = 0
