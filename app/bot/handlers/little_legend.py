@@ -1,11 +1,12 @@
 """Entry point for Little Legend as Food_Porn's third product."""
 import logging
 import os
+from datetime import UTC, datetime
 from urllib.parse import urlsplit, urlunsplit
 
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.bot.handlers.little_legend_checkpoint import router as checkpoint_router
 from app.bot.handlers.little_legend_context_help import router as context_help_router
@@ -22,6 +23,7 @@ from app.database.models import Customer
 from app.database.session import async_session_maker
 from app.little_legend.aiogram_pdf_sender import AiogramPDFSender
 from app.little_legend.art_storage_config import configured_generated_art_store
+from app.little_legend.blueprint import quick_blueprint
 from app.little_legend.book_delivery import DeliveryStatus
 from app.little_legend.commercial_catalog import crm_book_catalog
 from app.little_legend.owned_production import load_owned_production
@@ -408,7 +410,7 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
         ("Идея и герой", bool(draft.entry.brief or draft.entry.classic or draft.parent_sketch), f"ll_outline:{story_id}"),
         ("План истории", plan_done, f"ll_outline:{story_id}"),
         ("Утверждение плана", approved, f"ll_outline:{story_id}"),
-        ("Профиль героя", hero_done, f"ll_outline:{story_id}"),
+        ("Профиль героя", hero_done, f"ll_hero_review:{story_id}"),
         ("Рукопись", manuscript_done, f"ll_manuscript_review:{story_id}"),
         ("Иллюстрации", bool(ready_for_assembly or status), f"ll_art_ready:{story_id}"),
         ("Готовый PDF", bool(status), f"ll_release_review:{story_id}"),
@@ -449,6 +451,99 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
         + (f"{readiness_text}\n\n" if readiness_text else "")
         + "Нажмите основную кнопку, чтобы продолжить.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ll_hero_review:"))
+async def little_legend_hero_review(callback: CallbackQuery) -> None:
+    """Show a readable hero profile before explicit parental approval."""
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("Только в личном чате", show_alert=True)
+        return
+    try:
+        story_id = int((callback.data or "").split(":", 1)[1])
+        if story_id <= 0:
+            raise ValueError
+    except (IndexError, ValueError):
+        await callback.answer("Неверная книга", show_alert=True)
+        return
+    async with async_session_maker() as session:
+        raw = (await session.execute(select(stories.c.data).where(
+            stories.c.id == story_id, stories.c.owner_id == callback.from_user.id,
+        ))).scalar_one_or_none()
+    if raw is None:
+        await callback.answer("Книга не найдена", show_alert=True)
+        return
+    draft = StoryDraft.model_validate_json(raw)
+    blueprint = draft.blueprint or quick_blueprint(draft.hero)
+    hero = next((person for person in blueprint.characters if person.role == "hero"), None)
+    if hero is None or hero.name != draft.hero:
+        await callback.answer("Профиль героя требует исправления", show_alert=True)
+        return
+    age = blueprint.controls.age
+    description = (
+        f"👤 Герой: {hero.name}\n"
+        f"Возраст: {age if age is not None else 'не указан'}\n"
+        f"Внешность: {hero.appearance or 'на усмотрение художника'}\n"
+        f"Особенности: {hero.mannerisms or 'не указаны'}\n\n"
+        "Подтвердите описание героя. Фото необязательны и требуют отдельного согласия."
+    )
+    buttons = []
+    if not blueprint.family_approved:
+        buttons.append([InlineKeyboardButton(
+            text="✅ Утвердить профиль героя",
+            callback_data=f"ll_hero_approve:{story_id}",
+        )])
+    buttons.append([InlineKeyboardButton(
+        text="⬅️ К этапам книги", callback_data=f"ll_book:{story_id}",
+    )])
+    await callback.message.answer(
+        description, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ll_hero_approve:"))
+async def little_legend_hero_approve(callback: CallbackQuery) -> None:
+    """Persist family approval without claiming photo or likeness approval."""
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("Только в личном чате", show_alert=True)
+        return
+    try:
+        story_id = int((callback.data or "").split(":", 1)[1])
+        if story_id <= 0:
+            raise ValueError
+    except (IndexError, ValueError):
+        await callback.answer("Неверная книга", show_alert=True)
+        return
+    async with async_session_maker() as session:
+        raw = (await session.execute(select(stories.c.data).where(
+            stories.c.id == story_id, stories.c.owner_id == callback.from_user.id,
+        ).with_for_update())).scalar_one_or_none()
+        if raw is None:
+            await callback.answer("Книга не найдена", show_alert=True)
+            return
+        draft = StoryDraft.model_validate_json(raw)
+        blueprint = draft.blueprint or quick_blueprint(draft.hero)
+        hero = next((person for person in blueprint.characters if person.role == "hero"), None)
+        if hero is None or hero.name != draft.hero:
+            await callback.answer("Проверьте имя героя", show_alert=True)
+            return
+        blueprint.family_approved = True
+        draft.blueprint = blueprint
+        await session.execute(update(stories).where(
+            stories.c.id == story_id, stories.c.owner_id == callback.from_user.id,
+        ).values(data=draft.model_dump_json(), updated_at=datetime.now(UTC)))
+        await session.commit()
+    await callback.message.answer(
+        "✅ Профиль героя утверждён и сохранён. Фото и AI-согласия не изменены.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text="▶ Продолжить создание книги",
+                callback_data=f"ll_book:{story_id}",
+            )],
+        ]),
     )
     await callback.answer()
 
