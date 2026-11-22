@@ -10,7 +10,9 @@ from app.little_legend.production_diagnostics import diagnose_owned_production
 
 def _session(owned):
     session = AsyncMock()
-    session.execute.return_value.scalar_one_or_none.return_value = owned
+    result = Mock()
+    result.scalar_one_or_none.return_value = owned
+    session.execute.return_value = result
     factory = MagicMock()
     factory.return_value.__aenter__ = AsyncMock(return_value=session)
     factory.return_value.__aexit__ = AsyncMock(return_value=False)
