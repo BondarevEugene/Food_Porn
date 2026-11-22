@@ -1,27 +1,14 @@
 """Contract regression tests for the private web photo upload endpoint."""
 
-from __future__ import annotations
-
-import ast
-from pathlib import Path
-
-
-SOURCE = Path("app/little_legend/router.py").read_text(encoding="utf-8")
+SOURCE = open("app/little_legend/router.py", encoding="utf-8").read()
 
 
 def test_upload_is_authenticated_and_owner_scoped() -> None:
-    tree = ast.parse(SOURCE)
-    endpoint = next(
-        node for node in tree.body
-        if isinstance(node, ast.AsyncFunctionDef)
-        and node.name == "upload_story_photo"
-    )
-    text = ast.get_source_segment(SOURCE, endpoint)
-    assert "Depends(_owner)" in text
-    assert "await _owned_draft(story_id, owner)" in text
-    assert "upload_consented_child_photo(" in text
-    assert "NeonPremiumPhotoConsentRepository()" in text
-
+    assert 'async def upload_story_photo(' in SOURCE
+    assert 'owner: Annotated[int, Depends(_owner)]' in SOURCE
+    assert 'await _owned_draft(story_id, owner)' in SOURCE
+    assert 'upload_consented_child_photo(' in SOURCE
+    assert 'NeonPremiumPhotoConsentRepository()' in SOURCE
 
 def test_upload_limits_size_and_type_before_storage() -> None:
     assert 'raise HTTPException(413, "Photo exceeds 12 MiB")' in SOURCE
