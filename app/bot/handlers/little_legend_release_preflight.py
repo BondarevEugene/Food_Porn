@@ -10,6 +10,11 @@ from app.bot.handlers.little_legend_context_help import (
     stage_message,
 )
 from app.little_legend.book_delivery import DeliveryStatus
+from app.little_legend.delivery_reconciliation import (
+    RecoveryAction,
+    diagnose_delivery,
+    repair_confirmed_projection,
+)
 from app.little_legend.owned_production import load_owned_production
 from app.little_legend.release_manifest_store import get_release_manifest
 
@@ -43,6 +48,7 @@ def release_issue_hints(codes: list[str]) -> list[str]:
 
 def release_actions(
     story_id: int, *, ready_for_export: bool, delivery_status: DeliveryStatus | None,
+    recovery_action: RecoveryAction | None = None,
 ) -> InlineKeyboardMarkup:
     """Only offer the next valid step; never bypass server-side gates."""
     rows = []
@@ -55,6 +61,11 @@ def release_actions(
         rows.append([InlineKeyboardButton(
             text="📥 Получить готовый PDF",
             callback_data=f"ll_send:{story_id}",
+        )])
+    if recovery_action == RecoveryAction.REPAIR_PROJECTION:
+        rows.append([InlineKeyboardButton(
+            text="🔎 Восстановить статус доставки",
+            callback_data=f"ll_delivery_reconcile:{story_id}",
         )])
     rows.append([InlineKeyboardButton(
         text="📊 Производство книги",
@@ -82,6 +93,7 @@ async def show_release_preflight(callback: CallbackQuery) -> None:
     if callback.message.chat.id != owner_id:
         await callback.answer("Откройте личный чат с ботом", show_alert=True)
         return
+    recovery_action = None
     try:
         manifest = await get_release_manifest(owner_id=owner_id, story_id=story_id)
         if manifest is not None:
@@ -97,6 +109,25 @@ async def show_release_preflight(callback: CallbackQuery) -> None:
                     "Автоматическая повторная отправка запрещена."
                 )
             ready = False
+            if status != DeliveryStatus.SENT:
+                diagnosis = await diagnose_delivery(
+                    owner_id=owner_id, story_id=story_id,
+                )
+                recovery_action = diagnosis.action
+                if recovery_action == RecoveryAction.REPAIR_PROJECTION:
+                    message = (
+                        "✅ Telegram подтвердил отправку книги, но статус "
+                        "в базе не обновился. Можно безопасно восстановить "
+                        "статус без повторной отправки."
+                    )
+                elif recovery_action in {
+                    RecoveryAction.MANUAL_REVIEW,
+                    RecoveryAction.INCONSISTENT,
+                }:
+                    message = (
+                        "⚠️ Результат отправки требует проверки администратором. "
+                        "Повторная отправка отключена."
+                    )
         else:
             production = await load_owned_production(
                 owner_id=owner_id, story_id=story_id,
@@ -114,9 +145,9 @@ async def show_release_preflight(callback: CallbackQuery) -> None:
                 issues = sorted({issue.code for issue in readiness.issues})
                 hints = release_issue_hints(issues)
                 message = (
-                    "⏳ Книга ещё не готова к сборке. Что осталось:\\n"
-                    + "\\n".join(f"• {hint}" for hint in hints[:6])
-                    + "\\n\\nВернитесь к этапам книги и нажмите основную кнопку."
+                    "⏳ Книга ещё не готова к сборке. Что осталось:\n"
+                    + "\n".join(f"• {hint}" for hint in hints[:6])
+                    + "\n\nВернитесь к этапам книги и нажмите основную кнопку."
                 )
     except PermissionError:
         await callback.answer("Книга ещё не готова", show_alert=True)
@@ -124,6 +155,7 @@ async def show_release_preflight(callback: CallbackQuery) -> None:
     lang = await selected_language(callback.from_user)
     keyboard = release_actions(
         story_id, ready_for_export=ready, delivery_status=status,
+        recovery_action=recovery_action,
     )
     keyboard.inline_keyboard.insert(-1, [help_button(lang, "release", story_id)])
     await callback.message.answer(
@@ -131,3 +163,44 @@ async def show_release_preflight(callback: CallbackQuery) -> None:
         parse_mode="HTML", reply_markup=keyboard,
     )
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ll_delivery_reconcile:"))
+async def reconcile_delivery_callback(callback: CallbackQuery) -> None:
+    """Parent-triggered projection repair, never a Telegram PDF resend."""
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("Только в личном чате", show_alert=True)
+        return
+    owner_id = callback.from_user.id
+    if callback.message.chat.id != owner_id:
+        await callback.answer("Откройте личный чат с ботом", show_alert=True)
+        return
+    try:
+        story_id = int((callback.data or "").split(":", 1)[1])
+        if story_id <= 0:
+            raise ValueError
+    except (IndexError, ValueError):
+        await callback.answer("Неверная книга", show_alert=True)
+        return
+    try:
+        diagnosis = await repair_confirmed_projection(
+            owner_id=owner_id, story_id=story_id,
+        )
+    except PermissionError:
+        await callback.answer("Нет доступа к книге", show_alert=True)
+        return
+    if diagnosis.action == RecoveryAction.CONSISTENT:
+        await callback.answer("Статус доставки подтверждён", show_alert=True)
+    else:
+        await callback.answer(
+            "Повторная отправка отключена. Нужна проверка статуса.",
+            show_alert=True,
+        )
+    await callback.message.answer(
+        "📘 Вернитесь к книге для просмотра актуального статуса.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text="📘 К книге", callback_data=f"ll_book:{story_id}",
+            ),
+        ]]),
+    )
