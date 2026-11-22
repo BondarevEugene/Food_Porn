@@ -18,6 +18,7 @@ async def test_approved_production_is_persisted_before_manifest_registration() -
     package = Mock()
     production.assemble.return_value = package
     expected = Mock()
+    package.release.pdf_sha256 = "a" * 64
 
     def persist(**kwargs):
         assert kwargs["package"] is package
@@ -47,6 +48,7 @@ async def test_approved_production_is_persisted_before_manifest_registration() -
             "app.little_legend.release_orchestrator.register_release",
             side_effect=register,
         ),
+        patch("app.little_legend.release_orchestrator.validate_pdf"),
     ):
         result = await prepare_owned_release(
             owner_id=42, story_id=12, art_store=Mock(), pdf_store=Mock(),
