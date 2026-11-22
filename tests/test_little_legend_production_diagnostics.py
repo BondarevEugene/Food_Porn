@@ -1,5 +1,5 @@
 """Production diagnostics never mutate customer production."""
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -11,7 +11,7 @@ from app.little_legend.production_diagnostics import diagnose_owned_production
 def _session(owned):
     session = AsyncMock()
     session.execute.return_value.scalar_one_or_none.return_value = owned
-    factory = Mock()
+    factory = MagicMock()
     factory.return_value.__aenter__ = AsyncMock(return_value=session)
     factory.return_value.__aexit__ = AsyncMock(return_value=False)
     return factory
