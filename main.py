@@ -39,8 +39,8 @@ from app.little_legend.router import router as little_legend_web_router
 from app.miniapp.api import router as miniapp_router
 from app.services.factory_alerts import FactoryAlertNotifier
 from app.services.factory_monitor import FactoryStorageMonitor
-from app.services.openai_costs import OpenAICostSynchronizer
 from app.services.omnifactory_fleet_agent import FleetAgentConfig, FleetHeartbeatAgent
+from app.services.openai_costs import OpenAICostSynchronizer
 from app.services.scheduled_delivery import ScheduledDeliveryWorker
 from app.services.video_retention import VideoRetentionWorker
 from app.workers.menu_pipeline import MenuPipeline
