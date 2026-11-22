@@ -92,34 +92,45 @@ async def run_premium_worker_once(
     if job is None:
         return False
     from app.little_legend.premium_job_context import restore_premium_job_context
+    from app.little_legend.premium_recovery import record_premium_pre_dispatch_failure
 
-    consent = await dependencies.photo_consents.get_photo_consent(
-        owner_id=job.owner_id, story_id=job.story_id,
-    )
-    if not premium_photo_consent_allows_transfer(
-        consent, configured_premium_photo_disclosure(),
-    ):
-        raise PermissionError("Parent has not authorized AI photo transfer")
-    context = restore_premium_job_context(job)
-    reference_ids = {
-        request.reference_id for request in context.manifest.requests
-    }
-    # Check ALL reference assets before the irreversible provider fence.
-    # A missing child photo must never result in a billable AI request.
-    await dependencies.references.check_access(
-        owner_id=job.owner_id,
-        story_id=job.story_id,
-        reference_ids=reference_ids,
-    )
-    await run_restored_premium_image_job(
-        job=job,
-        provider=dependencies.provider,
-        reference_reader=dependencies.reference_reader,
-        store=dependencies.store,
-        policy=dependencies.policy,
-        fence_dispatch=fence,
-        complete_job=complete,
-    )
+    try:
+        consent = await dependencies.photo_consents.get_photo_consent(
+            owner_id=job.owner_id, story_id=job.story_id,
+        )
+        if not premium_photo_consent_allows_transfer(
+            consent, configured_premium_photo_disclosure(),
+        ):
+            raise PermissionError("Parent has not authorized AI photo transfer")
+        context = restore_premium_job_context(job)
+        reference_ids = {
+            request.reference_id for request in context.manifest.requests
+        }
+        # Check ALL references before the irreversible provider fence.
+        await dependencies.references.check_access(
+            owner_id=job.owner_id,
+            story_id=job.story_id,
+            reference_ids=reference_ids,
+        )
+        await run_restored_premium_image_job(
+            job=job,
+            provider=dependencies.provider,
+            reference_reader=dependencies.reference_reader,
+            store=dependencies.store,
+            policy=dependencies.policy,
+            fence_dispatch=fence,
+            complete_job=complete,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        # The locked recovery transaction rechecks the actual dispatch marker.
+        # Never retry a paid call with ambiguous outcome.
+        await record_premium_pre_dispatch_failure(
+            job_id=job.job_id, owner_id=job.owner_id,
+            token=job.lease_token, policy=dependencies.policy,
+        )
+        raise
     return True
 
 
