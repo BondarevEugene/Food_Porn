@@ -1456,6 +1456,16 @@ async def story_production_overview(
         owner_id=owner, story_id=story_id,
     )
     jobs = await list_owner_illustration_jobs(story_id=story_id, owner_id=owner)
+    from app.little_legend.writer_queue import JobStatus
+
+    expected = {node.id for node in draft.graph.nodes} if draft.graph else set()
+    standard_jobs = bool(expected) and len(jobs) == len(expected) and (
+        {job.scene_id for job in jobs} == expected
+    ) and all(not job.premium_manifest_fingerprint for job in jobs)
+    all_complete = standard_jobs and all(
+        job.status == JobStatus.COMPLETED for job in jobs
+    )
+    premium_batch = any(job.premium_manifest_fingerprint for job in jobs)
     counts = {}
     for job in jobs:
         key = job.status.value
@@ -1468,7 +1478,15 @@ async def story_production_overview(
         "illustration_total": len(jobs),
         "illustration_status_counts": counts,
         "all_illustrations_complete": bool(jobs) and all(
-            job.status.value == "completed" for job in jobs
+            job.status == JobStatus.COMPLETED for job in jobs
+        ),
+        "premium_batch": premium_batch,
+        "pdf_ready": all_complete and draft.manuscript is not None,
+        "pdf_blocker": (
+            "Premium cover and chapter moments require a dedicated PDF assembler"
+            if premium_batch else
+            "Complete one approved standard illustration per story scene"
+            if not all_complete else ""
         ),
         "pdf_path": f"/little-legend/api/stories/{story_id}/illustrations/book.pdf",
     }
@@ -1651,6 +1669,10 @@ async def download_stored_illustrated_book(
     # Fail before loading any private object or credentials for incomplete jobs.
     from app.little_legend.writer_queue import JobStatus
 
+    if any(job.premium_manifest_fingerprint for job in jobs):
+        raise HTTPException(
+            409, "Premium illustrations require a dedicated PDF assembler",
+        )
     if not jobs or any(job.status != JobStatus.COMPLETED for job in jobs):
         raise HTTPException(409, "Illustrations are not all completed")
     try:
@@ -2124,13 +2146,13 @@ async function refreshProductionOverview(){
   +' · Рукопись: '+(result.has_manuscript?'готова':'не готова')
   +' · Фото: '+result.photo_count
   +' · Иллюстрации: '+JSON.stringify(summary)
-  +(result.all_illustrations_complete?' · PDF можно скачать':' · PDF пока не готова');
+  +(result.pdf_ready?' · PDF можно скачать':' · PDF пока не готова: '+result.pdf_blocker);
  return result;
 }
 async function downloadCompletedBook(){
  try{
   const result=await refreshProductionOverview();
-  if(!result.all_illustrations_complete||!result.has_manuscript)throw Error('Дождитесь завершения рукописи и всех иллюстраций');
+  if(!result.pdf_ready)throw Error(result.pdf_blocker||'PDF пока не готова');
   const r=await fetch(result.pdf_path,{headers:{Authorization:'tma '+auth},cache:'no-store'});
   if(r.status===401){authRejected();throw Error('Повторно откройте студию через Telegram')}
   if(!r.ok)throw Error('PDF пока недоступна: HTTP '+r.status);
