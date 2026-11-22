@@ -957,3 +957,21 @@ async def history_callback(
         telegram_user_id=callback.from_user.id,
     )
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("menu:"))
+async def unknown_menu_callback(callback: CallbackQuery) -> None:
+    """Answer obsolete menu buttons rather than silently dropping updates.
+
+    Registered after all supported menu actions. Never dispatches production,
+    changes orders, or logs the raw callback (which may contain customer data).
+    """
+    logger.warning(
+        "Unhandled Food_Porn menu callback; update_id=%s",
+        callback.id,
+    )
+    await callback.answer(
+        "Эта кнопка больше не действует. Откройте меню через /start "
+        "или /history и выберите актуальный заказ.",
+        show_alert=True,
+    )
