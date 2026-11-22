@@ -1466,6 +1466,18 @@ async def story_production_overview(
         job.status == JobStatus.COMPLETED for job in jobs
     )
     premium_batch = any(job.premium_manifest_fingerprint for job in jobs)
+    premium_ready = False
+    if premium_batch and draft.graph is not None and draft.manuscript is not None:
+        from app.little_legend.premium_book_pdf import validate_premium_book_jobs
+
+        try:
+            validate_premium_book_jobs(
+                owner_id=owner, story_id=story_id,
+                graph=draft.graph, manuscript=draft.manuscript, jobs=jobs,
+            )
+            premium_ready = True
+        except (PermissionError, ValueError):
+            pass
     counts = {}
     for job in jobs:
         key = job.status.value
@@ -1481,14 +1493,20 @@ async def story_production_overview(
             job.status == JobStatus.COMPLETED for job in jobs
         ),
         "premium_batch": premium_batch,
-        "pdf_ready": all_complete and draft.manuscript is not None,
-        "pdf_blocker": (
-            "Premium cover and chapter moments require a dedicated PDF assembler"
-            if premium_batch else
-            "Complete one approved standard illustration per story scene"
-            if not all_complete else ""
+        "pdf_ready": premium_ready if premium_batch else (
+            all_complete and draft.manuscript is not None
         ),
-        "pdf_path": f"/little-legend/api/stories/{story_id}/illustrations/book.pdf",
+        "pdf_blocker": (
+            "Complete all premium cover and chapter illustrations"
+            if premium_batch and not premium_ready else
+            "Complete one approved standard illustration per story scene"
+            if not premium_batch and not all_complete else ""
+        ),
+        "pdf_path": (
+            f"/little-legend/api/stories/{story_id}/illustrations/premium-book.pdf"
+            if premium_batch else
+            f"/little-legend/api/stories/{story_id}/illustrations/book.pdf"
+        ),
     }
 
 
@@ -1645,6 +1663,54 @@ async def story_illustration_status(
             for job in jobs
         ],
     }
+
+
+@router.get("/api/stories/{story_id}/illustrations/premium-book.pdf")
+async def download_premium_illustrated_book(
+    story_id: int, owner: Annotated[int, Depends(_owner)],
+):
+    """Download an owner-scoped complete premium proof with its own cover."""
+    import asyncio
+
+    from app.little_legend.art_storage_config import configured_generated_art_store
+    from app.little_legend.illustration_queue_store import list_owner_illustration_jobs
+    from app.little_legend.premium_book_pdf import (
+        assemble_premium_book_pdf,
+        validate_premium_book_jobs,
+    )
+
+    draft = await _owned_draft(story_id, owner)
+    if draft.graph is None or draft.manuscript is None:
+        raise HTTPException(409, "Approved manuscript is required")
+    jobs = await list_owner_illustration_jobs(story_id=story_id, owner_id=owner)
+    try:
+        validate_premium_book_jobs(
+            owner_id=owner, story_id=story_id,
+            graph=draft.graph, manuscript=draft.manuscript, jobs=jobs,
+        )
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    try:
+        store = configured_generated_art_store()
+    except ValueError as exc:
+        raise HTTPException(503, "Private illustration storage is unavailable") from exc
+    try:
+        pdf = await asyncio.to_thread(
+            assemble_premium_book_pdf,
+            store=store, owner_id=owner, story_id=story_id,
+            title=draft.title, dedication=draft.dedication,
+            graph=draft.graph, manuscript=draft.manuscript, jobs=jobs,
+        )
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return Response(
+        content=pdf, media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="little-legend-premium.pdf"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get("/api/stories/{story_id}/illustrations/book.pdf")
