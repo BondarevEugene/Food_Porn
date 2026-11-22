@@ -51,7 +51,7 @@ def book():
     fingerprint = premium_story_fingerprint(graph=graph, manuscript=manuscript)
     jobs = [
         IllustrationJob(
-            job_id=f"lli_{index}", owner_id=42, story_id=7,
+            job_id=f"lli_{index:08d}", owner_id=42, story_id=7,
             scene_id=req.moment_id, status=JobStatus.COMPLETED,
             expected_revision=req.expected_revision,
             estimated_cost_usd=req.estimated_micro_usd / 1_000_000,
