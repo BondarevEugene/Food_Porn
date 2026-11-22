@@ -6,10 +6,10 @@ returns the existing delivery state, not another message.
 from __future__ import annotations
 
 import hashlib
+
 import httpx
 
 from app.config import get_settings
-
 from app.little_legend.production_effect_ledger import (
     EffectKind,
     EffectStatus,
