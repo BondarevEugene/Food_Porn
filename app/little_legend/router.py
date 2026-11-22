@@ -1466,6 +1466,9 @@ async def story_production_overview(
         job.status == JobStatus.COMPLETED for job in jobs
     )
     premium_batch = any(job.premium_manifest_fingerprint for job in jobs)
+    from app.little_legend.premium_production_status import premium_production_status
+
+    premium_progress = premium_production_status(jobs)
     premium_ready = False
     if premium_batch and draft.graph is not None and draft.manuscript is not None:
         from app.little_legend.premium_book_pdf import validate_premium_book_jobs
@@ -1493,6 +1496,7 @@ async def story_production_overview(
             job.status == JobStatus.COMPLETED for job in jobs
         ),
         "premium_batch": premium_batch,
+        "premium_progress": premium_progress,
         "pdf_ready": premium_ready if premium_batch else (
             all_complete and draft.manuscript is not None
         ),
@@ -2212,6 +2216,7 @@ async function refreshProductionOverview(){
   +' · Рукопись: '+(result.has_manuscript?'готова':'не готова')
   +' · Фото: '+result.photo_count
   +' · Иллюстрации: '+JSON.stringify(summary)
+  +(result.premium_batch?' · '+result.premium_progress.message+' ('+result.premium_progress.completed+'/'+result.premium_progress.total+')':'')
   +(result.pdf_ready?' · PDF можно скачать':' · PDF пока не готова: '+result.pdf_blocker);
  return result;
 }
