@@ -1,5 +1,7 @@
 """Contract regression tests for the private web photo upload endpoint."""
 
+from __future__ import annotations
+
 import ast
 from pathlib import Path
 
