@@ -455,7 +455,6 @@ async def show_little_legend_book(callback: CallbackQuery) -> None:
         f"📖 Книга №{story_id} · {status_text}\n"
         f"Выполнено {complete} из {len(steps)} обязательных этапов\n\n"
         f"{checklist}\n\n"
-        + (f"{readiness_text}\n\n" if readiness_text else "")
         + "Нажмите основную кнопку, чтобы продолжить.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
     )
