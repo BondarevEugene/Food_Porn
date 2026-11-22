@@ -319,6 +319,7 @@ async def save_intake(callback: CallbackQuery, state: FSMContext) -> None:
         f"✅ Черновик #{result['id']} сохранён.\n"
         "Перед генерацией нужно утвердить план и проверить необходимые согласия.",
         reply_markup=_buttons(
+            ("▶ Продолжить эту книгу", f"ll_book:{result['id']}"),
             ("📚 Мои книги", "ll_books"),
             ("✨ Создать ещё", "ll_choose_mode"),
         ),
