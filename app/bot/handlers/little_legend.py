@@ -24,21 +24,21 @@ from app.database.session import async_session_maker
 from app.little_legend.aiogram_pdf_sender import AiogramPDFSender
 from app.little_legend.art_storage_config import configured_generated_art_store
 from app.little_legend.blueprint import quick_blueprint
-from app.little_legend.consent import consent_status
-from app.little_legend.text_ai_consent import TextAIConsentDecision
-from app.little_legend.text_ai_disclosure import (
-    accept_server_disclosure,
-    configured_text_ai_disclosure,
-    consent_allows_provider,
-)
 from app.little_legend.book_delivery import DeliveryStatus
 from app.little_legend.commercial_catalog import crm_book_catalog
+from app.little_legend.consent import consent_status
 from app.little_legend.owned_production import load_owned_production
 from app.little_legend.pdf_storage_config import configured_private_pdf_store
 from app.little_legend.readiness_messages import readiness_message
 from app.little_legend.release_manifest_store import get_release_manifest
 from app.little_legend.release_orchestrator import prepare_owned_release, send_owned_release
 from app.little_legend.router import StoryDraft, stories
+from app.little_legend.text_ai_consent import TextAIConsentDecision
+from app.little_legend.text_ai_disclosure import (
+    accept_server_disclosure,
+    configured_text_ai_disclosure,
+    consent_allows_provider,
+)
 
 logger = logging.getLogger(__name__)
 
