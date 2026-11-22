@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import (
@@ -1078,6 +1078,56 @@ async def photo_vault_status(story_id: int, owner: Annotated[int, Depends(_owner
     return upload_capability()
 
 
+@router.post("/api/stories/{story_id}/photos", status_code=201)
+async def upload_story_photo(
+    story_id: int, request: Request,
+    owner: Annotated[int, Depends(_owner)],
+):
+    """Private R2 photo upload using the existing verified premium-consent gate."""
+    from app.bot.handlers.little_legend_photo import store_settings_from_environment
+    from app.little_legend.neon_photo_vault import NeonVaultMetadataRepository
+    from app.little_legend.neon_premium_photo_consent import NeonPremiumPhotoConsentRepository
+    from app.little_legend.premium_photo_intake import upload_consented_child_photo
+    from app.little_legend.private_photo_vault import (
+        AuthorizedPrivatePhotoVault,
+        S3PrivatePhotoStore,
+    )
+    from app.little_legend.secure_vault import MAX_UPLOAD_BYTES
+
+    await _owned_draft(story_id, owner)
+    if request.headers.get("content-type", "").split(";")[0].strip() not in {
+        "image/jpeg", "image/png", "image/webp",
+    }:
+        raise HTTPException(415, "JPEG, PNG or WebP required")
+    try:
+        declared = int(request.headers.get("content-length", "0"))
+    except ValueError as exc:
+        raise HTTPException(400, "Invalid Content-Length") from exc
+    if declared > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "Photo exceeds 12 MiB")
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > MAX_UPLOAD_BYTES:
+            raise HTTPException(413, "Photo exceeds 12 MiB")
+    if not raw:
+        raise HTTPException(422, "Empty photo")
+    try:
+        vault = AuthorizedPrivatePhotoVault(
+            metadata=NeonVaultMetadataRepository(),
+            objects=S3PrivatePhotoStore(store_settings_from_environment()),
+        )
+        asset = await upload_consented_child_photo(
+            owner_id=owner, story_id=story_id, data=bytes(raw),
+            vault=vault, consents=NeonPremiumPhotoConsentRepository(),
+        )
+    except PermissionError as exc:
+        raise HTTPException(403, "Active parental photo consent required") from exc
+    except ValueError as exc:
+        raise HTTPException(422, "Invalid image file") from exc
+    return {"asset_id": asset.asset_id, "state": asset.state.value}
+
+
 @router.get("/api/stories/{story_id}/privacy-readiness")
 async def read_privacy_readiness(
     story_id: int, owner: Annotated[int, Depends(_owner)],
@@ -1607,9 +1657,9 @@ button:disabled{opacity:.5;cursor:not-allowed}
 <div class="consent-kicker">✦ LITTLE LEGEND / ПОРТРЕТ ГЕРОЯ</div>
 <h2 id="photoConstructorHeading">Конструктор фотографий</h2>
 <div class="consent-steps"><span>01 · Условия</span><span class="active">02 · Конструктор</span><span>03 · Проверка</span></div>
-<p class="note">Этап подготовки фотографий. Реальная загрузка и AI-обработка ребёнка ещё недоступны: необходимо завершить юридическую и техническую проверку.</p>
-<div class="photo-slots"><div class="photo-slot"><strong>01 · Портрет</strong><p>Чёткое лицо, ровный свет, без других людей.</p><span>Загрузка заблокирована</span></div><div class="photo-slot"><strong>02 · Дополнительный ракурс</strong><p>Необязательно. Помогает сохранить внешность героя.</p><span>Загрузка заблокирована</span></div></div>
-<p id="photoConstructorStatus" class="note" role="status"></p>
+<p class="note">Загрузка в приватное R2-хранилище доступна после подтверждения согласия на фотографии в Telegram-боте. Файлы не публикуются.</p>
+<div class="photo-slots"><div class="photo-slot"><strong>01 · Портрет</strong><p>Чёткое лицо, ровный свет, без других людей.</p><span>Приватное хранение</span></div><div class="photo-slot"><strong>02 · Дополнительный ракурс</strong><p>Необязательно. Помогает сохранить внешность героя.</p><span>Приватное хранение</span></div></div>
+<label for="photoUploadInput">Выберите фотографию (JPEG, PNG или WebP, до 12 МБ)</label><input id="photoUploadInput" type="file" accept="image/jpeg,image/png,image/webp"><button type="button" onclick="uploadPhoto()">Загрузить фото приватно</button><p id="photoConstructorStatus" class="note" role="status"></p>
 <button class="secondary" onclick="openConsent()">← К условиям</button>
 <button onclick="openIdentity()">Продолжить без фото →</button>
 </section>
@@ -1781,7 +1831,24 @@ const qualityLabels={CHAPTER_MISSING:'Глава отсутствует',CHAPTER
 async function openArtReadiness(){tab('artReadiness');$('artReadinessScenes').replaceChildren();$('artReadinessBlockers').replaceChildren();if(!storyId){$('artReadinessSummary').textContent='Сначала сохраните книгу';return}try{const report=await api('/stories/'+storyId+'/art-readiness');$('artReadinessSummary').textContent='Сцен готово: '+report.scenes_ready+'/'+report.scenes_total+' · '+(report.ready?'Можно передавать на ручную проверку перед генерацией':'Есть блокирующие замечания');report.blockers.forEach(message=>{const line=document.createElement('p');line.className='note error';line.textContent='• '+message;$('artReadinessBlockers').append(line)});report.scenes.forEach(scene=>{const card=document.createElement('div');card.className='graph-node';const heading=document.createElement('strong');heading.textContent='Сцена '+scene.order+' · '+(scene.ready?'Подготовлена':'Требует внимания');card.append(heading);const details=document.createElement('p');details.className='note';details.textContent=scene.blockers.length?scene.blockers.join(' · '):'Описание проверено · '+scene.prompt_chars+' символов';card.append(details);$('artReadinessScenes').append(card)})}catch(e){$('artReadinessSummary').textContent='Ошибка проверки: '+e.message}}
 async function openManuscriptQuality(){tab('manuscriptQuality');$('qualityScenes').replaceChildren();if(!storyId){$('qualitySummary').textContent='Сначала сохраните книгу';return}try{const report=await api('/stories/'+storyId+'/manuscript-quality');$('qualitySummary').textContent='Сцен: '+report.completed_scenes+'/'+report.scene_count+' · Слов: '+report.total_words+' · '+(report.ready_for_editorial_human_review?'Готово к ручной редактуре':'Есть замечания');report.scenes.forEach(scene=>{const card=document.createElement('div');card.className='graph-node';const title=document.createElement('strong');title.textContent='Сцена '+scene.order+' · '+scene.word_count+' слов';card.append(title);const note=document.createElement('p');note.className='note';note.textContent=scene.codes.length?scene.codes.map(code=>qualityLabels[code]||code).join(' · '):'Замечаний нет';card.append(note);$('qualityScenes').append(card)})}catch(e){$('qualitySummary').textContent='Ошибка проверки: '+e.message}}
 async function openConsent(){tab('consent');$('consentContinue').disabled=true;$('consentTermsCheck').checked=false;$('consentParentCheck').checked=false;$('consentPhotoCheck').checked=false;if(!storyId){$('consentStatus').textContent='Сначала сохраните книгу';return}try{const x=await api('/stories/'+storyId+'/consent');$('consentTerms').textContent=x.terms;$('consentPhotoNotice').textContent=x.photo_notice;$('consentVersion').textContent='Версия условий: '+x.status.version;$('consentStatus').textContent=x.status.terms_accepted?'Условия ранее приняты. Для перехода подтвердите их повторно.':'Прочитайте условия и подтвердите два обязательных пункта.'}catch(e){$('consentStatus').textContent='Ошибка: '+e.message}}
-async function openPhotoConstructor(){tab('photoConstructor');if(!storyId){$('photoConstructorStatus').textContent='Сначала сохраните книгу';return}try{const x=await api('/stories/'+storyId+'/consent');if(!x.status.terms_accepted){$('photoConstructorStatus').textContent='Сначала примите условия и подтвердите статус родителя.';tab('consent');return}const capability=await api('/stories/'+storyId+'/photo-vault');$('photoConstructorStatus').textContent='Условия подтверждены. Фотографии не загружаются: защищённая функция ожидает запуска.';if(capability.photo_upload_enabled===true){$('photoConstructorStatus').textContent='Загрузка будет доступна после отдельного подтверждения политики фотографий и проверки безопасности.'}}catch(e){$('photoConstructorStatus').textContent='Ошибка: '+e.message}}
+async function openPhotoConstructor(){tab('photoConstructor');if(!storyId){$('photoConstructorStatus').textContent='Сначала сохраните книгу';return}try{const x=await api('/stories/'+storyId+'/consent');if(!x.status.terms_accepted){$('photoConstructorStatus').textContent='Сначала примите условия и подтвердите статус родителя.';tab('consent');return}$('photoConstructorStatus').textContent='Выберите фото. Для загрузки требуется отдельное согласие на фотографии в Telegram-боте.'}catch(e){$('photoConstructorStatus').textContent='Ошибка: '+e.message}}
+async function uploadPhoto(){
+ const status=$('photoConstructorStatus'),file=$('photoUploadInput').files[0];
+ if(!storyId){status.textContent='Сначала сохраните книгу';return}
+ if(!file){status.textContent='Выберите фотографию';return}
+ if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>12*1024*1024){status.textContent='Допустимы JPEG, PNG и WebP до 12 МБ';return}
+ if(!auth){authRejected();return}
+ status.textContent='Загружаем приватно…';
+ try{
+  const r=await fetch('/little-legend/api/stories/'+storyId+'/photos',{method:'POST',headers:{Authorization:'tma '+auth,'Content-Type':file.type},body:file,cache:'no-store'});
+  if(r.status===401){authRejected();throw Error('Повторно откройте студию через Telegram')}
+  if(r.status===403)throw Error('Сначала подтвердите отдельное согласие на фото в Telegram-боте');
+  if(!r.ok)throw Error('Не удалось загрузить фото (HTTP '+r.status+')');
+  const result=await r.json();
+  status.textContent='Фото сохранено приватно. Код: '+result.asset_id;
+  $('photoUploadInput').value='';
+ }catch(e){status.textContent=e.message}
+}
 async function acceptConsent(){try{if(!storyId)throw Error('Сначала сохраните книгу');if(!$('consentTermsCheck').checked||!$('consentParentCheck').checked)throw Error('Подтвердите оба обязательных пункта');const decision={accept_terms:true,declare_parental_authority:true,consent_to_child_photos:false};const x=await api('/stories/'+storyId+'/consent','POST',decision);if(!x.status.terms_accepted)throw Error('Согласие не подтверждено сервером');$('consentStatus').textContent='Условия сохранены. Открываем безопасный конструктор.';await openPhotoConstructor()}catch(e){$('consentStatus').textContent='Ошибка: '+e.message}}
 async function withdrawConsent(){try{if(!storyId)throw Error('Сначала сохраните книгу');const result=await api('/stories/'+storyId+'/consent/withdraw','POST',{});$('consentPhotoCheck').checked=false;$('consentStatus').textContent='Согласие отозвано. Приватных файлов поставлено на удаление: '+result.private_assets_queued_for_erasure+'. Физическое удаление ещё не подтверждено.'}catch(e){$('consentStatus').textContent='Ошибка: '+e.message}}
 let activeIdentity=null;
