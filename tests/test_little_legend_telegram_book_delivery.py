@@ -1,5 +1,6 @@
 """Telegram PDF delivery is idempotent and never repeats ambiguous sends."""
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -27,7 +28,7 @@ def effect(status):
 async def test_new_delivery_fences_before_sending(monkeypatch):
     import app.little_legend.telegram_book_delivery as delivery
 
-    monkeypatch.setenv("BOT_TOKEN", "test-token")
+    monkeypatch.setattr(delivery, "get_settings", lambda: SimpleNamespace(bot_token="test-token"))
     events = []
 
     async def reserve_effect(**kwargs):
