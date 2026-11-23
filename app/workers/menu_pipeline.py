@@ -181,7 +181,7 @@ class MenuPipeline:
                 if menu.meal_period in ("breakfast", "lunch", "dinner"):
                     scene = plan_living_scene(
                         meal=menu.meal_period,
-                        mood="romantic",
+                        mood=menu.menu_mood if menu.menu_mood in ("family", "romantic", "sensual", "festive", "playful") else "romantic",
                         order_seed=getattr(menu, "design_seed", None) or menu.id,
                     )
                 # Шаг 1: Генерация изображений блюд с защитой от дублирования
