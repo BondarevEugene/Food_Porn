@@ -1,6 +1,6 @@
 """The customer chooses meal and mood before dishes, without extra category screens."""
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 from aiogram.types import InlineKeyboardMarkup
