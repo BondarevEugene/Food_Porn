@@ -247,6 +247,7 @@ class MenuRepository:
             raise ValueError("Invalid visual style")
         if "menu_mood" in changes and changes["menu_mood"] not in (
             "romantic", "cozy", "festive", "light", "refined",
+            "family", "sensual", "playful",
         ):
             raise ValueError("Invalid menu mood")
         for field, value in changes.items():
