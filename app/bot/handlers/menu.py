@@ -48,8 +48,6 @@ from app.database.repositories import MenuRepository
 from app.services.cuisine_catalog import CUISINES, cuisine_menu
 from app.services.menu_delivery import MenuDeliveryUnavailable, paid_menu_documents
 from app.services.menu_wizard import (
-    DEFAULT_VISUAL_STYLE,
-    MEAL_FULL_DAY,
     meal_label,
     parse_menu_plan,
 )
@@ -104,20 +102,95 @@ async def begin_menu_setup(
         customer: Customer,
         language: str = "ru",
 ) -> None:
-    async with async_session_maker() as session:
+    """Start with a meal choice, before allocating a new order."""
+    await state.set_state(None)
+    await state.update_data(ui_lang=language)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="☀️ Завтраки", callback_data="menu_new:breakfast")],
+        [InlineKeyboardButton(text="🌙 Ужины", callback_data="menu_new:dinner")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="prod_food_porn")],
+    ])
+    await message.answer(
+        "🍽️ <b>Какой приём пищи превратим в событие?</b>\\n\\n"
+        "Завтраки — светлые и воздушные. Ужины — торжественные и атмосферные.",
+        reply_markup=keyboard, parse_mode="HTML",
+    )
+
+
+@router.callback_query(F.data.in_(["menu_new:breakfast", "menu_new:dinner"]))
+async def create_meal_menu(
+        callback: CallbackQuery,
+        state: FSMContext,
+        session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Create one owned draft only after the customer chooses the meal."""
+    meal = callback.data.split(":", 1)[1]
+    async with session_factory() as session:
+        customer = await current_customer(session, callback.from_user.id)
+        if customer is None:
+            await callback.answer("Сначала выполните /start", show_alert=True)
+            return
         repo = MenuRepository(session)
         created = await repo.create(
-            customer,
-            meal_period=MEAL_FULL_DAY,
-            visual_style=DEFAULT_VISUAL_STYLE,
+            customer, meal_period=meal,
+            visual_style="premium_light" if meal == "breakfast" else "premium_dark",
         )
-        menu = await repo.get(created.id, full=True)
     await state.set_state(None)
-    await state.update_data(ui_lang=language, menu_id=menu.id)
-    await message.answer(
-        format_premium_dashboard(menu),
-        reply_markup=build_dashboard_kb(menu),
+    await state.update_data(menu_id=created.id)
+    await callback.answer()
+    await callback.message.answer(
+        "🎭 <b>Выберите настроение меню</b>\\n\\n"
+        "Одежду, интерьер, позы и оформление система подберёт сама.",
+        reply_markup=_menu_mood_keyboard(created.id),
         parse_mode="HTML",
+    )
+
+
+def _menu_mood_keyboard(menu_id: int) -> InlineKeyboardMarkup:
+    choices = (
+        ("🏡 Семейное", "family"),
+        ("💕 Романтическое", "romantic"),
+        ("🔥 Горячее — эстетично", "sensual"),
+        ("🥂 Праздничное", "festive"),
+        ("🎈 Игривое", "playful"),
+    )
+    builder = InlineKeyboardBuilder()
+    for title, mood in choices:
+        builder.button(
+            text=title,
+            callback_data=MenuAction(action="set_mood", menu_id=menu_id, category=mood),
+        )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+@router.callback_query(MenuAction.filter(F.action == "set_mood"))
+async def select_menu_mood(
+        callback: CallbackQuery,
+        callback_data: MenuAction,
+        session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Persist the mood, then offer a single primary dish-entry action."""
+    mood = callback_data.category
+    if mood not in ("family", "romantic", "sensual", "festive", "playful"):
+        await callback.answer("Неизвестная тематика.", show_alert=True)
+        return
+    async with session_factory() as session:
+        repo = MenuRepository(session)
+        menu = await repo.get(callback_data.menu_id, full=True)
+        if not _owned_by(menu, callback.from_user.id):
+            await callback.answer("Заказ не найден.", show_alert=True)
+            return
+        try:
+            await repo.set_premium_preferences(menu.id, menu_mood=mood)
+        except ValueError:
+            await callback.answer("Готовый заказ нельзя изменить.", show_alert=True)
+            return
+        menu = await repo.get(menu.id, full=True)
+    await callback.answer("Тематика сохранена")
+    await callback.message.answer(
+        format_premium_dashboard(menu),
+        reply_markup=build_dashboard_kb(menu), parse_mode="HTML",
     )
 
 
@@ -135,7 +208,7 @@ async def upgrade_legacy_menu_setup(
         return
     language = getattr(customer.language, "value", customer.language) or "ru"
     await begin_menu_setup(callback.message, state, customer, str(language))
-    await callback.answer("Мастер обновлён: меню теперь вводится одним списком")
+    await callback.answer("Выберите тип меню")
 
 
 def format_premium_dashboard(menu: Menu) -> str:
@@ -148,7 +221,7 @@ def format_premium_dashboard(menu: Menu) -> str:
     complete = int(count > 0) + int(cover) + int(spread)
     progress = "●" * complete + "○" * (3 - complete)
     if not count:
-        next_step = "Выберите блюда — по категориям, списком или по кухне мира."
+        next_step = "Напишите блюда одним сообщением, каждое с новой строки."
     elif not cover:
         next_step = "Загрузите фотографию для обложки."
     elif not spread:
@@ -196,8 +269,8 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
     count = sum(item.title != "—" for item in menu.items)
     can_generate = count > 0 and bool(menu.cover_photo_path and menu.spread_photo_path)
     if not count:
-        builder.button(text="🍽️ Шаг 1 · Выбрать блюда",
-                       callback_data=MenuAction(action="menu_dish_methods", menu_id=menu.id))
+        builder.button(text="✍️ Шаг 1 · Написать блюда",
+                       callback_data=MenuAction(action="bulk_items", menu_id=menu.id))
     elif not menu.cover_photo_path:
         builder.button(text="📷 Шаг 2 · Добавить обложку",
                        callback_data=MenuAction(action="req_cover", menu_id=menu.id))
@@ -212,6 +285,9 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
     ):
         builder.button(text="📩 Получить готовые файлы",
                        callback_data=MenuAction(action="resend", menu_id=menu.id))
+    if menu.status in (MenuStatus.DRAFT, MenuStatus.FAILED):
+        builder.button(text="🎭 Изменить тематику",
+                       callback_data=MenuAction(action="choose_mood", menu_id=menu.id))
     builder.button(text="⚙️ Изменить или дополнить",
                    callback_data=MenuAction(action="menu_more", menu_id=menu.id))
     builder.button(text="ℹ️ Что нужно для генерации",
@@ -219,6 +295,27 @@ def build_dashboard_kb(menu: Menu) -> InlineKeyboardMarkup:
     builder.button(text="⬅️ Назад", callback_data="prod_food_porn")
     builder.adjust(1)
     return builder.as_markup()
+
+
+@router.callback_query(MenuAction.filter(F.action == "choose_mood"))
+async def change_menu_mood(
+        callback: CallbackQuery,
+        callback_data: MenuAction,
+        session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        menu = await MenuRepository(session).get(callback_data.menu_id, full=True)
+    if not _owned_by(menu, callback.from_user.id):
+        await callback.answer("Заказ не найден.", show_alert=True)
+        return
+    if menu.status not in (MenuStatus.DRAFT, MenuStatus.FAILED):
+        await callback.answer("Готовый заказ нельзя изменить.", show_alert=True)
+        return
+    await callback.answer()
+    await callback.message.answer(
+        "🎭 <b>Выберите тематику</b>",
+        reply_markup=_menu_mood_keyboard(menu.id), parse_mode="HTML",
+    )
 
 
 @router.callback_query(MenuAction.filter(F.action == "menu_dish_methods"))
@@ -234,7 +331,6 @@ async def choose_menu_dish_method(
         return
     builder = InlineKeyboardBuilder()
     for label, action in (
-        ("🍽️ По категориям", "pick_category"),
         ("✍️ Своим списком", "bulk_items"),
         ("🌍 По кухне мира", "choose_cuisine"),
     ):
@@ -262,7 +358,6 @@ async def show_menu_edit_options(
         return
     builder = InlineKeyboardBuilder()
     for label, action in (
-        ("🍽️ Подобрать по категориям", "pick_category"),
         ("✍️ Ввести список блюд", "bulk_items"),
         ("🌍 Выбрать кухню мира", "choose_cuisine"),
         ("📝 Редактировать меню", "edit_plan"),
