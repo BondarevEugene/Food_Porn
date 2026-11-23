@@ -59,7 +59,10 @@ def menu_render_snapshot(menu: Menu) -> SimpleNamespace:
     meal = getattr(menu, "meal_period", None)
     scene = (
         plan_living_scene(
-            meal=meal, mood="romantic",
+            meal=meal,
+            mood=getattr(menu, "menu_mood", "romantic")
+            if getattr(menu, "menu_mood", "romantic") in ("family", "romantic", "sensual", "festive", "playful")
+            else "romantic",
             order_seed=getattr(menu, "design_seed", None) or menu.id,
         )
         if meal in ("breakfast", "lunch", "dinner") else None
