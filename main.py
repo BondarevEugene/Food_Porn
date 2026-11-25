@@ -39,6 +39,7 @@ from app.little_legend.router import router as little_legend_web_router
 from app.miniapp.api import router as miniapp_router
 from app.services.factory_alerts import FactoryAlertNotifier
 from app.services.factory_monitor import FactoryStorageMonitor
+from app.services.omnifactory_fleet_agent import FleetAgentConfig, FleetHeartbeatAgent
 from app.services.openai_costs import OpenAICostSynchronizer
 from app.services.scheduled_delivery import ScheduledDeliveryWorker
 from app.services.video_retention import VideoRetentionWorker
@@ -280,6 +281,7 @@ def clear_runtime_state() -> None:
     app.state.openai_cost_sync = None
     app.state.scheduled_delivery = None
     app.state.factory_storage_monitor = None
+    app.state.omnifactory_fleet_agent = None
 
 
 async def main() -> None:
@@ -310,6 +312,19 @@ async def main() -> None:
         storage_monitor = FactoryStorageMonitor(bot, settings.storage_root, settings.admin_telegram_ids)
         resources.push_async_callback(close_resource, "factory storage monitor", storage_monitor.stop)
         await storage_monitor.start()
+
+        fleet_agent = FleetHeartbeatAgent(
+            FleetAgentConfig(
+                base_url=os.environ.get("OMNIFACTORY_CRM_URL", "").strip(),
+                bot_key=os.environ.get("OMNIFACTORY_CRM_BOT_KEY", "").strip(),
+                ingest_secret=os.environ.get("OMNIFACTORY_CRM_INGEST_SECRET", "").strip(),
+                interval_seconds=int(os.environ.get("OMNIFACTORY_CRM_HEARTBEAT_SECONDS", "60")),
+                runtime_version=os.environ.get("OMNIFACTORY_RUNTIME_VERSION", "food-porn"),
+            )
+        )
+        resources.push_async_callback(close_resource, "OmniFactory fleet heartbeat", fleet_agent.stop)
+        await fleet_agent.start()
+        app.state.omnifactory_fleet_agent = fleet_agent
 
         cost_sync = OpenAICostSynchronizer(settings, database.session_factory)
         resources.push_async_callback(close_resource, "OpenAI cost synchronizer", cost_sync.stop)
