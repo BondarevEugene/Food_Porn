@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.bot.keyboards import add_wayforpay_option
 from app.bot.states.wallpaper import WallpaperStates
 from app.config import Settings, get_settings
-from app.crm.models import GiftFulfillment, GiftPaymentReceipt, GiftPurchase
+from app.crm.models import GiftFeedback, GiftFulfillment, GiftPaymentReceipt, GiftPurchase
 from app.database.repositories import WallpaperOrderRepository, WayForPayPaymentRepository
 from app.services.free_access import has_free_generation_access
 from app.services.gift_delivery import deliver_paid_gift
@@ -115,6 +115,16 @@ def gift_progress_keyboard(lang: str, purchase_id: str) -> InlineKeyboardMarkup:
     ])
 
 
+def gift_delivery_complete(purchase: GiftPurchase, job: GiftFulfillment | None) -> bool:
+    """Only call the gift complete when every purchased asset was sent."""
+    return bool(
+        job is not None
+        and job.status == "delivered"
+        and (not purchase.includes_collage or job.collage_sent)
+        and (not purchase.includes_video or job.video_sent)
+    )
+
+
 def gift_progress_text(lang: str, purchase: GiftPurchase, job: GiftFulfillment | None) -> str:
     """Report only persisted checkpoints; never invent progress percentages."""
     if purchase.status != "paid":
@@ -145,7 +155,7 @@ def gift_progress_text(lang: str, purchase: GiftPurchase, job: GiftFulfillment |
             "🎬 Відео: доставлено" if sent else "🎬 Відео: очікується",
             "🎬 Видео: доставлено" if sent else "🎬 Видео: ожидается",
             "🎬 Video: delivered" if sent else "🎬 Video: pending"))
-    if status == "delivered":
+    if gift_delivery_complete(purchase, job):
         lines.append(text_for(
             lang,
             "🎉 Готово! Ваші файли вже надіслані в цей чат. Дякуємо за замовлення 💛",
@@ -1260,16 +1270,119 @@ async def show_paid_gift_status(
         await callback.message.answer(
             text, parse_mode="HTML",
             reply_markup=(
-                InlineKeyboardMarkup(inline_keyboard=[[
-                    InlineKeyboardButton(
+                InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=text_for(lang, "⭐ Оцінити подарунок", "⭐ Оценить подарок", "⭐ Rate your gift"),
+                        callback_data=f"gift_feedback:{purchase_id}",
+                    )],
+                    [InlineKeyboardButton(
                         text=text_for(lang, "🏠 Головна", "🏠 Главная", "🏠 Home"),
                         callback_data="back_to_products",
-                    ),
-                ]])
-                if job is not None and job.status == "delivered"
+                    )],
+                ])
+                if gift_delivery_complete(purchase, job)
                 else gift_progress_keyboard(lang, purchase_id)
             ),
         )
+
+
+@router.callback_query(F.data.startswith("gift_feedback:"))
+async def gift_feedback_prompt(
+    callback: CallbackQuery, session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    purchase_id = (callback.data or "").removeprefix("gift_feedback:")
+    try:
+        uuid.UUID(purchase_id)
+    except ValueError:
+        await callback.answer("Invalid order", show_alert=True)
+        return
+    async with session_factory() as session:
+        purchase = await session.get(GiftPurchase, purchase_id)
+        receipt = await session.get(GiftPaymentReceipt, purchase_id)
+        job = await session.get(GiftFulfillment, purchase_id)
+        if (purchase is None or purchase.telegram_user_id != callback.from_user.id
+                or receipt is None or not gift_delivery_complete(purchase, job)):
+            await callback.answer("Order unavailable", show_alert=True)
+            return
+    lang = language_for(callback.from_user)
+    await callback.answer()
+    await callback.message.answer(
+        text_for(lang, "Як вам подарунок? Оцініть від 1 до 5 ⭐",
+                 "Как вам подарок? Оцените от 1 до 5 ⭐",
+                 "How was your gift? Rate it from 1 to 5 ⭐"),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text=f"{n} ⭐", callback_data=f"gift_rate:{purchase_id}:{n}")
+            for n in range(1, 6)
+        ]]),
+    )
+
+
+@router.callback_query(F.data.startswith("gift_rate:"))
+async def gift_feedback_rating(
+    callback: CallbackQuery, state: FSMContext,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    match = re.fullmatch(r"gift_rate:([0-9a-f-]{36}):([1-5])", callback.data or "")
+    if not match:
+        await callback.answer("Invalid rating", show_alert=True)
+        return
+    purchase_id, rating_text = match.groups()
+    async with session_factory() as session:
+        purchase = await session.get(GiftPurchase, purchase_id)
+        receipt = await session.get(GiftPaymentReceipt, purchase_id)
+        job = await session.get(GiftFulfillment, purchase_id)
+        if (purchase is None or purchase.telegram_user_id != callback.from_user.id
+                or receipt is None or not gift_delivery_complete(purchase, job)):
+            await callback.answer("Order unavailable", show_alert=True)
+            return
+        feedback = await session.get(GiftFeedback, purchase_id)
+        if feedback is None:
+            session.add(GiftFeedback(purchase_id=purchase_id,
+                                     telegram_user_id=callback.from_user.id,
+                                     rating=int(rating_text)))
+        else:
+            feedback.rating = int(rating_text)
+        await session.commit()
+    await state.update_data(gift_feedback_purchase_id=purchase_id)
+    await state.set_state(WallpaperStates.waiting_for_feedback_comment)
+    await callback.answer()
+    lang = language_for(callback.from_user)
+    await callback.message.answer(text_for(
+        lang, "Дякуємо! Напишіть побажання або /skip, щоб завершити.",
+        "Спасибо! Напишите пожелание или /skip, чтобы завершить.",
+        "Thank you! Send a suggestion or /skip to finish.",
+    ))
+
+
+@router.message(WallpaperStates.waiting_for_feedback_comment)
+async def gift_feedback_comment(
+    message: Message, state: FSMContext,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    data = await state.get_data()
+    purchase_id = data.get("gift_feedback_purchase_id")
+    comment = (message.text or "").strip()
+    if not comment:
+        await message.answer("Please send text or /skip.")
+        return
+    if len(comment) > 2000:
+        await message.answer("Maximum 2000 characters. Please shorten your message.")
+        return
+    if comment != "/skip":
+        async with session_factory() as session:
+            feedback = await session.get(GiftFeedback, purchase_id)
+            if feedback is None or feedback.telegram_user_id != message.from_user.id:
+                await message.answer("Order unavailable.")
+                return
+            feedback.comment = comment
+            await session.commit()
+    await state.clear()
+    await message.answer(text_for(
+        language_for(message.from_user),
+        "💛 Дякуємо за відгук! Він допоможе нам стати кращими.",
+        "💛 Спасибо за отзыв! Он поможет нам стать лучше.",
+        "💛 Thanks for your feedback! It helps us improve.",
+    ))
 
 
 @router.message(WallpaperStates.waiting_for_goals)
